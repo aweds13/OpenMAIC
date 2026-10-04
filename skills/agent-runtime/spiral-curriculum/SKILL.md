@@ -10,6 +10,13 @@ description: "Design a multi-stage OpenMAIC course series around a small concept
 
 先加载 `/stage-design` 获取单节课堂的创建基线，并加载 `/curriculum-planner` 获取多课堂文件夹、跨课堂读取和批量交付规则。本 Skill 在它们之上增加螺旋架构、升阶操作符和假螺旋检查。
 
+**先查真实课程，再定螺旋。** 用 `course_search` 查本机课程库（11 校 22,000+ 门），拿到**真实课号、学校、学分、先修和官方链接**：
+
+- 核心概念若对应现实中的课程，**按真实课号引用**，不要凭空造课号；查不到就明说，按主题设计。
+- `layer=auto` 找课，`layer=L3` 找讲义，`layer=L1` 找开课信息（学期、教师）。
+- **先修链本身就是最好的升阶依据**：一门课的 `prereqNorm` 里 `dnf` 表示“任一组满足”，`missing` 列出课程库里没有的先修课号。概念脊柱的每一层，尽量落在“前一层已经教过”的位置上。
+- 这个库是课程数据，不是通识知识；超出它的内容才去 `deep-research`。
+
 ## 适用范围
 
 用于以下请求：

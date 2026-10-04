@@ -761,7 +761,9 @@ const getDefaultVideoConfig = () => ({
 
 // Initialize default Web Search config
 const getDefaultWebSearchConfig = () => ({
-  webSearchProviderId: 'tavily' as WebSearchProviderId,
+  // ★ 默认网络搜索改成**秘塔**（2026-10-03；原值 'tavily'）。
+  //   秘塔的 key 配在服务端（METASO_API_KEY），客户端不用填。要改回就换回 'tavily'。
+  webSearchProviderId: 'metaso' as WebSearchProviderId,
   webSearchProvidersConfig: {
     tavily: { apiKey: '', baseUrl: '', enabled: true, requiresApiKey: true },
     exa: {
@@ -802,6 +804,14 @@ const getDefaultWebSearchConfig = () => ({
       baseUrl: '',
       enabled: true,
       requiresApiKey: false,
+    },
+    metaso: {
+      // 秘塔 AI 搜索。key 由服务端 METASO_API_KEY 提供（或 server-providers.yml
+      // 的 web-search 段）；客户端这里留空。服务端配了 key 就是 managed provider。
+      apiKey: '',
+      baseUrl: WEB_SEARCH_PROVIDERS.metaso.defaultBaseUrl || '',
+      enabled: true,
+      requiresApiKey: true,
     },
   } as Record<
     WebSearchProviderId,

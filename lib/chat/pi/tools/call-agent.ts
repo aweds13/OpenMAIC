@@ -18,6 +18,9 @@ import type { ThinkingConfig } from '@/lib/types/provider';
 import type { ChildRuntimeMode } from '../child-runtime';
 import type { DirectorSceneEvidenceMetadata } from './read-scene';
 import { buildNativeWebSearchTool, type NativeWebSearchConfig } from './web-search';
+import { buildCourseSearchTool, type CourseSearchConfig } from './course-search';
+import { buildReadDocumentTool, type ReadDocumentConfig } from './read-document';
+import { buildBrowseUrlTool, type BrowseConfig } from './browse-url';
 import type { ParsedAction, StatelessChatRequest } from '@/lib/types/chat';
 import {
   buildChildPrompt,
@@ -547,6 +550,25 @@ export function buildCallAgentTool(opts: {
   childRuntimeMode?: ChildRuntimeMode;
   enableNativeChildSpotlight?: boolean;
   nativeWebSearchConfig?: NativeWebSearchConfig;
+  /**
+   * Local university-course catalog used by the `course_search` tool. Absent
+   * means the tool still registers but answers `not_configured`, so an
+   * unconfigured deployment never invents curriculum facts.
+   */
+  courseSearchConfig?: CourseSearchConfig;
+  /**
+   * The learner's LOCAL DOCUMENT shelf, used by the `read_document` tool.
+   * Normally the same sidecar as `courseSearchConfig` (L4 lives in it). Absent
+   * means the tool registers but answers `not_configured`, so the agent never
+   * claims to have read a document it could not read.
+   */
+  readDocumentConfig?: ReadDocumentConfig;
+  /**
+   * Real-browser page fetching, used by the `browse_url` tool. Points at the
+   * Playwright service (`_tools/course-crawler/browse_server.py`). Absent means
+   * the tool registers but answers `not_configured`.
+   */
+  browseConfig?: BrowseConfig;
   nativeWhiteboardService?: WhiteboardRuntimeService;
   nativeWhiteboardStageId?: string;
   nativeWhiteboardLearnerKey?: string;
@@ -770,6 +792,11 @@ export function buildCallAgentTool(opts: {
               })
             : []),
           buildNativeWebSearchTool({ config: opts.nativeWebSearchConfig }),
+          buildCourseSearchTool({ config: opts.courseSearchConfig }),
+          buildReadDocumentTool({
+            config: opts.readDocumentConfig ?? opts.courseSearchConfig,
+          }),
+          buildBrowseUrlTool({ config: opts.browseConfig }),
         ];
         const availableToolNames = nativeTools.map((tool) => tool.name);
         const sanitizeNativeDelta = createVisibleSpeechDeltaSanitizer();

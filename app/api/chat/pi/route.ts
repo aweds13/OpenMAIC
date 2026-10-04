@@ -237,6 +237,26 @@ export async function POST(req: NextRequest) {
       return apiError('INVALID_REQUEST', 400, message);
     }
 
+    /**
+     * Local university-course catalog sidecar (`lib/chat/pi/tools/course-search.ts`).
+     *
+     * Env-driven on purpose: the catalog is a deployment-local service, not a
+     * per-request learner choice, so it does not belong in the request body.
+     * Unset keeps the tool registered but answering `not_configured`, which is
+     * the safe default — a deployment without the sidecar must not invent
+     * curriculum facts.
+     */
+    const courseSearchUrl = process.env.OPENMAIC_COURSE_SEARCH_URL?.trim();
+    const courseSearchConfig =
+      childRuntimeMode === 'native' && courseSearchUrl
+        ? { baseUrl: courseSearchUrl }
+        : undefined;
+    // 真浏览器抓取（browse_url）。**和课程检索分开两个服务**：抓一个网页要
+    // 3~20 秒，塞进检索那个单线程 sidecar 会把检索请求全堵住。
+    const browseUrl = process.env.OPENMAIC_BROWSE_URL?.trim();
+    const browseConfig =
+      childRuntimeMode === 'native' && browseUrl ? { baseUrl: browseUrl } : undefined;
+
     log.info(
       `Pi request agents=${body.config.agentIds.join(', ')} messages=${body.messages.length} maxAgentTurns=${maxAgentTurns}`,
     );
@@ -276,6 +296,8 @@ export async function POST(req: NextRequest) {
           childRuntimeMode,
           enableNativeChildSpotlight,
           nativeWebSearchConfig,
+          courseSearchConfig,
+          browseConfig,
           nativeWhiteboardService,
           nativeWhiteboardStageId: nativeWhiteboardService ? validRequestStartStageId : undefined,
           nativeWhiteboardLearnerKey,

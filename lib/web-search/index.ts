@@ -5,6 +5,7 @@ import { searchWithClaude } from './claude';
 import { searchWithDoubao } from './doubao';
 import { searchWithExa } from './exa';
 import { searchWithMiniMax } from './minimax';
+import { searchWithMetaso } from './metaso';
 import { searchWithSearxng } from './searxng';
 import { searchWithTavily } from './tavily';
 import type { WebSearchResult } from '@/lib/types/web-search';
@@ -72,6 +73,8 @@ export async function searchWeb(params: {
       return searchWithMiniMax({ query, apiKey, maxResults, baseUrl, ...abortOptions });
     case 'searxng':
       return searchWithSearxng({ query, maxResults, baseUrl, ...abortOptions });
+    case 'metaso':
+      return searchWithMetaso({ query, apiKey, maxResults, baseUrl, ...abortOptions });
     case 'tavily':
       return searchWithTavily({ query, apiKey, maxResults, baseUrl, ...abortOptions });
     default: {

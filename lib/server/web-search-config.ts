@@ -42,6 +42,8 @@ const OFFICIAL_CLIENT_BASE_URLS: Record<WebSearchProviderId, string[]> = {
   ],
   doubao: ['https://open.feedcoopapi.com', 'https://open.feedcoopapi.com/search_api/web_search'],
   searxng: [],
+  // 秘塔 AI 搜索。官方只有一个端点；baseUrl 可被 METASO_BASE_URL 覆盖。
+  metaso: ['https://metaso.cn/api/v1', 'https://metaso.cn/api/v1/search'],
 };
 
 /**

@@ -19,6 +19,8 @@ import {
   type DirectorSceneEvidencePacket,
 } from './tools/read-scene';
 import type { NativeWebSearchConfig } from './tools/web-search';
+import type { BrowseConfig } from './tools/browse-url';
+import type { CourseSearchConfig } from './tools/course-search';
 import type { WhiteboardRuntimeService } from '@/lib/whiteboard/runtime/store';
 import type { ResolvedElementReference } from './element-reference';
 
@@ -45,6 +47,8 @@ export async function runPiDirectorLoop(opts: {
   childRuntimeMode?: ChildRuntimeMode;
   enableNativeChildSpotlight?: boolean;
   nativeWebSearchConfig?: NativeWebSearchConfig;
+  courseSearchConfig?: CourseSearchConfig;
+  browseConfig?: BrowseConfig;
   nativeWhiteboardService?: WhiteboardRuntimeService;
   nativeWhiteboardStageId?: string;
   nativeWhiteboardLearnerKey?: string;
@@ -173,6 +177,8 @@ export async function runPiDirectorLoop(opts: {
       childRuntimeMode: opts.childRuntimeMode ?? 'legacy',
       enableNativeChildSpotlight: opts.enableNativeChildSpotlight === true,
       nativeWebSearchConfig: opts.nativeWebSearchConfig,
+      courseSearchConfig: opts.courseSearchConfig,
+      browseConfig: opts.browseConfig,
       nativeWhiteboardService: opts.nativeWhiteboardService,
       nativeWhiteboardStageId: opts.nativeWhiteboardStageId,
       nativeWhiteboardLearnerKey: opts.nativeWhiteboardLearnerKey,

@@ -80,6 +80,13 @@ export const WEB_SEARCH_PROVIDERS: Record<WebSearchProviderId, WebSearchProvider
     requiresBaseUrl: true,
     endpointPath: '/search',
   },
+  metaso: {
+    id: 'metaso',
+    name: '秘塔 AI 搜索 (Metaso)',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://metaso.cn/api/v1',
+    endpointPath: '/search',
+  },
 };
 
 /** Default model for Claude web search (Sonnet tier: balanced speed/cost for search + summarize). */

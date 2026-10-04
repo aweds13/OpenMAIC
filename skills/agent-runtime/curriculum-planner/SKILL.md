@@ -124,6 +124,29 @@ way to answer, and treating that silence as consent is the one thing this gate
 exists to prevent. Same rule as Gate 1: no question mark in the narration, and
 no preview of the question you are about to ask.
 
+## Ground the series in real courses
+
+Before you decide what the stages contain, check whether the subject maps to real
+courses. The `course_search` tool queries a **local catalog of 22,000+ courses
+from 11 universities** and returns **course numbers, institution, units,
+prerequisites, and a link to the official listing**.
+
+- If the learner's goal maps to real courses, **cite them by their real numbers**
+  and let their **actual prerequisites** order the stages.
+- **Never invent a course number or a prerequisite.** If `course_search` returns
+  nothing for a topic, say so plainly and design from the topic instead. An
+  invented course number is worse than none, because the learner will go looking
+  for it.
+- `layer=auto` finds courses; `layer=L3` finds lecture materials (slides, notes,
+  transcripts) where a source has them; `layer=L1` finds offering details (term,
+  instructor).
+- A prerequisite chain is one of the best ways to order a series: a course whose
+  prerequisites have already been taught belongs later. Each hit carries
+  `prereqNorm` — `dnf` reads as "any one of these groups satisfies it", and
+  `missing` names the prerequisite codes the catalog does not hold.
+- This catalog is course data, not general knowledge. For anything outside it,
+  fall back to `deep-research`.
+
 ## Designing the series
 
 - **Progression.** Each stage opens where the previous one closed. What is
@@ -198,6 +221,11 @@ Close with:
 `stage-design` governs each individual stage; this skill adds the layer above it
 and never replaces it — read both. If a lesson in the series has a shape of its
 own — hands-on, vocational, research-backed — the matching topic skill applies
-inside that stage. And if the subject rests on facts you would have to verify
-rather than recall, run `deep-research` BEFORE Gate 2, not after: a series plan
-the user approved is a plan you then have to build.
+inside that stage.
+
+**For facts, check the local catalog first, the web second.** If the subject maps
+to real courses, `course_search` answers it directly (real numbers, real
+prerequisites, real links) — do that BEFORE Gate 2. Only when the subject falls
+outside the catalog — or rests on facts you would have to verify rather than
+recall — run `deep-research`, also BEFORE Gate 2, not after: a series plan the
+user approved is a plan you then have to build.
