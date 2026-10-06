@@ -13,6 +13,7 @@ import {
   type AgentInfo,
 } from '@openmaic/generation';
 import { createSceneWithActions } from '@/lib/server/scene-generation';
+import { applySelfStudySlideOverride } from '@/lib/server/self-study-mode';
 import { generatePBLV2Project } from '@/lib/pbl/v2/agents/planner';
 import { getDefaultAgents } from '@/lib/orchestration/registry/store';
 import { createLogger } from '@/lib/logger';
@@ -67,6 +68,14 @@ export interface GenerateClassroomInput {
   enableVideoGeneration?: boolean;
   enableTTS?: boolean;
   agentMode?: 'default' | 'generate';
+  /**
+   * 自学模式：内容全部上屏、不生成讲稿。
+   *
+   * 为什么这两件事必须捆在一起 —— 实测：默认产出把 1478 字放进讲稿，
+   * 屏幕上只有 370 字（4:1）。只关讲稿而不加密度，幻灯片几乎是空的；
+   * 只加密度而不关讲稿，等于同一份内容讲两遍。见 lib/server/self-study-mode.ts。
+   */
+  selfStudy?: boolean;
 }
 
 export type ClassroomGenerationStep =
@@ -387,12 +396,21 @@ export async function generateClassroom(
   const resolveSceneContentCall = async (outlineType?: string) => {
     const stage = (outlineType ? `scene-content:${outlineType}` : 'scene-content') as LlmStage;
     const { model, outputWindow, thinking } = await resolveStageModel(stage);
+    // 自学模式：只对 slide 追加密度覆盖。quiz / interactive / pbl 的 content
+    // 是各自的结构（题目、组件、项目），没有"幻灯片密度"这个概念，硬套会干扰
+    // 它们自己的 schema。讲稿的抑制在下面的 actions 阶段处理。
+    const selfStudySlides = Boolean(input.selfStudy) && outlineType === 'slide';
     const aiCall: AICallFn = async (systemPrompt, userPrompt, _images) => {
       const result = await callLLM(
         {
           model,
           messages: [
-            { role: 'system', content: systemPrompt },
+            {
+              role: 'system',
+              content: selfStudySlides
+                ? applySelfStudySlideOverride(systemPrompt)
+                : systemPrompt,
+            },
             { role: 'user', content: userPrompt },
           ],
           maxOutputTokens: outputWindow,
@@ -706,19 +724,32 @@ export async function generateClassroom(
         continue;
       }
 
-      const actionsAiCall = await getSceneActionsAiCall();
-      const actions = await withGenerationRetry(
-        () =>
-          generateSceneActions(safeOutline, content, actionsAiCall, {
-            agents,
-            languageDirective,
-          }),
-        {
-          label: `scene ${index + 1}/${outlines.length} actions`,
-          onRetry: (event) => reportSceneRetry('actions', event),
-        },
+      // 自学模式直接给空 actions，不生成讲稿。
+      //
+      // 这是安全的 —— lib/choreography/cursor.ts 对 `actions: []` 有明确处理：
+      // "A scene with no actions yields one synthetic dwell beat (so the slide
+      // still shows) instead of being skipped"。整页完整显示、不被聚光灯逐个
+      // 遮暗，正是"自己看材料"想要的。顺带省掉每场景一次 LLM 调用。
+      let actions: Awaited<ReturnType<typeof generateSceneActions>> = [];
+      if (!input.selfStudy) {
+        const actionsAiCall = await getSceneActionsAiCall();
+        actions = await withGenerationRetry(
+          () =>
+            generateSceneActions(safeOutline, content, actionsAiCall, {
+              agents,
+              languageDirective,
+            }),
+          {
+            label: `scene ${index + 1}/${outlines.length} actions`,
+            onRetry: (event) => reportSceneRetry('actions', event),
+          },
+        );
+      }
+      log.info(
+        `Scene "${safeOutline.title}": ${actions.length} actions${
+          input.selfStudy ? ' (self-study: narration suppressed)' : ''
+        }`,
       );
-      log.info(`Scene "${safeOutline.title}": ${actions.length} actions`);
 
       const sceneId = createSceneWithActions(safeOutline, content, actions, api);
       if (!sceneId) {

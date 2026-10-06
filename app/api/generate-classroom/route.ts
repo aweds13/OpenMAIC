@@ -58,6 +58,8 @@ export async function POST(req: NextRequest) {
         : {}),
       ...(rawBody.enableTTS != null ? { enableTTS: rawBody.enableTTS } : {}),
       ...(rawBody.agentMode ? { agentMode: rawBody.agentMode } : {}),
+      // 自学模式：内容全部上屏、不生成讲稿。见 lib/server/self-study-mode.ts
+      ...(rawBody.selfStudy != null ? { selfStudy: rawBody.selfStudy } : {}),
     };
     const { requirement } = body;
 

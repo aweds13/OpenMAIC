@@ -352,6 +352,15 @@ export interface SettingsState {
   imageGenerationEnabled: boolean;
   videoGenerationEnabled: boolean;
   reviewOutlineEnabled: boolean;
+  /**
+   * 自学模式：幻灯片承载全部内容、不生成讲稿。
+   *
+   * 默认 false 是刻意的 —— 打开它会把产出从"听课"变成"读讲义"，不该
+   * 悄悄发生。它同时改两件事（密度 + 讲稿），因为实测这两个必须捆在一起：
+   * 默认产出把 1478 字放进讲稿、屏幕上只有 370 字，只关讲稿会让幻灯片
+   * 变成空白。见 lib/server/self-study-mode.ts。
+   */
+  selfStudyEnabled: boolean;
 
   // Web Search settings
   webSearchProviderId: WebSearchProviderId;
@@ -540,6 +549,8 @@ export interface SettingsState {
   setImageGenerationEnabled: (enabled: boolean) => void;
   setVideoGenerationEnabled: (enabled: boolean) => void;
   setReviewOutlineEnabled: (enabled: boolean) => void;
+  /** 自学模式开关。见 StoreState 里 selfStudyEnabled 的注释。 */
+  setSelfStudyEnabled: (enabled: boolean) => void;
 
   // Web Search actions
   setWebSearchProvider: (providerId: WebSearchProviderId) => void;
@@ -1140,6 +1151,8 @@ export const useSettingsStore = create<SettingsState>()(
         imageGenerationEnabled: false,
         videoGenerationEnabled: false,
         reviewOutlineEnabled: false,
+        // 自学模式默认关：见 StoreState 里 selfStudyEnabled 的注释
+        selfStudyEnabled: false,
 
         // TTS is OFF by default; auto-enabled on first server-sync when a TTS
         // provider is configured (mirrors image/video). Fresh installs with no
@@ -1645,6 +1658,9 @@ export const useSettingsStore = create<SettingsState>()(
           set({ videoGenerationEnabled: enabled });
         },
         setReviewOutlineEnabled: (enabled) => set({ reviewOutlineEnabled: enabled }),
+        // 自学模式没有"供应商可用性"前置条件 —— 它只是改提示词 + 砍讲稿，
+        // 不依赖任何外部凭证，所以不需要 setImageGenerationEnabled 那种守卫。
+        setSelfStudyEnabled: (enabled) => set({ selfStudyEnabled: enabled }),
         setTTSEnabled: (enabled) => set({ ttsEnabled: enabled }),
         setASREnabled: (enabled) => set({ asrEnabled: enabled }),
 
@@ -2396,6 +2412,10 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (state.reviewOutlineEnabled === undefined) {
           state.reviewOutlineEnabled = false;
+        }
+        // 自学模式：老用户的持久化状态里没有这个键，补上默认值
+        if (state.selfStudyEnabled === undefined) {
+          state.selfStudyEnabled = false;
         }
 
         // Add default audio toggles if missing. TTS defaults OFF (opt-in / CTA);

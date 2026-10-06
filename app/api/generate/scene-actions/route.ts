@@ -157,14 +157,29 @@ export async function POST(req: NextRequest) {
       | GeneratedInteractiveContent
       | GeneratedPBLContent;
 
-    const actions = await generateSceneActions(outline, generationContent, aiCall, {
-      ctx,
-      agents,
-      userProfile,
-      languageDirective,
-    });
+    // 自学模式：不生成讲稿，直接给空 actions。
+    //
+    // 这是安全的 —— lib/choreography/cursor.ts 对 `actions: []` 有明确处理：
+    // "A scene with no actions yields one synthetic dwell beat (so the slide
+    // still shows) instead of being skipped"。整页完整显示、不被聚光灯逐个
+    // 遮暗，正是"自己看材料"想要的。顺带省掉一次 LLM 调用。
+    // 见 lib/server/self-study-mode.ts
+    const selfStudy = req.headers?.get('x-self-study-enabled') === 'true';
 
-    log.info(`Generated ${actions.length} actions for: "${outline.title}"`);
+    const actions: Awaited<ReturnType<typeof generateSceneActions>> = selfStudy
+      ? []
+      : await generateSceneActions(outline, generationContent, aiCall, {
+          ctx,
+          agents,
+          userProfile,
+          languageDirective,
+        });
+
+    log.info(
+      `Generated ${actions.length} actions for: "${outline.title}"${
+        selfStudy ? ' (self-study: narration suppressed)' : ''
+      }`,
+    );
 
     // ── Build complete scene ──
     const scene = buildCompleteScene(outline, generationContent, actions, stageId);

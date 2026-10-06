@@ -44,7 +44,9 @@
     "ttsPreview": "试听",
     "ttsPreviewing": "播放中...",
     "interactiveModeHint": "开启深度交互模式，生成更多互动内容",
-    "interactiveModeLabel": "深度交互"
+    "interactiveModeLabel": "深度交互",
+    "selfStudyModeHint": "内容全部上屏、不生成讲稿 —— 适合自己看材料，而不是听课",
+    "selfStudyModeLabel": "自学模式"
   },
   "export": {
     "pptx": "导出 PPTX",

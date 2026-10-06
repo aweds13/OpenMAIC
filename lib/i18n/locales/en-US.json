@@ -44,7 +44,9 @@
     "ttsPreview": "Preview",
     "ttsPreviewing": "Playing...",
     "interactiveModeHint": "Enable interactive-first mode for more hands-on content",
-    "interactiveModeLabel": "Interactive Mode"
+    "interactiveModeLabel": "Interactive Mode",
+    "selfStudyModeHint": "Put all content on the slides and generate no narration — for reading the material yourself instead of listening",
+    "selfStudyModeLabel": "Self-Study"
   },
   "export": {
     "pptx": "Export PPTX",

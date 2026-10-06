@@ -23,6 +23,7 @@ import type {
 } from '@/lib/types/generation';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { applySelfStudySlideOverride } from '@/lib/server/self-study-mode';
 import { llmApiError } from '@/lib/server/llm-error-response';
 import { resolveModelFromRequest } from '@/lib/server/resolve-model';
 import { resolveVocationalActive } from '@/lib/config/feature-flags';
@@ -129,11 +130,23 @@ export async function POST(req: NextRequest) {
     // only drop an id that still carried an allocated id, which the
     // pre-resolution makes impossible. Kept so a package consumer that
     // generates without pre-resolving still degrades cleanly.
+    // 自学模式（x-self-study-enabled）—— 只对 slide 追加"内容上屏"的密度覆盖。
+    // quiz / interactive / pbl 的 content 是各自的结构（题目、组件、项目），
+    // 没有"幻灯片密度"这个概念，硬套会干扰它们自己的 schema。
+    // 见 lib/server/self-study-mode.ts
+    const selfStudySlides =
+      req.headers?.get('x-self-study-enabled') === 'true' && outline.type === 'slide';
+
     const aiCall = async (
       systemPrompt: string,
       userPrompt: string,
       images?: Array<{ id: string; src: string }>,
     ): Promise<string> => {
+      // 追加发生在发出去之前 —— 原提示词里 30KB 的 schema / 元素类型 / 坐标
+      // 规则原样保留，我们只在其后追加一段声明为最高优先级的覆盖指令。
+      const effectiveSystemPrompt = selfStudySlides
+        ? applySelfStudySlideOverride(systemPrompt)
+        : systemPrompt;
       if (images?.length && hasVision) {
         // Server-backed transport: `imageMapping` values are allocated asset
         // ids, so the image srcs reach here as ids. Resolve them to the same
@@ -143,7 +156,7 @@ export async function POST(req: NextRequest) {
         const result = await callLLM(
           {
             model: languageModel,
-            system: systemPrompt,
+            system: effectiveSystemPrompt,
             messages: [
               {
                 role: 'user' as const,
@@ -162,7 +175,7 @@ export async function POST(req: NextRequest) {
       const result = await callLLM(
         {
           model: languageModel,
-          system: systemPrompt,
+          system: effectiveSystemPrompt,
           prompt: userPrompt,
           maxOutputTokens: modelInfo?.outputWindow,
           maxRetries: 0,

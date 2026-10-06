@@ -44,7 +44,9 @@
     "ttsPreview": "試聽",
     "ttsPreviewing": "播放中...",
     "interactiveModeHint": "啟用互動優先模式以獲得更多實作內容",
-    "interactiveModeLabel": "互動模式"
+    "interactiveModeLabel": "互動模式",
+    "selfStudyModeHint": "內容全部上螢幕、不生成講稿 —— 適合自己看教材，而不是聽課",
+    "selfStudyModeLabel": "自學模式"
   },
   "export": {
     "pptx": "匯出 PPTX",

@@ -89,6 +89,7 @@ import {
 } from '@/lib/config/feature-flags';
 import { useImportPptx } from '@/lib/import/use-import-pptx';
 import { InteractiveModeButton } from '@/components/generation/interactive-mode-button';
+import { SelfStudyButton } from '@/components/generation/self-study-button';
 import { ProBadge } from '@/components/workbench/ProBadge';
 import { arrivedByProSwap, startProSwap } from '@/lib/workbench/pro-swap';
 import {
@@ -174,6 +175,9 @@ function HomePage() {
   // invariant). Gate generation on this single condition (state A vs B)
   // instead of inspecting modelId directly.
   const providersConfig = useSettingsStore((s) => s.providersConfig);
+  // 自学模式：内容全部上屏、不生成讲稿。见 lib/server/self-study-mode.ts
+  const selfStudyEnabled = useSettingsStore((s) => s.selfStudyEnabled);
+  const setSelfStudyEnabled = useSettingsStore((s) => s.setSelfStudyEnabled);
   const hasUsableProvider = hasUsableLLMProvider(providersConfig);
   const [recentOpen, setRecentOpen] = useState(true);
   const persistRecentOpen = (next: boolean) => {
@@ -915,6 +919,20 @@ function HomePage() {
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">
                   {t('toolbar.interactiveModeHint')}
+                </TooltipContent>
+              </Tooltip>
+
+              {/* Self-study mode toggle */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SelfStudyButton
+                    pressed={selfStudyEnabled}
+                    label={t('toolbar.selfStudyModeLabel')}
+                    onPressedChange={(pressed) => setSelfStudyEnabled(pressed)}
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {t('toolbar.selfStudyModeHint')}
                 </TooltipContent>
               </Tooltip>
 

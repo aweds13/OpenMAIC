@@ -98,6 +98,9 @@ function getApiHeaders(): HeadersInit {
     // Media generation toggles
     'x-image-generation-enabled': String(settings.imageGenerationEnabled ?? false),
     'x-video-generation-enabled': String(settings.videoGenerationEnabled ?? false),
+    // 自学模式：scene-content 路由据此追加"内容上屏"的提示词覆盖。
+    // 见 lib/server/self-study-mode.ts
+    'x-self-study-enabled': String(settings.selfStudyEnabled ?? false),
   };
 }
 
