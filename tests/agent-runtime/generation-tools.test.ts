@@ -598,3 +598,272 @@ describe('generation and deck tools', () => {
     expect(foreign.get()).toBeNull();
   });
 });
+
+/**
+ * 这三组回归对应三个实测出来的缺陷（2026-10-05 那节 28 页的课）：
+ *
+ *   1. 自学模式下 `generate_scene` **仍然**生成并落盘讲稿 —— 162 次
+ *      generate_scene 对 160 次 patch_stage，其中 36 次明写「移除自动生成的旁白」。
+ *      提示词里那句「不要跑 generate_actions」拦不住，因为讲稿是工具内部写的。
+ *   2. 自检页**没有表达题量的参数**，永远落到 SDK 写死的 3 题；实测工作台生成的
+ *      自检页全是 3 题，而手工补过的页面是 6/8/10 题。
+ *   3. 题量不足时**静默通过** —— json-repair 的修截断分支把写崩的数组砍到最后一个
+ *      完整对象再当成功返回。
+ */
+describe('generate_scene — self-study narration suppression', () => {
+  const slideRaw = JSON.stringify({
+    elements: [
+      {
+        id: 'title_1',
+        type: 'text',
+        left: 60,
+        top: 40,
+        width: 880,
+        height: 80,
+        content: '<p>Variables</p>',
+      },
+    ],
+    background: { type: 'solid', color: '#ffffff' },
+  });
+
+  function actionsSpy() {
+    return vi.fn(async () => [
+      { id: 'a1', type: 'speech', text: 'Hello class' },
+      { id: 'a2', type: 'spotlight', elementId: 'title_1' },
+    ]);
+  }
+
+  it('generates narration when the page is not self-study', async () => {
+    const current = state(document([]));
+    const generateActions = actionsSpy();
+    const generate = find(
+      buildGenerationTools(
+        deps(current.store, {
+          generateActions,
+          aiCall: vi.fn(async () => slideRaw),
+        }),
+      ),
+      'generate_scene',
+    );
+
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'Variables',
+      type: 'slide',
+      brief: 'A listen-mode page',
+      selfStudy: false,
+    } as never);
+
+    expect(generateActions).toHaveBeenCalledTimes(1);
+    expect(response).toMatchObject({ details: { actionCount: 2, selfStudy: false } });
+    expect(current.get()?.scenes[0]?.actions).toHaveLength(2);
+  });
+
+  it('does not call the narration generator at all for a self-study page', async () => {
+    const current = state(document([]));
+    const generateActions = actionsSpy();
+    const generate = find(
+      buildGenerationTools(
+        deps(current.store, {
+          generateActions,
+          aiCall: vi.fn(async () => slideRaw),
+        }),
+      ),
+      'generate_scene',
+    );
+
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'Variables',
+      type: 'slide',
+      brief: 'A page the learner reads',
+      selfStudy: true,
+    } as never);
+
+    // The whole point: no second model call, and nothing to clean up afterwards.
+    expect(generateActions).not.toHaveBeenCalled();
+    expect(response).toMatchObject({ details: { actionCount: 0, selfStudy: true } });
+    expect((response.content[0] as { text: string }).text).toContain('Self-study');
+    expect(current.get()?.scenes[0]?.actions).toEqual([]);
+  });
+
+  it('takes the deployment default when the call omits selfStudy', async () => {
+    vi.resetModules();
+    vi.stubEnv('OPENMAIC_SELF_STUDY', 'true');
+    try {
+      const { buildGenerationTools: buildFresh } = await import(
+        '@/lib/server/agent-runtime/generation-tools'
+      );
+      const current = state(document([]));
+      const generateActions = actionsSpy();
+      const generate = find(
+        buildFresh(
+          deps(current.store, {
+            generateActions,
+            aiCall: vi.fn(async () => slideRaw),
+          }) as never,
+        ),
+        'generate_scene',
+      );
+
+      const response = await generate.execute('call', {
+        stageId: 'stage-test',
+        order: 1,
+        title: 'Variables',
+        type: 'slide',
+        brief: 'No mode stated',
+      } as never);
+
+      expect(generateActions).not.toHaveBeenCalled();
+      expect(response).toMatchObject({ details: { selfStudy: true, actionCount: 0 } });
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+});
+
+describe('generate_scene — quiz question count', () => {
+  function quizJson(count: number): string {
+    return JSON.stringify(
+      Array.from({ length: count }, (_, index) => ({
+        id: `q${index + 1}`,
+        type: 'single',
+        question: `Question ${index + 1}?`,
+        options: [
+          { label: 'First', value: 'A' },
+          { label: 'Second', value: 'B' },
+        ],
+        answer: ['A'],
+        analysis: 'Because.',
+        points: 10,
+      })),
+    );
+  }
+
+  it('passes questionCount through to the quiz content prompt', async () => {
+    const current = state(document([]));
+    const prompts: string[] = [];
+    const generate = find(
+      buildGenerationTools(
+        deps(current.store, {
+          generateActions: vi.fn(async () => []),
+          aiCall: vi.fn(async (_system: string, user: string) => {
+            prompts.push(user);
+            return quizJson(7);
+          }),
+        }),
+      ),
+      'generate_scene',
+    );
+
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'Self-check',
+      type: 'quiz',
+      brief: 'Seven questions',
+      selfStudy: true,
+      quizConfig: { questionCount: 7, difficulty: 'hard', questionTypes: ['multiple'] },
+    } as never);
+
+    // Before the fix there was no way to express this at all: the outline never
+    // carried quizConfig, so the generator always used its own default of 3.
+    expect(prompts[0]).toContain('Question Count: 7');
+    expect(prompts[0]).toContain('Difficulty: hard');
+    expect(prompts[0]).toContain('Question Types: multiple');
+    expect(response).toMatchObject({
+      details: { quizRequestedQuestions: 7, quizProducedQuestions: 7 },
+    });
+    expect(response).not.toMatchObject({ isError: true });
+  });
+
+  it('uses a non-3 default when a quiz page omits quizConfig', async () => {
+    const current = state(document([]));
+    const prompts: string[] = [];
+    const generate = find(
+      buildGenerationTools(
+        deps(current.store, {
+          generateActions: vi.fn(async () => []),
+          aiCall: vi.fn(async (_system: string, user: string) => {
+            prompts.push(user);
+            return quizJson(5);
+          }),
+        }),
+      ),
+      'generate_scene',
+    );
+
+    await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'Self-check',
+      type: 'quiz',
+      brief: 'Some questions',
+      selfStudy: true,
+    } as never);
+
+    expect(prompts[0]).toContain('Question Count: 5');
+  });
+
+  it('reports a truncated quiz instead of quietly shipping fewer questions', async () => {
+    const current = state(document([]));
+    const generate = find(
+      buildGenerationTools(
+        deps(current.store, {
+          generateActions: vi.fn(async () => []),
+          // What json-repair's truncation branch hands back: a complete prefix of
+          // the array, parsed "successfully", with no signal that anything is missing.
+          aiCall: vi.fn(async () => quizJson(3)),
+        }),
+      ),
+      'generate_scene',
+    );
+
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'Self-check',
+      type: 'quiz',
+      brief: 'Eight questions',
+      selfStudy: true,
+      quizConfig: { questionCount: 8 },
+    } as never);
+
+    const text = (response.content[0] as { text: string }).text;
+    expect(text).toContain('QUESTION COUNT SHORTFALL');
+    expect(text).toContain('asked for 8');
+    expect(text).toContain('returned 3');
+    expect(response).toMatchObject({
+      isError: true,
+      details: {
+        quizRequestedQuestions: 8,
+        quizProducedQuestions: 3,
+        quizShortfall: true,
+      },
+    });
+    // The page is still persisted: the work done is not thrown away, it is
+    // reported as incomplete so the agent can regenerate or top it up.
+    expect(current.get()?.scenes[0]).toBeDefined();
+  });
+
+  it('rejects quizConfig on a non-quiz page without writing anything', async () => {
+    const current = state(document([]));
+    const generate = find(buildGenerationTools(deps(current.store)), 'generate_scene');
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'Slide',
+      type: 'slide',
+      brief: 'Not a quiz',
+      quizConfig: { questionCount: 5 },
+    } as never);
+    expect(response).toMatchObject({
+      isError: true,
+      details: { error: 'quiz-config-requires-quiz' },
+    });
+    expect(current.get()?.scenes).toHaveLength(0);
+  });
+});

@@ -21,6 +21,7 @@ import type { SceneOutline } from '@/lib/types/generation';
 import type { Action } from '@/lib/types/action';
 import type { Scene } from '@/lib/types/stage';
 import { COURSE_STAGE_ID_DESCRIPTION } from './course-stage';
+import { agentRuntimeConfig } from './config';
 import type { CourseToolDeps } from './course-tools';
 import { runStageMutation } from './mutation-fence';
 import { shiftCourseOrders } from './course-edit/tools';
@@ -67,9 +68,94 @@ const SceneParams = Type.Object({
         'Interactive pages only: widget configuration object matching widgetType (e.g. { concept, keyVariables } for simulation, { diagramType, nodes } for diagram, { language } for code, { gameType, challenge } for game, { visualizationType, objects } for visualization3d). Must be a plain object. Defaults to { concept: title } when widgetType is set; when only widgetOutline is set, widgetType defaults to simulation.',
     }),
   ),
-  brief: Type.String({ minLength: 1 }),
+  /**
+   * ★ 这是**技能进入内容层的唯一通道**。
+   *
+   * agent 读过教学法 skill，但那次读取**只留在 agent 自己的上下文里** ——
+   * generate_scene 内部的 LLM 调用是另一次独立请求，看不到 agent 读过什么
+   * （见下方 generateSceneContent 的 options：只有 agents / languageDirective，
+   * 没有任何技能信息）。
+   *
+   * 而 brief 正是那个调用的 `description`。所以教学法的**写作要求**必须由
+   * agent 写进 brief，否则就断在这一层 —— 结构按技能排了，每页还是老样子。
+   *
+   * 描述写这么长是刻意的：模型对"brief 该写什么"没有先验，不点明它就只会
+   * 写一句主题概括。
+   */
+  brief: Type.String({
+    minLength: 1,
+    description:
+      'What this page must actually contain — this text is the page generator\'s ONLY instruction ' +
+      'beyond the title and type, so it carries the teaching method with it.\n' +
+      'Include: (a) the concrete content to cover — definitions, mechanisms, worked examples, ' +
+      'comparisons, the reasoning that links them; (b) the WRITING REQUIREMENTS of the active ' +
+      'teaching method — target text density, tone, structure, what must appear on the page itself. ' +
+      'A brief that only names the topic ("讲一下变量") produces a thin page.\n' +
+      'Do not put tool instructions here — the page generator has no tools.',
+  }),
   instruction: Type.Optional(Type.String()),
   materialFacts: Type.Optional(Type.Array(Type.String())),
+  /**
+   * ★ 自检页的题量/难度/题型。
+   *
+   * 在加这个之前，工作台的 `generate_scene` **根本没有表达题量的参数**，
+   * 于是 `generateQuizContent` 每次都落到 SDK 那个写死的兜底：
+   *
+   *   const quizConfig = outline.quizConfig || {
+   *     questionCount: 3, difficulty: 'medium', questionTypes: ['single'],
+   *   };
+   *
+   * 结果就是：agent 在对话里说「给你出 5 道自检题」，落盘的页面**永远是 3 道**。
+   * 实测同一批课程里，工作台生成的自检页全是 3 题，而更早手工补过的页面是
+   * 6/8/10 题 —— 差的那些全是 agent 事后用 `patch_stage` 一题一题补进去的
+   * （160 次 patch_stage 里有 16 次明写「自检扩到 N 题」）。
+   */
+  quizConfig: Type.Optional(
+    Type.Object(
+      {
+        questionCount: Type.Integer({
+          minimum: 1,
+          maximum: 30,
+          description: 'How many questions this self-check page must contain.',
+        }),
+        difficulty: Type.Optional(
+          Type.Union([Type.Literal('easy'), Type.Literal('medium'), Type.Literal('hard')]),
+        ),
+        questionTypes: Type.Optional(
+          Type.Array(
+            Type.Union([
+              Type.Literal('single'),
+              Type.Literal('multiple'),
+              Type.Literal('short_answer'),
+            ]),
+          ),
+        ),
+      },
+      {
+        additionalProperties: false,
+        description:
+          'Quiz pages only. Required in practice: without it the page generator falls back to a ' +
+          'hardcoded 3 questions, whatever you told the learner. Ask for the number the learner ' +
+          'actually needs — a self-check page is usually 5-8.',
+      },
+    ),
+  ),
+  /**
+   * 覆盖本页的「自学 / 听课」。省略 = 用服务端默认（OPENMAIC_SELF_STUDY）。
+   *
+   * 自学时**不生成讲稿**：既不产出 speech 动作，也不多花一次 LLM 调用，页面
+   * 播放时整页静态显示。听课（false）才生成讲稿。
+   *
+   * 学习者当次说了想听/想自己看，就按他说的传；没说、画像里也记着默认自学，
+   * 那就省略不传。
+   */
+  selfStudy: Type.Optional(
+    Type.Boolean({
+      description:
+        'true = this page is read, not listened to: no narration is generated and no speech ' +
+        'actions are written. false = generate narration. Omit to use the deployment default.',
+    }),
+  ),
   media: Type.Optional(
     Type.Array(
       Type.Object({
@@ -122,6 +208,30 @@ function duplicateId(sessionId: string | undefined, callId: string) {
     .digest('hex')
     .slice(0, 16);
   return `scene-dup-${hash}`;
+}
+
+/**
+ * 自检页没有指定题量时用的数字。
+ *
+ * 刻意**不是** SDK 那个 3。3 是"没想过"的产物：真实的自检页实测最后都被补到
+ * 6–10 题。5 是一个不需要返工的起点，而参数在场时它永远会被覆盖。
+ */
+const DEFAULT_QUIZ_QUESTION_COUNT = 5;
+
+/** 把工具参数变成 outline 认得的 quizConfig（`short_answer` → `text`，见 SceneOutline）。 */
+function resolveQuizConfig(input?: {
+  questionCount?: number;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  questionTypes?: ('single' | 'multiple' | 'short_answer')[];
+}): NonNullable<SceneOutline['quizConfig']> {
+  const types = (input?.questionTypes ?? ['single']).map((type) =>
+    type === 'short_answer' ? ('text' as const) : type,
+  );
+  return {
+    questionCount: input?.questionCount ?? DEFAULT_QUIZ_QUESTION_COUNT,
+    difficulty: input?.difficulty ?? 'medium',
+    questionTypes: types.length ? types : ['single'],
+  };
 }
 
 function result(text: string, details: Record<string, unknown>, isError = false) {
@@ -261,7 +371,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
     name: 'generate_scene',
     label: 'Generate page',
     description:
-      'Generate and durably persist one page from an explicit title, type, and brief. Reusing an order replaces that page. Interactive pages accept widgetType (simulation/diagram/code/game/visualization3d) plus a matching widgetOutline object; both are rejected for other page types.',
+      'Generate and durably persist one page from an explicit title, type, and brief. Reusing an order replaces that page. Quiz pages take quizConfig (questionCount is what the page will actually contain — pass it, or the generator silently falls back to its own default). Interactive pages accept widgetType (simulation/diagram/code/game/visualization3d) plus a matching widgetOutline object; both are rejected for other page types. Narration is decided here, not by generate_actions: pass selfStudy (or rely on the deployment default) and no speech is written.',
     parameters: SceneParams,
     async execute(_callId, params, signal) {
       if (!Number.isInteger(params.order) || params.order < 1) {
@@ -330,6 +440,13 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           true,
         );
       }
+      if (params.type !== 'quiz' && params.quizConfig !== undefined) {
+        return result(
+          'generate_scene only accepts quizConfig for quiz pages.',
+          { error: 'quiz-config-requires-quiz', type: params.type },
+          true,
+        );
+      }
       const requestedMedia = params.media ?? [];
       if (requestedMedia.length > MAX_GENERATE_SCENE_MEDIA) {
         return result(
@@ -365,6 +482,9 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
                 targetSkills: params.materialFacts ?? [],
               },
             }
+          : {}),
+        ...(params.type === 'quiz'
+          ? { quizConfig: resolveQuizConfig(params.quizConfig) }
           : {}),
       };
       const baseline =
@@ -472,12 +592,45 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           true,
         );
       }
-      const actions = filterKnownActions(
-        await actionGenerator(outline, content, aiCallFor('scene-actions'), {
-          agents,
-          languageDirective: doc.stage.languageDirective ?? '',
-        }),
-      );
+      /**
+       * 自学页不生成讲稿。
+       *
+       * `study-mode.ts` 只告诉了 agent「不要跑 generate_actions」—— 但讲稿是
+       * **这里**生成的，agent 说什么都拦不住它。所以要在这里真的拦。
+       */
+      const selfStudy = params.selfStudy ?? agentRuntimeConfig.selfStudyDefault;
+      const actions = selfStudy
+        ? []
+        : filterKnownActions(
+            await actionGenerator(outline, content, aiCallFor('scene-actions'), {
+              agents,
+              languageDirective: doc.stage.languageDirective ?? '',
+            }),
+          );
+      /**
+       * 自检页的题量核对。
+       *
+       * `parseJsonResponse` 的「修截断」分支会把写了一半的 JSON 数组**砍到最后一个
+       * 完整对象**再闭合，然后**当作成功返回**（json-repair.ts Fix 3，只打一条
+       * warn）。于是"要 8 道、写崩在第 5 道"会静默变成 5 道。生成层看不见这件事，
+       * 所以在这里量一次。
+       */
+      const quizRequested =
+        params.type === 'quiz' ? resolveQuizConfig(params.quizConfig).questionCount : undefined;
+      const quizProduced =
+        params.type === 'quiz' && 'questions' in content ? content.questions.length : undefined;
+      const quizShortfall =
+        quizRequested !== undefined && quizProduced !== undefined && quizProduced < quizRequested;
+      if (quizShortfall) {
+        log.warn({
+          error: 'quiz-question-shortfall',
+          stageId: params.stageId,
+          order: params.order,
+          title,
+          requested: quizRequested,
+          produced: quizProduced,
+        });
+      }
       const built = buildCompleteScene(outline, content, actions, params.stageId, {
         sceneId: existing?.id ?? sceneIdFor(doc.scenes, params.order),
       });
@@ -505,6 +658,17 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
       });
       return result(
         `Page ${scene.order} "${scene.title}" persisted.${
+          selfStudy ? ' Self-study: no narration was generated (the page reads on its own).' : ''
+        }${
+          quizShortfall
+            ? ` QUESTION COUNT SHORTFALL: you asked for ${quizRequested} questions and the page` +
+              ` generator returned ${quizProduced} — its response was cut off and the parser` +
+              ` silently kept the complete prefix. The page as it stands is incomplete. Add the` +
+              ` missing ${quizRequested - quizProduced} with patch_stage (cheap, and it keeps the` +
+              ` questions that are already there), or regenerate the page with fewer or shorter` +
+              ` questions in the brief so the response fits.`
+            : ''
+        }${
           skillViolations.length
             ? ` SKILL CONSTRAINT CHECK against "${skill?.id}": ${skillViolations.join('; ')}.`
             : ''
@@ -518,10 +682,15 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           order: scene.order,
           type: scene.type,
           actionCount: actions.length,
+          selfStudy,
+          ...(quizRequested !== undefined ? { quizRequestedQuestions: quizRequested } : {}),
+          ...(quizProduced !== undefined ? { quizProducedQuestions: quizProduced } : {}),
+          ...(quizShortfall ? { quizShortfall: true } : {}),
           skill: skill?.id,
           ...(skillViolations.length ? { skillViolations } : {}),
           ...(mediaPlaceholders.length ? { mediaPlaceholders } : {}),
         },
+        quizShortfall,
       );
     },
   };
