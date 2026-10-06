@@ -422,6 +422,97 @@ export function availableSkillsPromptBlock(skills: readonly LoadedSkill[]): stri
 }
 
 /**
+ * 制作工具类技能 —— **不该问学习者**的那些。
+ *
+ * 为什么在代码里写死，而不是让模型自己判断：实测（2026-10-04）要求它
+ * "group the remaining method skills by kind and list them by name"，它**没照做** ——
+ * 只给了 4 个选项、问题正文 53 个字，其余 20 个技能一个都没列。
+ * 学习者的原话是「他不能只列一两个，因为他对最优不一定能知道」。
+ *
+ * 所以把分类**算好递给它**，而不是指望它自己从 24 个里挑。模型只需要照抄
+ * 一份现成清单，漏不掉。
+ */
+const TOOLING_SKILLS: ReadonlySet<string> = new Set([
+  'build-personal-skill',
+  'page-clone',
+  'pptx-import',
+  'pro-editing',
+  'slide-craft',
+  'slide-dsl',
+  'stage-design',
+  'stage-dsl',
+  'style-clone',
+  'teacher-style-clone',
+]);
+
+/** 技能描述压成一句 —— 注入清单时不需要整段。 */
+function oneLine(description: string): string {
+  const flat = description.replace(/\s+/g, ' ').trim();
+  // ★ 中文句号后**没有空格**，英文句号后有。只按 `\. ` 切对中文完全无效
+  //   （实测：中文描述整段进了清单）。所以两种都要切。
+  const cut = flat.split(/(?<=。)|(?<=[.!?])\s/)[0] ?? flat;
+  return cut.length > 90 ? `${cut.slice(0, 90)}…` : cut;
+}
+
+/**
+ * 让 agent **主动**把教学法技能摆到学习者面前。
+ *
+ * ── 为什么需要这段 ────────────────────────────────────────────────
+ *
+ * 在此之前，技能是**纯被动发现**：清单在提示词里，模型想读才读。学习者
+ * 根本不知道有哪些教学方法可用 —— 他不知道，就没法要求。
+ *
+ * 而"用哪种教法"是**真正属于学习者的决定**：他清楚自己的目标和习惯，
+ * 模型推不出来。所以这条不是新增权限，是**把已有的 ask_user 规则特化到
+ * 这个场景**（原句：「Use ask_user only when a decision genuinely belongs to
+ * the user.」）—— 两句是同一方向，不打架。
+ *
+ * ── 为什么清单要在代码里生成 ────────────────────────────────────
+ *
+ * 见 TOOLING_SKILLS 的注释：实测让模型自己分类会漏。这里把**方法类技能
+ * 连同各自的一句话说明**直接写进提示词，它照抄即可。
+ */
+export function skillChoicePromptBlock(skills: readonly LoadedSkill[]): string {
+  const method = skills.filter((s) => !TOOLING_SKILLS.has(s.name));
+  if (method.length === 0) return '';
+
+  const catalogue = method
+    .map((s) => `- \`${s.name}\` — ${oneLine(s.description)}`)
+    .join('\n');
+
+  return [
+    '## Choosing a teaching method',
+    '',
+    'Which teaching method to use is **a decision that belongs to the learner** — they live with',
+    'the result, and they know things about their goals you cannot infer. So before committing to',
+    'a plan:',
+    '',
+    '1. Read the method skills that plausibly fit this subject (`read_skill` loads one).',
+    '2. **Recommend** the 2-4 that fit best — each with one line on *why it suits this subject*,',
+    '   not a bare list of names.',
+    '3. **Then list the rest — write their names into the `ask_user` `question` text.** The',
+    '   `options` array is buttons and cannot hold the whole catalogue; the prose can. Copy the',
+    '   names from the list below. Leaving them out is the one failure mode this section exists to',
+    '   prevent: you cannot know the best fit, and a learner cannot ask for a method they have',
+    '   never seen.',
+    '4. Ask **once**, together with the plan confirmation — not as a separate round. Give stable',
+    '   option ids (e.g. `recommended`, `custom`, plus one per extra method worth pre-selecting).',
+    '5. **Tooling skills are yours to use — never ask about them.** The catalogue below has',
+    '   already excluded them.',
+    '',
+    '### Method skills currently installed',
+    '',
+    catalogue,
+    '',
+    "**Carry the method into the pages.** The page generator (`generate_scene`) is a separate",
+    'model call: it does NOT see the skill you read. Its only instruction is the `brief` you pass.',
+    "So every brief must restate the method's *writing* requirements — target density, tone,",
+    'structure, what belongs on the page itself. A brief that only names the topic produces a thin',
+    'page no matter which skill is active.',
+  ].join('\n');
+}
+
+/**
  * Every skill whose SKILL.md was successfully `read` in this transcript, in the
  * order the reads landed. ONE walk, two questions asked of it below.
  */
