@@ -578,41 +578,19 @@ describe('import_pptx tool', () => {
 });
 
 describe('session material prompt', () => {
-  it('mentions import_pptx only when a pptx is attached', () => {
-    const pdf = sessionMaterialsPromptBlock([
-      {
-        id: 'mat_1',
-        sessionId: 'ses_1',
-        kind: 'source',
-        title: 'lecture.pdf',
-        sourceUrl: null,
-        textAssetId: null,
-        rawAssetId: null,
-        textChars: 0,
-        derivedFrom: null,
-        extraction: { status: 'idle' as const, attempts: 0 },
-        createdAt: new Date(0).toISOString(),
-      },
-    ]);
-    expect(pdf).not.toContain('import_pptx');
+  // The block names import_pptx unconditionally now. It used to mention it only
+  // when a pptx was attached, which made the system prompt flip once per pptx
+  // upload — and a system message is one prefix-cache unit, so that single flip
+  // cost a full-context re-read. The condition lives in the wording instead.
+  it('names import_pptx without enumerating the attached materials', () => {
+    const prompt = sessionMaterialsPromptBlock();
 
-    const pptx = sessionMaterialsPromptBlock([
-      {
-        id: 'mat_ppt',
-        sessionId: 'ses_1',
-        kind: 'source',
-        title: 'deck.pptx',
-        sourceUrl: null,
-        textAssetId: null,
-        rawAssetId: 'ast_raw_ppt',
-        textChars: 0,
-        derivedFrom: null,
-        extraction: { status: 'idle' as const, attempts: 0 },
-        createdAt: new Date(0).toISOString(),
-      },
-    ]);
-    expect(pptx).toContain('import_pptx');
-    expect(pptx).toContain('layout-preserving');
+    expect(prompt).toContain('import_pptx');
+    expect(prompt).toContain('layout-preserving');
+    expect(prompt).toContain('A registered `.pptx`');
+    // No per-session enumeration may reappear here: it is the cache-buster.
+    expect(prompt).not.toMatch(/^- "/m);
+    expect(prompt).not.toContain('characters)');
   });
 });
 

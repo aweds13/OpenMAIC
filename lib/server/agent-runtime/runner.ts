@@ -56,14 +56,37 @@ import type { RegisteredVoiceInfo } from '@/lib/audio/voice-catalog';
 import { buildSkillEditTools, SKILL_EDIT_TOOL_NAMES } from './skill-edit-tools';
 import { buildWebSearchTool, resolveWebSearchCapability, searchPromptBlock } from './web-search';
 import {
+  buildAgentCourseSearchTool,
+  buildAgentReadDocumentTool,
+  courseLibraryPromptBlock,
+  resolveCourseSearchCapability,
+} from './course-search';
+import {
+  browsePromptBlock,
+  buildAgentBrowseUrlTool,
+  resolveBrowseCapability,
+} from './browse-url';
+import { learnerProfilePromptBlock, resolveLearnerProfile } from './learner-profile';
+import { buildMcpTools, mcpPromptBlock } from './mcp-tools';
+import { studyModePromptBlock } from './study-mode';
+import { courseDesignPromptBlock } from './course-design';
+import {
+  MATERIALS_TOOL_NAMES,
+  buildReadMaterialsTool,
+  buildUpdateMaterialsTool,
+  materialsIndexPromptBlock,
+  resolveMaterialsIndex,
+} from './materials-library';
+import {
   buildSkillPreload,
   preloadConstraintTarget,
   preloadUserMessage,
   type SkillPreload,
 } from './skill-preload';
-import { listSessionMaterials, sessionMaterialsPromptBlock } from './session-materials';
+import { sessionMaterialsPromptBlock } from './session-materials';
 import {
   availableSkillsPromptBlock,
+  skillChoicePromptBlock,
   createNativeSkillReadTool,
   findSkill,
   listSkills,
@@ -77,6 +100,8 @@ import {
   loadSessionEntryHistory,
   type SessionEntryHistory,
 } from './entry-tree-storage';
+import { maybeCompactAgentSession } from './compaction';
+import { readSessionCommandFrom } from './session-commands';
 import { planResume, type ResumeAction } from './resume';
 import {
   appendInterruptedToolCallResults,
@@ -940,15 +965,25 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
   };
 
   let entrySession: Session | undefined;
-  const loadEntryHistory = async (): Promise<SessionEntryHistory> => {
+  /**
+   * The durable session, created on first use.
+   *
+   * Split out of `loadEntryHistory` because compaction needs the session
+   * WITHOUT reading the history first: it has to write its entry before the
+   * view is built, or the run would compact and then still send the old,
+   * uncompacted history.
+   */
+  const ensureEntrySession = async (): Promise<Session> => {
     entrySession ??= new Session(
       await AgentSessionEntryStorage.open({ sessionId: id, workerId: WORKER_ID, attempt }),
     );
-    return loadSessionEntryHistory(entrySession, {
+    return entrySession;
+  };
+  const loadEntryHistory = async (): Promise<SessionEntryHistory> =>
+    loadSessionEntryHistory(await ensureEntrySession(), {
       sessionId: id,
       hasPriorRun: await store.hasSessionRunHistory(id),
     });
-  };
 
   let runEventEmitted = false;
   let tripwireViolated = false;
@@ -1268,6 +1303,61 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       source: 'agent-runtime',
       abortSignal: abort.signal,
     });
+
+    // Context compaction, when the operator turned it on.
+    //
+    // Placement is forced, and the constraint is not obvious:
+    //
+    //  - It cannot go in a `transformContext` hook. That hook is handed the
+    //    messages the agent is ABOUT to send, while the durable tree is written
+    //    by an ordered chain that may still be draining; replacing the list with
+    //    the tree's own view would drop the current turn's tool results and the
+    //    agent would redo work. The Director can do it because its session is an
+    //    in-memory replica it owns and syncs; this one is the durable tree.
+    //  - It cannot go before `loadEntryHistory()` either, because the
+    //    `session_start` lifecycle frame must be the first durable thing this
+    //    run writes, and that frame is computed FROM the loaded plan. Resolving
+    //    the driver early moved a driver failure ahead of that frame and broke
+    //    tests/agent-runtime/runner-event-order.test.ts.
+    //
+    // So it runs here: after the session's start/resume frame is durable, on a
+    // tree whose previous run has fully stopped (nothing mid-append), and before
+    // the agent loop. The compaction entry therefore takes effect on the NEXT
+    // run — this run's history was already loaded. That costs one run at the old
+    // size, and buys an ordering that changes nothing else in this function.
+    // The manual gear. `/compact` in this turn's message asks for compaction
+    // explicitly, which answers the question the budget exists to decide — so it
+    // bypasses the threshold AND works in a deployment that left automatic
+    // compaction off. See ./session-commands.ts for why this is a text token
+    // rather than a composer button.
+    const forcedCompaction =
+      readSessionCommandFrom(pending.map((message) => message.text)) === 'compact';
+    if (config.compaction.enabled || forcedCompaction) {
+      const compactionTrace = await maybeCompactAgentSession({
+        session: await ensureEntrySession(),
+        streamFn,
+        model: driver.piModel,
+        contextBudget: config.compaction.contextBudgetTokens,
+        // A forced run must not be short-circuited by `enabled: false`, which is
+        // the one thing that would make the manual gear do nothing.
+        settings: forcedCompaction ? { ...config.compaction, enabled: true } : config.compaction,
+        ...(forcedCompaction ? { force: true } : {}),
+        signal: abort.signal,
+      });
+      if (compactionTrace.triggerCount > 0) {
+        emit(LIFECYCLE.trace, {
+          message:
+            (forcedCompaction ? 'context compacted (requested): ' : 'context compacted: ') +
+            compactionTrace.events
+              .map((event) => `${event.tokensBefore} -> ${event.tokensAfter} tokens`)
+              .join(', '),
+        });
+      }
+      for (const failure of compactionTrace.failures) {
+        emit(LIFECYCLE.trace, { message: `compaction skipped: ${failure}` });
+      }
+    }
+
     let questionEmitted = false;
     const askUserTool = buildAskUserTool({
       onUserQuestion: (question) => {
@@ -1291,6 +1381,35 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
           ),
         ]
       : [];
+    // course_search 同样按能力注册：只有这个部署配了本地课程库
+    // （OPENMAIC_COURSE_SEARCH_URL，见 .env.local）才出现。
+    //
+    // ★ read_document 与它**配套注册**，不是可选项：course_search 的 L4 命中
+    //   只是一个「块」（带 chunkIndex），没有 read_document 就无法把块展开成
+    //   整篇文档 —— 那就成了"查得到第 12 块，但翻不开这本书"。两个一起给，
+    //   模型才能形成 检索 → 预览 → 精读 的完整链路。
+    const courseLibrary = resolveCourseSearchCapability();
+    const courseSearchTools = courseLibrary
+      ? [buildAgentCourseSearchTool(courseLibrary), buildAgentReadDocumentTool(courseLibrary)]
+      : [];
+    // browse_url 同样按能力注册：只有配了 Playwright sidecar
+    // （OPENMAIC_BROWSE_URL，见 .env.local）才出现。它是 fetch_url 的补充而
+    // 不是替代 —— fetch_url 拿原始 HTML，对 JS 渲染页/403 无能为力；浏览器
+    // 渲染完再取正文。两者分工写进 browsePromptBlock()。
+    const browse = resolveBrowseCapability();
+    const browseTools = browse ? [buildAgentBrowseUrlTool(browse)] : [];
+    // 学习者画像：每次运行重读（改完文件下次会话就生效，不用重启）。
+    // 读不到（没配 / 路径错 / 空文件）就是 null —— 不注入，而不是注入一段空的。
+    const learnerProfile = resolveLearnerProfile();
+    // 材料库：agent **自己维护**的文件夹（索引层 + 主题文件）。
+    // 它不只是注入 —— 还配套两个写工具，因为清单是产出而不是输入。
+    const materialsIndex = resolveMaterialsIndex();
+    const materialsTools = materialsIndex
+      ? [buildReadMaterialsTool(), buildUpdateMaterialsTool()]
+      : [];
+    // 外部 MCP 服务器（OPENMAIC_MCP_SERVERS）。这是外部依赖：连不上就只记
+    // failed、不注册工具，绝不让它把整场会话拖死。
+    const mcp = await buildMcpTools();
     // The owner-bound document store: ONE store per run, bound to the claimed
     // session's owner, shared by every stage tool. The owner id is
     // deliberately absent from every model-visible parameter — the model cannot
@@ -1384,12 +1503,17 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       stageAccess,
       ownerId: meta.ownerId,
     });
-    // Session-scoped material tools and the materials prompt block are wired
-    // from durable session identity on every start and resume (reference
-    // semantics: the material tools are always registered alongside the
-    // capability-gated web_search). The listing only feeds the prompt block;
-    // the tools read through the same session-scoped store on each call.
-    const materials = await listSessionMaterials(id);
+    // Session-scoped material tools are wired from durable session identity on
+    // every start and resume (reference semantics: the material tools are
+    // always registered alongside the capability-gated web_search); the tools
+    // read through the session-scoped store on each call.
+    //
+    // The materials listing is deliberately NOT read here any more. It only
+    // ever fed the prompt block, and enumerating the materials in the system
+    // prompt made the prompt change on every registration — one changed byte
+    // re-bills the whole system message plus every message behind it (see
+    // sessionMaterialsPromptBlock for the measurement). The block is a constant
+    // now and names `list_materials` instead.
     const materialTools = buildMaterialTools({ sessionId: id });
     // Session-scoped registered voices: register_voice appends here, and
     // list_voices / set_roster (roster-tools) read the same array, so a cloned
@@ -1429,6 +1553,10 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     const tools = assembleRunnerTools(
       [askUserTool],
       webSearchTools,
+      courseSearchTools,
+      browseTools,
+      materialsTools,
+      mcp.tools,
       // ownerId is captured from the claimed durable session. It is deliberately
       // absent from the model-visible parameters, so the model cannot forge a
       // target owner.
@@ -1458,23 +1586,78 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     );
     const askUserLatch = createAskUserTerminateLatch();
     let toolCalls = 0;
-    const agent = buildAgent({
-      streamFn,
-      systemPrompt: buildRunnerCoursePrompt({
-        availableSkills: availableSkillsPromptBlock(installedSkills),
+    // Opt-in diagnostic: OPENMAIC_DEBUG_PROMPT_FINGERPRINT=1.
+    //
+    // The system prompt sits at the FRONT of the provider's prefix cache, and a
+    // system message is ONE cache unit: changing a single byte anywhere inside
+    // it re-bills the whole system message AND every message behind it. Several
+    // blocks below are rebuilt from disk or the database on every run
+    // (`materialsLibrary` re-reads INDEX.md and the agent itself can rewrite
+    // it; `materials` embeds each session material's `textChars`, which moves
+    // whenever a material is registered or finishes extracting;
+    // `availableSkills`/`skillChoice` follow the skills directory, which
+    // `create_skill` mutates). Measured on a controlled experiment: inserting
+    // one material row into an otherwise untouched session dropped the cache
+    // hit rate from 99.1% to 38.5% (see _tools/openmaic/probes/
+    // probe_material_cache_bust.py and 提示词缓存失效-调查记录.md).
+    //
+    // Hashing each block separately names the culprit instead of guessing:
+    // compare consecutive `[prompt-fingerprint]` lines for one session, then
+    // match the run against `cacheReadTokens` in data/usage/*.jsonl.
+    const promptBlocks = {
+      availableSkills: availableSkillsPromptBlock(installedSkills),
+        // 技能清单是"有哪些"，这一段是"怎么用它们做选择" —— 让 agent 主动
+        // 推荐几个 + 把其余方法类列全，而不是等学习者点名（他不知道有这些）。
+        ...(installedSkills.length ? { skillChoice: skillChoicePromptBlock(installedSkills) } : {}),
+        // 「听课还是自学」—— 工作台这条路没有那个开关，所以让 agent 问。
+        studyMode: studyModePromptBlock(),
+        // 审计那几条 SDK 层建议的应用层版本：拆解、贯通、密度、术语、去水话。
+        courseDesign: courseDesignPromptBlock(),
         curriculum: CURRICULUM_TOOLS_PROMPT,
         ...(search ? { search: searchPromptBlock() } : {}),
+        ...(courseLibrary ? { courseLibrary: courseLibraryPromptBlock() } : {}),
+        ...(browse ? { browse: browsePromptBlock() } : {}),
+        ...(mcp.names.length ? { mcp: mcpPromptBlock(mcp.names) } : {}),
+        ...(materialsIndex ? { materialsLibrary: materialsIndexPromptBlock(materialsIndex) } : {}),
+        ...(learnerProfile ? { learnerProfile: learnerProfilePromptBlock(learnerProfile) } : {}),
         fetch: fetchPromptBlock(),
         untrustedContent: untrustedContentPolicyPromptBlock(),
-        ...(materials.length ? { materials: sessionMaterialsPromptBlock(materials) } : {}),
+        // Unconditional and constant: a session-conditional block would flip
+        // once (absent -> present) and cost one full-context re-read. See
+        // sessionMaterialsPromptBlock.
+        materials: sessionMaterialsPromptBlock(),
         roster: ROSTER_TOOLS_PROMPT,
         voice: voiceCloneToolsPrompt(voiceRegistrationEnabled),
-      }),
+    };
+    if (process.env.OPENMAIC_DEBUG_PROMPT_FINGERPRINT === '1') {
+      try {
+        const { createHash } = await import('node:crypto');
+        const parts = Object.entries(promptBlocks).map(([name, value]) => {
+          const text = value as string;
+          return `${name}=${createHash('sha256').update(text).digest('hex').slice(0, 8)}/${text.length}`;
+        });
+        console.info(`[prompt-fingerprint] ${id} ${parts.join(' ')}`);
+      } catch {
+        // Diagnostic only: fingerprinting must never break a run.
+      }
+    }
+    const agent = buildAgent({
+      streamFn,
+      systemPrompt: buildRunnerCoursePrompt(promptBlocks),
       model: driver.piModel,
       tools,
       allowedToolNames: new Set([
         ...MINIMAL_AGENT_TOOL_NAMES,
         ...(search ? ['web_search'] : []),
+        // course_search / read_document 同样跟着能力走：注册了工具就必须同时
+        // 放行，否则模型看得见却调不动 —— 比不注册更糟。
+        ...(courseLibrary ? ['course_search', 'read_document'] : []),
+        // browse_url 同理：配了浏览器 sidecar 才注册，注册了就必须放行。
+        ...(browse ? ['browse_url'] : []),
+        // 材料库的读写工具跟着索引一起走：没有索引就没有这一层。
+        ...(materialsIndex ? MATERIALS_TOOL_NAMES : []),
+        // MCP 工具的名单**由服务器自己声明**，所以在运行时才知道 —— 不能写死。
+        ...mcp.names,
         'create_skill',
         ...SKILL_EDIT_TOOL_NAMES,
         ...(skillReadTool ? ['read'] : []),
@@ -1899,6 +2082,8 @@ export function startAgentRunner(): AgentRunnerHandle {
   );
   log.info(
     'agent runner toolset: ask_user always; web_search when a web-search backend is configured; ' +
+      'course_search/read_document when OPENMAIC_COURSE_SEARCH_URL is set; browse_url when ' +
+      'OPENMAIC_BROWSE_URL is set; ' +
       'create_skill/read_skill/patch_skill and the skill-scoped read when skills are installed; ' +
       'fetch_url always (URL trust gate enforced per call); ' +
       'read_stage/patch_stage/grep_stage and create_stage/read_stage_outline always (owner-scoped store)',

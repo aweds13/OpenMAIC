@@ -474,7 +474,7 @@ describe('web_search runner registration', () => {
     );
   });
 
-  it('lists the session materials in the system prompt so the model knows what it can read', async () => {
+  it('points at list_materials instead of enumerating them in the system prompt', async () => {
     mocks.resolveWebSearchCapability.mockReturnValue(null);
     mocks.listSessionMaterials.mockResolvedValue([
       {
@@ -494,20 +494,28 @@ describe('web_search runner registration', () => {
 
     const options = await runToBuildAgent();
 
-    expect(mocks.listSessionMaterials).toHaveBeenCalledWith(SESSION_ID);
-    expect(options.systemPrompt).toContain('## Registered session materials');
-    expect(options.systemPrompt).toContain('Example article');
+    expect(options.systemPrompt).toContain('## Session materials');
     expect(options.systemPrompt).toContain('list_materials');
     expect(options.systemPrompt).toContain('read_material');
     expect(options.systemPrompt).toContain('search_material');
+    // The enumeration is the cache-buster: a material title must never reach
+    // the system prompt, and the runner must not even read the list. Measured
+    // before this: inserting one material row into an otherwise untouched
+    // session dropped the prefix-cache hit rate from 99.1% to 38.5%.
+    expect(options.systemPrompt).not.toContain('Example article');
+    expect(mocks.listSessionMaterials).not.toHaveBeenCalled();
   });
 
-  it('omits the materials block when the session has no materials', async () => {
+  it('emits that block even when the session has no materials', async () => {
     mocks.resolveWebSearchCapability.mockReturnValue(null);
     mocks.listSessionMaterials.mockResolvedValue([]);
 
     const options = await runToBuildAgent();
 
-    expect(options.systemPrompt).not.toContain('## Registered session materials');
+    // Unconditional on purpose. A session-conditional block would flip
+    // absent -> present once, and a system message is ONE prefix-cache unit, so
+    // that single flip costs a full-context re-read.
+    expect(options.systemPrompt).toContain('## Session materials');
+    expect(mocks.listSessionMaterials).not.toHaveBeenCalled();
   });
 });

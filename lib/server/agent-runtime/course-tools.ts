@@ -276,10 +276,61 @@ export const COURSE_SYSTEM_PROMPT = [
 interface CoursePromptBlocks {
   /** Pi's native `<available_skills>` discovery block. */
   availableSkills?: string;
+  /**
+   * Present exactly when skills are installed. Turns the passive skill list
+   * above into an active choice: recommend a few, list the rest, ask once.
+   * See `skillChoicePromptBlock()` in skills.ts for why.
+   */
+  skillChoice?: string;
   /** Multi-stage workflow guidance (explicit stage ids and folders). */
   curriculum?: string;
   /** Present exactly when the web_search tool is registered. */
   search?: string;
+  /**
+   * Present exactly when the `course_search` tool is registered — i.e. this
+   * deployment has OPENMAIC_COURSE_SEARCH_URL pointing at a local library.
+   */
+  courseLibrary?: string;
+  /**
+   * Present exactly when `browse_url` is registered — i.e. this deployment has
+   * OPENMAIC_BROWSE_URL pointing at the Playwright sidecar. Says how the
+   * browser and `fetch_url` divide the work (look vs keep); see browse-url.ts.
+   */
+  browse?: string;
+  /**
+   * The learner's own profile (OPENMAIC_LEARNER_PROFILE_PATH). Present only
+   * when that file is configured AND readable — an unreadable profile is
+   * omitted rather than injected as an error or an empty section.
+   */
+  learnerProfile?: string;
+  /**
+   * Always present on the runner path: how to read the learner's answer to
+   * "listen or read it yourself", and what that choice changes downstream.
+   */
+  studyMode?: string;
+  /**
+   * Always present on the runner path. Carries the design-quality rules that
+   * the SDK's one-shot prompts get wrong (density, decomposition, cross-page
+   * echo, terms, filler) — translated into what the agent must put in each
+   * `generate_scene` brief. See course-design.ts.
+   */
+  courseDesign?: string;
+  /**
+   * Present exactly when at least one external MCP server registered a tool.
+   * Says these are external services — failure must be reported, not papered
+   * over with the model's own recollection.
+   */
+  mcp?: string;
+  /**
+   * The materials library index (OPENMAIC_MATERIALS_DIR/INDEX.md) plus the
+   * topics found on disk. Present only when that folder is configured AND
+   * readable — an unreadable library is omitted rather than injected empty.
+   *
+   * Unlike the other blocks this one accompanies **writing** tools: the agent
+   * maintains the library, so the block is an instruction to gather → ask →
+   * record, not just a list to read.
+   */
+  materialsLibrary?: string;
   /** Policy boundary for content fetched from session-observed URLs. */
   untrustedContent?: string;
   /** fetch_url usage guidance (the tool is always registered). */
@@ -306,8 +357,25 @@ interface CoursePromptBlocks {
 export function courseSystemPrompt(blocks: CoursePromptBlocks): string {
   const parts = [COURSE_SYSTEM_PROMPT];
   if (blocks.availableSkills) parts.push('', blocks.availableSkills);
+  // 紧跟在清单之后：清单说"有哪些"，这一段说"怎么用它们做选择"。
+  if (blocks.skillChoice) parts.push('', blocks.skillChoice);
+  // 紧跟在技能之后：它说的是"你选好的教学法要怎么落到页面上"。
+  if (blocks.studyMode) parts.push('', blocks.studyMode);
+  // 课程设计质量规则 —— 紧接着讲"每页具体怎么写"。
+  if (blocks.courseDesign) parts.push('', blocks.courseDesign);
   if (blocks.curriculum) parts.push('', blocks.curriculum);
   if (blocks.search) parts.push('', blocks.search);
+  if (blocks.courseLibrary) parts.push('', blocks.courseLibrary);
+  // 「怎么看网页」紧跟在能力清单之后，且必须在 fetch 之前 —— browse 讲的是
+  // "先看、再存"，fetch 讲的是"存下来怎么分段读"，顺序反了模型会跳步。
+  if (blocks.browse) parts.push('', blocks.browse);
+  // MCP 是外部能力，紧跟在本地库说明之后 —— 两者互补，放一起读最清楚。
+  if (blocks.mcp) parts.push('', blocks.mcp);
+  // 材料库在画像之前：先给"用什么材料"，再用"为谁做"收尾。
+  if (blocks.materialsLibrary) parts.push('', blocks.materialsLibrary);
+  // 画像放在最后：它是"为谁做"的框架，让它在所有能力说明之后收尾，
+  // 模型读到规划指令时最近的上下文就是学习者是谁。
+  if (blocks.learnerProfile) parts.push('', blocks.learnerProfile);
   if (blocks.dslTools) parts.push('', blocks.dslTools);
   if (blocks.fetch) parts.push('', blocks.fetch);
   if (blocks.untrustedContent) parts.push('', blocks.untrustedContent);
