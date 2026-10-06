@@ -99,6 +99,9 @@
 | `lib/server/agent-runtime/session-commands.ts` | `/compact` 之类的会话命令 | |
 | `lib/server/agent-runtime/prompt-context-file.ts` | 画像/材料库的"路径加载时求值、内容每次重读" | |
 | `lib/server/agent-runtime/fetch-url.ts` | `fetch_url`（**上游就有**，我们改了两处） | 见 §5 |
+| `lib/export/use-export-pptx.ts` | `buildPptxBlob` / `buildResourcePackZip` + 共用的 `collectInteractivePages` | 单课导出；resource pack = PPTX + 交互页 |
+| `lib/export/batch-export.ts` | **批量下载**：多门课 → 一个 ZIP（每课一文件夹） | 见 §10 |
+| `components/workbench/workspace/BatchDownloadDialog.tsx` | 批量下载对话框（多选 + 进度 + 逐课结果） | 入口在课程标签页工具栏 |
 | `app/api/whoami/route.ts` | 一次性诊断：owner + 课程数 + **运行期开关实际值** | 改 `.env.local` 后先看这里 |
 
 **`/api/whoami` 是第一站。** 它回显 `runtime.selfStudyDefault` 等**模块加载时求值**的
@@ -121,6 +124,18 @@ npx eslint <改过的文件>                       # 必须 clean
 **已知假红**：`tests/agent-runtime/voice-clone-tools.test.ts` 的
 `clips to a 24 kHz mono PCM WAV` 在整包并行时会 **5s 超时**，单跑 1.2s 过。
 它是 CPU 抢占，不是回归 —— 单跑确认一遍再下结论。
+
+**第二条已知假红**：`tests/workbench/workspace-rail-session-rename.test.ts` 的
+`shows the name the user gave it…` 在整包并行时 **5s 超时**，**其余 4 条连锁失败**
+（第一条没渲染完，后面的行就找不到）。单跑 **~2.8s** 过。已 A/B 实测过两次，
+都不是它自己坏了：把改动 `git stash` 掉、或把新加的测试文件移走，**同样红**。
+真凶是机器负载（dev server / msedge / 一堆常驻服务）。单跑一遍再判。
+
+**新加的两处测试**（批量下载）：
+- `tests/export/batch-export.test.ts` —— 组合逻辑，注入假 deps，node 环境，快。
+- `tests/export/batch-export-real-builders.test.ts` —— **用真的三个 builder** 组装，
+  jsdom + `fake-indexeddb`。真 PPTX 是 CPU 密集的，所以它自己带 **30s** 超时；
+  5s 默认值在整包并行下会误红（同类假红）。
 
 **测试是 hermetic 的**：`tests/setup-env.ts` **默认不加载 `.env.local`**。所以你的测试
 不依赖本机配置；要跑真端点才用 `TEST_LOAD_LOCAL_ENV=1`。
@@ -293,12 +308,38 @@ Caused by: 文件存在。(os error 80)   ← 硬杀留下的残留
 - **`DELETE /api/stages/<id>` 是软删**（`stage_meta.deleted_at`），不是真删。
 - **`psql` 中文 SQL 字面量** ⇒ 见 §3.3。
 
+### 6.4 ★ 代码注释里的数字，可能是**上游作者自己账号**的快照
+
+这条是真花掉过时间的，所以单列。
+
+`components/workbench/workspace/WorkspaceRail.tsx:33` 与 `:504` 都写着
+**"this account has 139 courses"** —— 拿它去查数据库会一无所获：本部署
+`stage_meta` 只有 **7 行**（1 个 owner、0 公开、0 删除），课程库那边也没有任何
+计数是 139（`/health` 报 60072；30 个抓取源里恰好 139 的只有
+`courseleaf:utexas-math` = UT Austin 数学系，**与这个注释毫无关系**）。
+
+那 139 是**上游作者自己的账号**，写在这里是为了论证一个设计：课程列表**一页一页
+reveal**，因为"reveal everything 不是一种导航"。文件本身我们一行没改
+（`git log 57fbcc4..HEAD -- <该文件>` 为空）。
+
+**所以：注释里的具体数字只能当"这段代码在防什么"来读，不能当本部署的数据来用。**
+要本部署的数字，只有三个来源：`/api/whoami`（owner 与课程）、`/api/...` 实际响应、
+以及 §3.3 的 SQL。**注释不算证据。**
+
+顺带一个容易误判的读数：`RAIL_INITIAL_ROWS = 10` / `RAIL_PAGE_SIZE = 20`
+（`lib/workbench/workspace-paging.ts`）—— 本部署 7 门课**根本触发不了分页**，
+所以"课程列表要点开下一页"这类抱怨在当前数据量下不成立，别照注释去查分页逻辑。
+
 ---
 
 ## 7. 已经查清、**不要重新论证**的结论
 
 | 结论 | 依据 |
 |---|---|
+| **批量下载在课程标签页工具栏**（不是行内菜单）：勾选多门课 → **一个 ZIP** | 浏览器会拦截连续多次自动下载，N 个文件必须打成一个包 |
+| 每课文件夹 = `<课程>.pptx` + `interactive/NN_标题.html` + `<课程>.maic.zip` | 前两个与单课导出**共用**同一批 builder；`.maic.zip` 是**唯一**能装下测验页/PBL 页的产物（它们只有应用的 React 渲染器，没有独立 HTML 导出） |
+| **`lib/export/batch-export.ts` 不能静态 import `use-export-pptx`** | 它会带进 `pptxgenjs`；而这个模块被 rail 里的对话框静态 import ⇒ 整个 PPTX 机器进了 rail 的 chunk，且 `tests/workbench/**`（渲染 rail 的那些）的模块加载时间明显变长。只能用 `import type`，真 builder 走 `defaultDeps()` 里的**动态** import |
+| 批量导出用的画布比例来自**该课自己的第一张 slide**，不是 `useCanvasStore` | canvas store 只镜像"当前在屏幕上的那一页"，对没打开过的课是别的课的几何；`slide.canvas.viewportSize/viewportRatio` 才是每课自己的（见 `sync-canvas-viewport`） |
 | 工作台忽略 UI 上的模型设置 | `generation-ai-call.ts` 调 `resolveModel({ stage })`，**不传 `modelString`** ⇒ 由 `DEFAULT_MODEL` / `MODEL_ROUTES` 决定 |
 | `deepseek-v4-flash` 就是 **V4.1 Flash** | 官方 API id 是 `deepseek-flash`，name 是 `DeepSeek-V4.1-Flash`；显示名见 `lib/ai/providers.ts` |
 | 课程"看不见"的根因是缺 `NEXT_PUBLIC_PERSISTENCE` | owner 由 cookie 派生；没有它前端存不进 PG |
@@ -345,3 +386,50 @@ Caused by: 文件存在。(os error 80)   ← 硬杀留下的残留
 效果只有在真实会话的事件流里读得出来（§3.3）。所以凡是"改产品行为"的改动，
 **必须在交接卡的"下一步"里留下"让用户真跑一遍 + 用哪条 SQL 验"**，
 并且在真读出来之前，不要说"修好了"。
+
+---
+
+## 11. ★ 多窗口并发：两个对话窗口共用一个工作区
+
+2026-10-06 实测到的一次，值得记住 —— 因为**犯错的不是"另一个窗口"，是提交时的顺手**。
+
+### 发生了什么
+
+同一时刻两个窗口在这个仓库里干活：一个在记「139 那条注释」的坑，另一个在做
+**批量下载**（`lib/export/batch-export.ts` + `BatchDownloadDialog.tsx` + 12 个 locale）。
+两边**都在改 `AGENTS.md`**。结果：
+
+- `git status` 里出现 20 项**不是自己建的**改动；
+- 一次 `git add AGENTS.md` **把对方写的那一段一起提交了** —— 提交信息只讲 139，
+  内容里却多了一整个 `## 10. 批量下载`；
+- 更深一层：`AGENTS.md` 从此**描述了一个代码还没进 git 的功能**
+  （`BatchDownloadDialog.tsx` 当时还是 untracked）。别人 checkout 这个提交，
+  会看到指向**不存在文件**的文档。
+- 对方交接卡里记着 `HEAD = 14a239b`，而实际 HEAD 已被这边推进两笔 ——
+  **它以为的现状是错的，而且它不知道。**
+
+### 规矩
+
+1. **提交前永远用显式路径**：`git add <明确的文件>`。
+   **绝不用 `git add -A` / `git add .` / `git commit -a`** —— 工作区里随时可能有
+   另一个窗口的半成品，一次顺手就卷进你的提交，而且**提交信息会撒谎**。
+   （反过来说：`git add <单个文件>` 也**不**安全 —— 如果那个文件两边都在改。
+   所以第 3 条才是根治。）
+2. **开工前先看有没有别人在动**：
+   - `git status --short` 里有没有**不是自己建的**文件；
+   - 有没有文件的 mtime **比上次操作还新**；
+   - 交接卡最新一段的作者是不是自己。
+3. **要并行干不相干的活，用 `git worktree` 分开**，不要共用一个工作区：
+
+   ```bash
+   git worktree add ../OpenMAIC-<主题> -b <分支>
+   ```
+
+   工程侧本来就是这个口径（`复盘/新窗口交接卡.md`：**每张卡一棵 worktree**）。
+   这里只是没做。
+4. **`AGENTS.md` 与交接卡是共享文件**：交接卡 **append-only**（两边同时追加会在
+   同一位置冲突）；`AGENTS.md` 只加不改旧段。
+5. **交接卡里的 `HEAD` 是写卡那一刻的快照，不是现状。** 动手前
+   `git rev-parse --short HEAD` **现算**。看到"记的 HEAD ≠ 实际 HEAD"，
+   先 `git log --oneline <记的>..HEAD` 查是谁推进的，**别当成数据损坏**。
+
