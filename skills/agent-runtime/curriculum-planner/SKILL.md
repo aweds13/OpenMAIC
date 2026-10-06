@@ -223,9 +223,9 @@ and never replaces it — read both. If a lesson in the series has a shape of it
 own — hands-on, vocational, research-backed — the matching topic skill applies
 inside that stage.
 
-**For facts, check the local catalog first, the web second.** If the subject maps
-to real courses, `course_search` answers it directly (real numbers, real
-prerequisites, real links) — do that BEFORE Gate 2. Only when the subject falls
-outside the catalog — or rests on facts you would have to verify rather than
-recall — run `deep-research`, also BEFORE Gate 2, not after: a series plan the
+**For facts, the local catalog and the web are complementary — not ordered.** If the
+subject maps to real courses, `course_search` answers it directly (real numbers, real
+prerequisites, real links) — do that BEFORE Gate 2. But the catalog has no open-source
+projects and nothing recent, so when the series needs those, also run `deep-research`
+BEFORE Gate 2, not after: a series plan the
 user approved is a plan you then have to build.

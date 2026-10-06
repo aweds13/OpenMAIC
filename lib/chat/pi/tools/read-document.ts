@@ -147,20 +147,34 @@ async function executeReadDocument(
   }
 
   const root = config.baseUrl.replace(/\/+$/, '');
-  const qs = new URLSearchParams({ id, mode });
-  if (mode === 'full') {
-    if (typeof opts.params.offset === 'number') qs.set('offset', String(opts.params.offset));
-    if (typeof opts.params.limit === 'number') qs.set('limit', String(opts.params.limit));
-  }
-  const url = `${root}/document?${qs.toString()}`;
 
-  try {
-    const doFetch = opts.fetchImpl ?? fetch;
-    const response = await doFetch(url, {
+  /** One GET of /document for a given id, so the shelf-prefix retry below can reuse it. */
+  const requestDocument = (requestId: string) => {
+    const qs = new URLSearchParams({ id: requestId, mode });
+    if (mode === 'full') {
+      if (typeof opts.params.offset === 'number') qs.set('offset', String(opts.params.offset));
+      if (typeof opts.params.limit === 'number') qs.set('limit', String(opts.params.limit));
+    }
+    return (opts.fetchImpl ?? fetch)(`${root}/document?${qs.toString()}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: opts.signal,
     });
+  };
+
+  try {
+    let response = await requestDocument(id);
+
+    // The document shelf is namespaced `doc:<source>/<hash>` and search results
+    // print that id verbatim, but the prefix is easy to drop when an id is
+    // copied out of a longer line. The namespace is knowable, so a read should
+    // not fail over four missing characters: retry once with it added, and only
+    // report "not found" if BOTH forms miss. This adds a prefix; it never makes
+    // up an id, so the "never invent a document id" rule still holds.
+    if (response.status === 404 && !id.startsWith('doc:')) {
+      const prefixed = await requestDocument(`doc:${id}`);
+      if (prefixed.ok) response = prefixed;
+    }
 
     if (response.status === 404) {
       return {

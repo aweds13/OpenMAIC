@@ -155,4 +155,44 @@ describe('read_document', () => {
     expect(() => prepare({ id: DOC.id, mode: 'read' })).toThrow(); // 非法 mode
     expect(prepare({ id: DOC.id, mode: 'peek' })).toEqual({ id: DOC.id, mode: 'peek' });
   });
+
+  it('retries once with the doc: shelf prefix when the id arrives without it', async () => {
+    // The real failure this guards: search prints `doc:<source>/<hash>` and the
+    // model copies only the tail, so the read 404s over four missing characters.
+    const bare = DOC.id.replace(/^doc:/, '');
+    const seen: string[] = [];
+    const tool = buildReadDocumentTool({
+      config: { baseUrl: 'http://127.0.0.1:8720' },
+      fetchImpl: (async (url: string) => {
+        seen.push(decodeURIComponent(url));
+        return decodeURIComponent(url).includes(`id=${DOC.id}`)
+          ? jsonResponse({ mode: 'peek', document: DOC, preview: 'P', toc: [] })
+          : jsonResponse({ error: 'document not found' }, 404);
+      }) as unknown as typeof fetch,
+    });
+
+    const out = await tool.execute('c1', { id: bare, mode: 'peek' });
+
+    expect(out.details.status).toBe('ok');
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toContain(`id=${bare}`);
+    expect(seen[1]).toContain(`id=${DOC.id}`);
+  });
+
+  it('does not retry an id that already carries the prefix', async () => {
+    const seen: string[] = [];
+    const tool = buildReadDocumentTool({
+      config: { baseUrl: 'http://127.0.0.1:8720' },
+      fetchImpl: (async (url: string) => {
+        seen.push(decodeURIComponent(url));
+        return jsonResponse({ error: 'document not found' }, 404);
+      }) as unknown as typeof fetch,
+    });
+
+    const out = await tool.execute('c1', { id: DOC.id, mode: 'peek' });
+
+    // `doc:doc:...` would be a made-up id, which the tool must never do.
+    expect(seen).toHaveLength(1);
+    expect(out.details.status).toBe('not_found');
+  });
 });
