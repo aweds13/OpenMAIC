@@ -1248,6 +1248,46 @@ export interface ResourcePackResult {
   failedAssetUrls: string[];
 }
 
+/** One interactive scene rendered as a self-contained HTML page. */
+export interface InteractivePageFile {
+  /** ZIP-relative path, e.g. `interactive/01_Spin the frame.html`. */
+  path: string;
+  html: string;
+}
+
+/**
+ * Turn every interactive scene into a self-contained HTML page, in scene order,
+ * with external assets inlined best-effort.
+ *
+ * Shared by the single-course resource pack (paths at the ZIP root) and the
+ * workspace batch export (paths prefixed with the course folder) so the two
+ * cannot drift on naming, ordering, or which scenes qualify — the resource pack
+ * is the long-standing contract for "what an interactive page export is".
+ */
+export async function collectInteractivePages(
+  scenes: readonly Scene[],
+  opts: { fetcher?: FetchAsset; pathPrefix?: string } = {},
+): Promise<{ files: InteractivePageFile[]; failedAssetUrls: string[] }> {
+  const files: InteractivePageFile[] = [];
+  const failedAssetUrls: string[] = [];
+  const prefix = opts.pathPrefix ?? '';
+  let interactiveIndex = 0;
+  for (const scene of scenes) {
+    if (scene.content.type !== 'interactive' || !scene.content.html) continue;
+    interactiveIndex++;
+    const safeName = scene.title.replace(/[\\/:*?"<>|]/g, '_');
+    const htmlFileName = `interactive/${String(interactiveIndex).padStart(2, '0')}_${safeName}.html`;
+    const { html: inlinedHtml, report } = await inlineHtmlAssets(scene.content.html, {
+      fetcher: opts.fetcher,
+    });
+    for (const f of report.failed) {
+      if (!failedAssetUrls.includes(f.url)) failedAssetUrls.push(f.url);
+    }
+    files.push({ path: `${prefix}${htmlFileName}`, html: inlinedHtml });
+  }
+  return { files, failedAssetUrls };
+}
+
 export async function buildResourcePackZip(
   scenes: Scene[],
   slides: Slide[],
@@ -1266,27 +1306,14 @@ export async function buildResourcePackZip(
 ): Promise<ResourcePackResult> {
   const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
-  const failedAssetUrls: string[] = [];
 
   // 1. Add interactive HTML pages (independent of slides)
-  let interactiveIndex = 0;
-  for (const scene of scenes) {
-    if (scene.content.type === 'interactive' && scene.content.html) {
-      interactiveIndex++;
-      const safeName = scene.title.replace(/[\\/:*?"<>|]/g, '_');
-      const htmlFileName = `interactive/${String(interactiveIndex).padStart(2, '0')}_${safeName}.html`;
-      const { html: inlinedHtml, report } = await inlineHtmlAssets(scene.content.html, {
-        fetcher: opts.fetcher,
-      });
-      for (const f of report.failed) {
-        if (!failedAssetUrls.includes(f.url)) failedAssetUrls.push(f.url);
-      }
-      zip.file(htmlFileName, inlinedHtml);
-    }
-  }
+  const interactive = await collectInteractivePages(scenes, { fetcher: opts.fetcher });
+  const failedAssetUrls = interactive.failedAssetUrls;
+  for (const file of interactive.files) zip.file(file.path, file.html);
 
   // Nothing to ship: no slides and no interactive pages.
-  if (interactiveIndex === 0 && slides.length === 0) {
+  if (interactive.files.length === 0 && slides.length === 0) {
     return { blob: null, skippedPptx: false, empty: true, failedAssetUrls };
   }
 

@@ -75,6 +75,7 @@ import {
 import { createPortal } from 'react-dom';
 import {
   Check,
+  Download,
   Folder,
   FolderOpen,
   FolderPlus,
@@ -152,6 +153,7 @@ import {
 } from '@/lib/workbench/workspace-rail-tab';
 import { useTreeDrag, type DragKind } from './use-tree-drag';
 import { PaneFoldButton } from './PaneFoldButton';
+import { BatchDownloadDialog } from './BatchDownloadDialog';
 import { deleteWorkspaceSession } from '@/lib/workbench/workspace-actions';
 import { apiRenameStage, StageRenameError, STAGE_NAME_MAX_LENGTH } from '@/lib/live/server-api';
 import { SESSION_TITLE_MAX_LENGTH, workbenchSessionTitle } from '@/lib/workbench/session-title';
@@ -241,6 +243,9 @@ export function WorkspaceRail({
   // belongs to this tree. It is an inline row at the top of the course tree:
   // creating organization should not interrupt navigation with a modal.
   const [newFolderOpen, setNewFolderOpen] = useState(false);
+  // Batch download: the courses-tab toolbar opens it; the dialog owns the
+  // selection and the run (see `BatchDownloadDialog`).
+  const [batchDownloadOpen, setBatchDownloadOpen] = useState(false);
   const handleCreateFolder = useCallback(
     async (name: string) => {
       if (!workspaceFolderAdapter) return;
@@ -986,6 +991,23 @@ export function WorkspaceRail({
                 <FolderPlus className="size-4" aria-hidden="true" />
               </button>
             ) : null}
+            {/* Batch download hangs here rather than on a row: it is an action
+                on the LIST (pick several courses, one archive), and no single
+                row owns it. It never opens a course, which is the whole point —
+                the stage-header menu already covers "export the one I'm in". */}
+            <button
+              type="button"
+              data-testid="pro-nav-batch-download"
+              onClick={() => {
+                coursesSection.setQuery('');
+                setBatchDownloadOpen(true);
+              }}
+              aria-label={t('workspace.batchDownload.title')}
+              title={t('workspace.batchDownload.title')}
+              className="ws-find-icon"
+            >
+              <Download className="size-4" aria-hidden="true" />
+            </button>
           </>
         ) : null}
       </div>
@@ -1192,6 +1214,15 @@ export function WorkspaceRail({
       <RailUtilities onOpenSettings={() => setSettingsOpen(true)} />
 
       {resizeHandle}
+
+      {/* Batch download — the courses-tab toolbar's own dialog. Mounted here so
+          the trigger and its dialog stay one component apart, like the folder
+          question below. */}
+      <BatchDownloadDialog
+        open={batchDownloadOpen}
+        onOpenChange={setBatchDownloadOpen}
+        courses={courses.classrooms}
+      />
 
       {/* The model/provider settings dialog — the same component the classic
           home opens from its header pill. The rail owns the mount so the
