@@ -116,6 +116,15 @@ describe('fetch_url tool', () => {
     });
     // The full markdown never reaches the model — only the preview does.
     expect(result.details).not.toHaveProperty('content');
+    // ...and the model is told, in the result itself, that it has read 3% of the
+    // page and exactly how to continue. Without this the 2000-char preview reads
+    // like the whole document, and `nextOffset` used to be a dead pointer:
+    // fetch_url takes no offset argument.
+    const trusted = (result.details as { trusted: Record<string, string> }).trusted;
+    expect(trusted.nextStep).toContain('only the first 2000');
+    expect(trusted.nextStep).toContain('read_material');
+    expect(trusted.nextStep).toContain('offset=2000');
+    expect(trusted.nextStep).toContain('Do not treat this preview as the whole page');
   });
 
   it('omits nextOffset when the whole page fits in the preview', async () => {
@@ -145,6 +154,7 @@ describe('fetch_url tool', () => {
     expect(trusted).toMatchObject({ status: 'done' });
     // No continuation offset when the whole page fits in the preview.
     expect(trusted).not.toHaveProperty('nextOffset');
+    expect(trusted.nextStep).toBe('This is the whole document — you have read all of it.');
   });
 
   it('fails the call when the per-run signal aborts before the fetch', async () => {

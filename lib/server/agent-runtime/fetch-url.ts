@@ -473,15 +473,20 @@ export async function fetchAndExtractUrl(
         bodyTimeoutMs,
       );
       const markers = options.blockedMarkers ?? antiBotMarkers();
-      if (contentType !== 'application/pdf') {
-        const blocked = matchingBlockedMarker(downloaded.bytes.toString('utf8'), markers);
-        if (blocked) {
-          throw new FetchUrlError(
-            'blocked',
-            `Page was blocked by anti-bot verification (${blocked})`,
-          );
-        }
-      }
+      /**
+       * 这里**故意不再**扫一遍原始 HTML。
+       *
+       * 原先有一个 `matchingBlockedMarker(downloaded.bytes.toString('utf8'), …)`
+       * 的分支：对整页 HTML 做**子串**匹配。问题是 `<script>` 里任何一处出现
+       * `captcha` 都会命中 —— 而现代前端 bundle 里这个词很常见（验证码组件、
+       * 埋点、i18n 词表）。实测代价：2026-10-05 那节课 75 次 fetch_url 里，
+       * 有 2 次就是这样被 `(captcha)` 拦掉的。
+       *
+       * 真正的判据在后面：`assertContentSuccess` 对**抽出来的正文**做同样的
+       * 匹配。验证码拦截页的可见文字里必然有这些词，所以那里拦得住；而
+       * 一个正常页面的 bundle 字符串不会进入正文。少扫一遍不降低防护，只去掉
+       * 误判。
+       */
       let extracted: { title: string; markdown: string; truncated?: boolean };
       if (contentType === 'text/html' || contentType === 'application/xhtml+xml') {
         extracted = extractHtmlToMarkdown(downloaded.bytes.toString('utf8'), current.href);
@@ -538,6 +543,15 @@ export function fetchPromptBlock(): string {
     'needed page is not on an observed origin, ask the user to share a direct link first. A',
     'successful fetch stores a web material for this session and returns a short first-page',
     'preview with the material id.',
+    '',
+    '**The preview is about 2000 characters of a page that is often ten times longer.** Read it',
+    'to decide whether the page matters, then page through the rest with',
+    '`read_material(materialId, offset)` — 8000 characters per call, following `nextOffset` until',
+    'it stops coming back. Reading only the preview and then describing the page is claiming to',
+    'have read something you have not read; when the user needs a specific section, use',
+    '`search_material` to land on it instead of paging from the top.',
+    'If a fetch is refused by an anti-bot check or returns 403/404, say so plainly and search for',
+    'another source — do not present a blocked page as if its content had been read.',
   ].join('\n');
 }
 
@@ -582,7 +596,9 @@ export function buildFetchUrlTool(deps: FetchUrlToolDependencies): AgentTool<nev
       "Fetch a URL on an origin already seen in a user message or this session's web_search results, " +
       'extract its full reusable content into a web material, and return a short first-page preview ' +
       'with the material id. Use it when the user references a specific page or when a search hit ' +
-      'needs its full content.',
+      'needs its full content. The preview is NOT the page — it is the first 2000 characters of a ' +
+      'much longer extraction; when it reports nextOffset, continue with read_material before you ' +
+      'rely on the content or describe what the page says.',
     parameters: FETCH_URL_SCHEMA,
     execute: async (_callId, params: Static<typeof FETCH_URL_SCHEMA>, signal) => {
       throwIfAborted(signal);
@@ -625,6 +641,26 @@ export function buildFetchUrlTool(deps: FetchUrlToolDependencies): AgentTool<nev
       throwIfAborted(signal);
       const preview = page.markdown.slice(0, FETCH_PREVIEW_CHARS);
       const nextOffset = preview.length < page.markdown.length ? preview.length : undefined;
+      /**
+       * ★ 这一行是「渐进式阅读」能不能跑起来的关键。
+       *
+       * 预览只有 2000 字符，而实测抓回来的正文平均 **17,443** 字符（2026-10-05
+       * 那节课 56 次成功抓取），也就是模型默认只看得到 **11%**。更糟的是
+       * `nextOffset` 以前被放在 `trusted` 里却没有任何工具接收它 —— `fetch_url`
+       * 的参数只有一个 `url`。那是个**死指针**：模型没有"再往下读"这个动作可做，
+       * 只能拿 2000 字符当"我读过了"。
+       *
+       * 现在这条提示把死指针接上：明确说这是第几段、总长多少、下一段怎么取。
+       * 续读走 `read_material`（每页 8000 字符，见 material-tools.ts）。
+       */
+      const continuation =
+        nextOffset === undefined
+          ? 'This is the whole document — you have read all of it.'
+          : `This is only the first ${preview.length} of ${page.markdown.length} characters ` +
+            `(${Math.round((preview.length / Math.max(1, page.markdown.length)) * 100)}%). ` +
+            `To continue, call read_material with materialId="${record.id}" and offset=${nextOffset}. ` +
+            `Do not treat this preview as the whole page, and do not say you read it in full until ` +
+            `nextOffset is absent.`;
       const trusted = {
         status: 'done' as const,
         materialId: record.id,
@@ -632,6 +668,7 @@ export function buildFetchUrlTool(deps: FetchUrlToolDependencies): AgentTool<nev
         totalChars: page.markdown.length,
         truncated: page.truncated,
         ...(nextOffset !== undefined ? { nextOffset } : {}),
+        nextStep: continuation,
       };
       const untrusted = {
         url: page.finalUrl,

@@ -167,6 +167,38 @@ describe('fetch_url network and extraction', () => {
     ).rejects.toMatchObject({ reason: 'blocked' } satisfies Partial<FetchUrlError>);
   });
 
+  /**
+   * `captcha` 是一个**子串**匹配，而它以前是对**整页 HTML** 做的。现代前端
+   * bundle 里出现这个词太正常了（验证码组件、埋点、i18n 词表），实测代价是
+   * 2026-10-05 那节课 75 次 fetch_url 里有 2 次被 `(captcha)` 误拦。
+   *
+   * 判据移到抽取后的正文之后，bundle 里的字符串不再进入判定，而真正的验证码
+   * 拦截页（可见文字里有这些词）仍然拦得住 —— 上一条测试就是那个方向。
+   */
+  it('does not block a readable page just because its scripts mention captcha', async () => {
+    const article = '这是一篇正常的技术文章正文。'.repeat(40);
+    const html = [
+      '<!DOCTYPE html><html><head>',
+      '<script>window.__recaptcha__="captcha";var t="captcha";</script>',
+      '</head><body><article><p>',
+      article,
+      '</p></article></body></html>',
+    ].join('');
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(html, { headers: { 'content-type': 'text/html' } }),
+    );
+
+    const result = await fetchAndExtractUrl('https://example.com/article', {
+      fetchImpl,
+      dispatcher,
+      minChars: 20,
+    });
+
+    expect(result.markdown).toContain('正常的技术文章正文');
+    // The script body is dropped by extraction, so it cannot reach the judge.
+    expect(result.markdown).not.toContain('__recaptcha__');
+  });
+
   it('selects configured self-hosted MinerU for PDF extraction', async () => {
     vi.spyOn(providerConfig, 'getServerPDFProviders').mockReturnValue({ mineru: {} });
     const mineru = getDocumentExtractorProvider('mineru')!;
