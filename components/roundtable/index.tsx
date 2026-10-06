@@ -78,6 +78,8 @@ interface RoundtableProps {
 
   readonly onResumeTopic?: () => void;
   readonly onPlayPause?: () => void;
+  /** Current scene has no actions — a page to read. Required; see CanvasToolbarProps. */
+  readonly readingPage: boolean;
   readonly isDiscussionPaused?: boolean;
   readonly onDiscussionPause?: () => void;
   readonly onDiscussionResume?: () => void;
@@ -189,6 +191,7 @@ export function Roundtable({
   onDiscussionResume,
   currentSceneIndex = 0,
   scenesCount = 1,
+  readingPage,
   whiteboardOpen = false,
   sidebarCollapsed,
   chatCollapsed,
@@ -696,6 +699,7 @@ export function Roundtable({
       onPrevSlide={onPrevSlide ?? (() => {})}
       onNextSlide={onNextSlide ?? (() => {})}
       onPlayPause={onPlayPause ?? (() => {})}
+      readingPage={readingPage}
       onWhiteboardClose={onWhiteboardClose ?? (() => {})}
       isPresenting={isPresenting}
       onTogglePresentation={onTogglePresentation}

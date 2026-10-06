@@ -152,6 +152,12 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const generationComplete = useStageStore.use.generationComplete();
 
     const currentScene = getCurrentScene();
+    /**
+     * No actions ⇒ this page has nothing to play; it is a page to READ.
+     * Single source of the rule for this component tree — the same expression
+     * drives CanvasArea (which derives it itself) and the toolbar's transport.
+     */
+    const readingPage = (currentScene?.actions?.length ?? 0) === 0;
     const piChatEnabled = isPiChatEnabled();
     const coursewareReferenceEnabled = isCoursewareReferenceEnabled();
     const [elementPickActive, setElementPickActiveState] = useState(false);
@@ -1541,13 +1547,16 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
 
         switch (event.key) {
           case 'ArrowLeft':
-            if (!isPresenting) return;
+            // Page-turning used to require fullscreen presentation; on a reading
+            // page there is no narration or slide-show to protect, so the arrow
+            // keys turn the page whenever the learner is just reading.
+            if (!isPresenting && !readingPage) return;
             event.preventDefault();
             handlePreviousScene();
             resetPresentationIdleTimer();
             break;
           case 'ArrowRight':
-            if (!isPresenting) return;
+            if (!isPresenting && !readingPage) return;
             event.preventDefault();
             handleNextScene();
             resetPresentationIdleTimer();
@@ -1608,6 +1617,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       isPresenting,
       isPresentationInteractionActive,
       isPresentationShortcutTarget,
+      readingPage,
       resetPresentationIdleTimer,
       setChatAreaCollapsed,
       setSidebarCollapsed,
@@ -1902,6 +1912,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 }}
                 onResumeTopic={doResumeTopic}
                 onPlayPause={handlePlayPause}
+                readingPage={(currentScene?.actions?.length ?? 0) === 0}
                 isDiscussionPaused={isDiscussionPaused}
                 onDiscussionPause={() => {
                   const paused = chatAreaRef.current?.pauseActiveLiveBuffer();

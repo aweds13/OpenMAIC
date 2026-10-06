@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,7 @@ import { Whiteboard } from '@/components/whiteboard';
 import { CanvasToolbar } from '@/components/canvas/canvas-toolbar';
 import type { CanvasToolbarProps } from '@/components/canvas/canvas-toolbar';
 import type { Scene, StageMode } from '@/lib/types/stage';
+import { resolveWheelTurn } from '@/lib/playback/reading-navigation';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { ClassroomCompletePageConnected } from '@/components/scene-renderers/classroom-complete';
 import { ContainBox } from '@/components/edit/ContainBox';
@@ -18,7 +19,12 @@ import type { PPTElement } from '@openmaic/dsl';
 import type { WhiteboardElementReference } from '@/lib/types/chat';
 import { SlideElementPickOverlay } from '@/components/canvas/slide-element-pick-overlay';
 
-interface CanvasAreaProps extends CanvasToolbarProps {
+/**
+ * CanvasArea takes everything the toolbar takes EXCEPT `readingPage` — it is the
+ * component that DERIVES that flag (from `currentScene.actions`), so requiring it
+ * as an input would be a lie and would force every caller to duplicate the rule.
+ */
+interface CanvasAreaProps extends Omit<CanvasToolbarProps, 'readingPage'> {
   readonly currentScene: Scene | null;
   readonly mode: StageMode;
   readonly hideToolbar?: boolean;
@@ -70,8 +76,44 @@ export function CanvasArea({
   const { t } = useI18n();
   const inWorkbenchPanel = useInWorkbenchPanel();
   const showControls = mode === 'playback' && !whiteboardOpen;
+  /**
+   * A scene with no actions is a page to READ, not a lecture to play.
+   *
+   * 自学模式（现在的默认）下每页 `actions: []`。此时既没有讲稿可放，也没有
+   * 别的可播 —— 播放器在这页上会**停住等人**（见 lib/playback/engine.ts）。
+   * 那就别再摆播放器的样子：不显示中间那个大播放键，点页面也不触发播放。
+   * 「播放」在这里唯一的意思只能是"这一页看完了，往下走"，把它当按钮摆着
+   * 只会让人以为自己在看视频 —— 用户的原话就是「就像放视频，我不需要这种东西」。
+   */
+  const readingPage = (currentScene?.actions?.length ?? 0) === 0;
+  /**
+   * Turning the page on a reading page: click the page, or scroll the wheel.
+   *
+   * A reading page is a fixed 1000×562.5 canvas — there is nothing to scroll
+   * inside it, and no narration competing for the gesture — so the two most
+   * natural "next" gestures are free here and nowhere else. One gesture must
+   * equal one page: the wheel is debounced, otherwise a single flick skips
+   * several pages at once.
+   */
+  const wheelLatchRef = useRef(0);
+  const canTurnPage = showControls && readingPage && !isLiveSession && !isPendingScene;
+  const handleReadingWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (!canTurnPage) return;
+      const turn = resolveWheelTurn(e.deltaY, wheelLatchRef.current, Date.now());
+      if (!turn) return;
+      wheelLatchRef.current = Date.now();
+      e.preventDefault();
+      e.stopPropagation();
+      if (turn === 'next') onNextSlide();
+      else onPrevSlide();
+    },
+    [canTurnPage, onNextSlide, onPrevSlide],
+  );
+
   const showPlayHint =
     showControls &&
+    !readingPage &&
     engineState !== 'playing' &&
     currentScene?.type === 'slide' &&
     !isLiveSession &&
@@ -80,6 +122,12 @@ export function CanvasArea({
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
       if (!showControls || isLiveSession || currentScene?.type !== 'slide') return;
+      // A reading page has nothing to play — clicking it means "next page",
+      // which is the only forward action that page has.
+      if (readingPage) {
+        onNextSlide();
+        return;
+      }
       // Don't trigger page play/pause when clicking inside a video element's visual area.
       // Video elements may be visually covered by other slide elements (e.g. text),
       // so we check click coordinates against all video element bounding rects.
@@ -98,11 +146,14 @@ export function CanvasArea({
       }
       onPlayPause();
     },
-    [showControls, isLiveSession, onPlayPause, currentScene?.type],
+    [showControls, isLiveSession, onPlayPause, onNextSlide, currentScene?.type, readingPage],
   );
 
   return (
-    <div className="w-full h-full flex flex-col bg-gray-50 dark:bg-gray-900 group/canvas">
+    <div
+      className="w-full h-full flex flex-col bg-gray-50 dark:bg-gray-900 group/canvas"
+      onWheel={handleReadingWheel}
+    >
       {/* Slide area — takes remaining space */}
       <div
         className={cn(
@@ -305,6 +356,7 @@ export function CanvasArea({
           onPrevSlide={onPrevSlide}
           onNextSlide={onNextSlide}
           onPlayPause={onPlayPause}
+          readingPage={readingPage}
           onWhiteboardClose={onWhiteboardClose}
           isPresenting={isPresenting}
           onTogglePresentation={onTogglePresentation}

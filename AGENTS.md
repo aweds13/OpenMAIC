@@ -479,3 +479,62 @@ React 渲染器（`components/scene-renderers/quiz-renderer.tsx`、`pbl-renderer
    `git rev-parse --short HEAD` **现算**。看到"记的 HEAD ≠ 实际 HEAD"，
    先 `git log --oneline <记的>..HEAD` 查是谁推进的，**别当成数据损坏**。
 
+---
+
+## 12. 「课程是播放器，不是阅读器」—— 阅读页怎么走
+
+### 判据只有一条
+
+```
+readingPage = (scene.actions?.length ?? 0) === 0
+```
+
+自学模式（现在的默认）下**每页 actions 都是空的**。这样一页**没有讲稿可放**，
+所以它是一张**要读的纸**，不是一段要播的东西。
+
+### 旧行为（用户的原话：「就像放视频，我不需要这种东西」）
+
+`resolvePlaybackCursor` 会给空动作的页合成一个 `EMPTY_SCENE_DWELL`（空文本
+speech），空 speech 走朗读计时器，而空文本落到 `MIN_READING_MS = 2000`：
+
+```
+estimateSpeechDurationMs('') = max(2000, 0 × 240) = 2000ms
+```
+
+**每页停 2 秒**，然后 `onComplete`。`PlaybackChromeRoot` 的 onComplete 在
+**自动播放**（工具栏那个 ⟳，`autoPlayLecture`，默认关但**会记住**）打开时
+`setCurrentSceneId(下一页)` —— 于是整门课以 2 秒/页播完。
+自学页正文 350–400 字 ≈ 1–2 分钟阅读量，**差了 30–60 倍**。
+
+### 新行为
+
+| 文件 | 干什么 |
+|---|---|
+| `lib/playback/engine.ts` | 空动作的页**停住等人**（`parkedOnReadOnlyScene`）。不再计时、不再 `onComplete`；此时 `resume()` = "这页看完了，往下走" |
+| `components/canvas/canvas-area.tsx` | 不显示中间那个大播放键；**点页面 = 下一页**；**滚轮 = 翻页** |
+| `lib/playback/reading-navigation.ts` | 滚轮判据（阈值 12 / 去抖 450ms）抽成纯函数 —— 少了去抖，一次轻甩翻十几页 |
+| `components/canvas/canvas-toolbar.tsx` | 藏播放/暂停与自动播放开关（在阅读页上它们都是**假控件**）；翻页键留着 |
+| `components/edit/PlaybackChromeRoot.tsx` | `←`/`→` 以前只在**全屏演示**里翻页；现在阅读页也能翻 |
+
+### ★ 两个会让人改错的坑
+
+1. **引擎是拿 `[currentScene]`（一个场景）建的**，不是整门课。
+   跨页前进靠 `onComplete` → `setCurrentSceneId` → **重建引擎**，
+   **不是引擎自己走场景**。不知道这条会写错测试（我第一版按多场景写，全红）。
+   所以 `onSceneChange` 在这里基本是空的 —— 别指望它。
+2. **`readingPage` 是"传了才生效"的布尔量**：漏传不报错，只会**静默地把播放键
+   还回来**，正好退回被修掉的那个 bug。所以 `CanvasToolbarProps.readingPage`
+   是**必填**的，靠编译器兜 —— 设成必填的当下它就抓出了 3 个我漏掉的调用点，
+   还暴露了 `CanvasArea` 其实是**自己算**这个值（所以 `CanvasAreaProps` 用
+   `Omit<CanvasToolbarProps, 'readingPage'>`）。
+
+### 怎么测
+
+仓库**没有 @testing-library**，但渲染测试是能写的 —— 照
+`tests/components/roundtable-reference-send.test.ts`：文件头 `// @vitest-environment jsdom`、
+`createRoot` + `act`、`vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)`、
+`vi.mock('@/lib/hooks/use-i18n', ...)`（组件要 `t`）。
+新加的 pin：`tests/playback/reading-page-park.test.ts`、
+`tests/playback/reading-navigation.test.ts`、
+`tests/components/canvas/canvas-toolbar-reading-page.test.ts`。
+

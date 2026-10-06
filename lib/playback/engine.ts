@@ -39,6 +39,7 @@ import { ActionEngine } from '@/lib/action/engine';
 import {
   resolvePlaybackCursor,
   estimateSpeechDurationMs,
+  EMPTY_SCENE_DWELL,
   DISCUSSION_TRIGGER_DELAY_MS,
 } from '@/lib/choreography';
 import {
@@ -59,6 +60,12 @@ export class PlaybackEngine {
   private actionIndex: number = 0;
   private mode: EngineMode = 'idle';
   private consumedDiscussions: Set<string> = new Set();
+
+  /**
+   * True while the engine is parked on a scene that has nothing to play — a
+   * "reading page". See {@link parkOnReadOnlyScene}.
+   */
+  private parkedOnReadOnlyScene = false;
 
   // Discussion state save
   private savedSceneIndex: number | null = null;
@@ -258,6 +265,18 @@ export class PlaybackEngine {
   resume(): void {
     if (this.mode !== 'paused') {
       log.warn('Cannot resume: not paused, mode is', this.mode);
+      return;
+    }
+
+    // Parked on a reading page: nothing to resume, and the cursor already sits
+    // past that page's single dwell beat — so "play" here advances to the next
+    // page. Without this the engine would set 'playing' and then stall, because
+    // every resume path below waits on audio or on a reading timer that this
+    // page never scheduled.
+    if (this.parkedOnReadOnlyScene) {
+      this.parkedOnReadOnlyScene = false;
+      this.setMode('playing');
+      void this.processNext(this.playbackGeneration);
       return;
     }
 
@@ -546,6 +565,10 @@ export class PlaybackEngine {
   private async processNext(generation: number = this.playbackGeneration): Promise<void> {
     if (this.mode !== 'playing' || !this.isCurrentGeneration(generation)) return;
 
+    // Reaching here means we are moving on from whatever the cursor was on, so
+    // a previous park is over. (resume() reads the flag before calling this.)
+    this.parkedOnReadOnlyScene = false;
+
     // Check for scene boundary (fire scene change callback at start of each new scene)
     if (this.actionIndex === 0 && this.sceneIndex < this.scenes.length) {
       const scene = this.scenes[this.sceneIndex];
@@ -577,6 +600,29 @@ export class PlaybackEngine {
     switch (action.type) {
       case 'speech': {
         const speechAction = action as SpeechAction;
+
+        // ★ A scene with no actions resolves to exactly one synthetic
+        // `EMPTY_SCENE_DWELL` beat (see resolvePlaybackCursor). There is nothing
+        // to narrate — the page is meant to be READ.
+        //
+        // This used to fall through to the reading timer, whose floor is
+        // `MIN_READING_MS = 2000`, so the player advanced 2 seconds later. A
+        // self-study page carries 350-400 characters of body text — 1 to 2
+        // minutes of reading — so the course played itself at roughly 1/30 of
+        // the time it takes to read one page, which is what makes it look like a
+        // video. The dwell exists so an action-less scene is not SKIPPED
+        // (it must still show); it was never meant to say how long to look at it.
+        //
+        // Park instead and wait for the learner. `mode = 'paused'` is the honest
+        // state: nothing is playing. Resume is redefined below — on a parked
+        // page "play" means "next page", because there is nothing else it could
+        // mean.
+        if (action.id === EMPTY_SCENE_DWELL.id) {
+          this.parkedOnReadOnlyScene = true;
+          this.setMode('paused');
+          return;
+        }
+
         this.callbacks.onSpeechStart?.(speechAction.text);
 
         // onEnded → processNext; if paused, resume() will call processNext

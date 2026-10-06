@@ -46,7 +46,7 @@ describe('reference rejection preserves the question composer', () => {
     const canSendMessage = vi.fn(() => false);
     const onMessageSend = vi.fn();
     await act(async () =>
-      root.render(createElement(Roundtable, { canSendMessage, onMessageSend })),
+      root.render(createElement(Roundtable, { canSendMessage, onMessageSend, readingPage: false })),
     );
     act(() =>
       (
@@ -72,7 +72,9 @@ describe('reference rejection preserves the question composer', () => {
   it('moves a rejected voice question into the editable composer without sending', async () => {
     const onMessageSend = vi.fn();
     await act(async () =>
-      root.render(createElement(Roundtable, { canSendMessage: () => false, onMessageSend })),
+      root.render(
+        createElement(Roundtable, { canSendMessage: () => false, onMessageSend, readingPage: false }),
+      ),
     );
     act(() => audio.onTranscription?.('Explain the selected equation.'));
     expect(onMessageSend).not.toHaveBeenCalled();

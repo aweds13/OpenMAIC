@@ -53,6 +53,18 @@ export interface CanvasToolbarProps {
   readonly onVolumeChange?: (volume: number) => void;
   readonly autoPlayLecture?: boolean;
   readonly onToggleAutoPlay?: () => void;
+  /**
+   * True when the current scene carries no actions at all — a page to READ.
+   * There is no narration to play, so the playback affordances (play/pause,
+   * auto-play) are withheld and only navigation remains. See
+   * `lib/playback/engine.ts`'s reading-page park.
+   *
+   * Required on purpose: it is optional-by-nature (a caller could just omit it)
+   * and omitting it silently restores the play button, which is exactly the bug
+   * this fixes. There is no render-test harness in this repo to catch that, so
+   * the compiler does it.
+   */
+  readonly readingPage: boolean;
   readonly playbackSpeed?: number;
   readonly onCycleSpeed?: () => void;
   readonly showElementReference?: boolean;
@@ -118,6 +130,7 @@ export function CanvasToolbar({
   onVolumeChange,
   autoPlayLecture,
   onToggleAutoPlay,
+  readingPage,
   playbackSpeed = 1,
   onCycleSpeed,
   showElementReference,
@@ -129,7 +142,10 @@ export function CanvasToolbar({
   const remainingSoftCloseSeconds = useSoftCloseCountdown(softCloseDeadline);
   const canGoPrev = currentSceneIndex > 0;
   const canGoNext = currentSceneIndex < scenesCount - 1;
-  const showPlayPause = !isLiveSession;
+  // A reading page (no actions at all) has nothing to play, so the play/pause
+  // control is not offered: the engine parks on such a page and only moves when
+  // the learner does. Navigation stays — that is the whole point.
+  const showPlayPause = !isLiveSession && !readingPage;
 
   const whiteboardElementCount = useStageStore(
     (s) => s.stage?.whiteboard?.[0]?.elements?.length || 0,
@@ -380,8 +396,13 @@ export function CanvasToolbar({
 
           <CtrlDivider />
 
-          {/* Auto-play */}
-          {onToggleAutoPlay && (
+          {/*
+            Auto-play — hidden on a reading page. Auto-play means "when this page
+            finishes, move on"; a reading page never finishes on its own (the
+            engine parks on it), so the toggle would be an inert control that
+            looks like it does something. See lib/playback/engine.ts.
+          */}
+          {onToggleAutoPlay && !readingPage && (
             <TooltipProvider delayDuration={0}>
               <Tooltip>
                 <TooltipTrigger asChild>
