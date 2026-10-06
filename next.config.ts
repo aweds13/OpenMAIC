@@ -3,6 +3,18 @@ import type { NextConfig } from 'next';
 const isVercelBuild = Boolean(process.env.VERCEL);
 
 const nextConfig: NextConfig = {
+  /**
+   * 允许 `127.0.0.1` 访问 dev server 自己的资源。
+   *
+   * 为什么需要：Next.js 16 的 dev server **默认只允许 localhost**，把其它
+   * 来源对自己 `/_next/*` 的请求当跨域拦掉。而本机（以及桌面快捷方式）用
+   * 的是 `127.0.0.1:3000` —— 于是 HTML 能加载、**JS 分块全被 403 拦掉**，
+   * 页面看起来正常但**所有按钮都没反应**（没有事件处理器），日志里是
+   * "Blocked cross-origin request to Next.js dev resource /_next/... "。
+   *
+   * 只在开发期有意义，生产构建不看这个键。
+   */
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
   env: {
     // Pin even the unset/default value in both client and server bundles.
     // A runtime-only override must not disable the route the built client uses.

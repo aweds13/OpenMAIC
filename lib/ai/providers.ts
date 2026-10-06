@@ -983,7 +983,14 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
       },
       {
         id: 'deepseek-v4-flash',
-        name: 'DeepSeek V4 Flash',
+        /**
+         * 显示名对齐官方。`deepseek-v4-flash` 是别名 —— 官方 API 的模型列表里
+         * 这个模型 id 是 `deepseek-flash`、name 是 **DeepSeek-V4.1-Flash**，
+         * 实测调用也返回 `{"model":"deepseek-flash"}`。原来写 "V4 Flash"
+         * 会让人以为没有 V4.1 可选（第三方 tokendance 就是叫它 v4.1-flash）。
+         * 只改显示名，**id 不动** —— id 是调用时真正发出去的字符串。
+         */
+        name: 'DeepSeek V4.1 Flash',
         contextWindow: 1048576,
         outputWindow: 393216,
         capabilities: {
