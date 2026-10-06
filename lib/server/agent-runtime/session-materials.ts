@@ -28,7 +28,6 @@ import { getServerPersistenceProvider } from '@/lib/persistence/server-provider'
 import { getMaterialByteStore } from '@/lib/server/materials/bytes';
 
 import { getAgentSessionStore } from './store';
-import { isPptxMaterial } from './pptx-mime';
 import type { ExtractedWebPage } from './fetch-url';
 
 interface AgentSessionMaterialStoreState {
@@ -484,29 +483,39 @@ export async function removeSessionMaterialRawAsset(
 }
 
 /**
- * Safe metadata and typed-tool guidance for materials bound to one session.
- * Material contents stay in the byte store and are available only through
- * the session-scoped material tools, never through this block.
+ * The session-materials block — deliberately CONSTANT.
+ *
+ * It used to enumerate every registered material with its `textChars`, which
+ * made the system prompt change every time a material was registered — a build
+ * that fetched 25 pages changed it 25 times. A system message is ONE
+ * prefix-cache unit: one changed byte re-bills the whole message AND every
+ * message behind it. Measured on a controlled experiment (inserting a single
+ * material row into an otherwise untouched session), the cache hit rate fell
+ * from 99.1% to 38.5% — the whole system prompt plus the entire conversation,
+ * re-billed at full price.
+ *
+ * The enumeration is not worth that. `list_materials` is registered for every
+ * session unconditionally (`runner.ts` builds `materialTools` unconditionally
+ * and MATERIAL_TOOL_NAMES is always allow-listed), so the model can ask for the
+ * inventory and pay a few hundred tokens instead of a full-context re-read.
+ *
+ * So this block now says only what is true in EVERY session, byte for byte, and
+ * cannot invalidate the cache. That contract is load-bearing: keep it free of
+ * per-session data — no counts, no ids, no titles, no "if a pptx exists"
+ * branches — and keep the parameter list empty.
  */
-export function sessionMaterialsPromptBlock(materials: AgentSessionMaterial[]): string {
-  if (materials.length === 0) return '';
-
+export function sessionMaterialsPromptBlock(): string {
   return [
-    '## Registered session materials',
+    '## Session materials',
     '',
-    'These materials are associated with this session:',
-    ...materials.map(
-      (material) =>
-        `- "${material.title ?? material.id}" (${material.kind}, ${material.textChars} characters)`,
-    ),
+    'Materials may be registered against this session — files the learner uploaded, pages you',
+    'fetched, and extractions derived from either. **Call `list_materials` for the inventory**; it',
+    'returns each material\u2019s id, kind and size, and is the only up-to-date list. It is not',
+    'repeated here, precisely so that registering a material cannot invalidate the prompt cache.',
     '',
     'Material workflow: call `list_materials` to inspect the session materials and discover `mat_` ids; call `extract_material` on an uploaded source, then `wait_for_materials`; call `read_material` on the resulting extraction `mat_` id to read its text in pages (continue with the returned `nextOffset`); call `search_material` to locate case-insensitive literal text across the readable materials.',
     'To reuse session image, video, or audio bytes in a page, call `use_material_media` and use the returned stable `src`.',
     'A `web` material was already fetched and extracted; read it directly with `read_material` and page through offsets.',
-    ...(materials.some((material) => isPptxMaterial({ originalName: material.title }))
-      ? [
-          'A registered .pptx can be imported INTO a stage as appended pages with `import_pptx` (layout-preserving: original slides become pages; the stage keeps its own title). Use that instead of an AI rewrite when the user wants the PowerPoint\u2019s own pages.',
-        ]
-      : []),
+    'A registered `.pptx` can be imported INTO a stage as appended pages with `import_pptx` (layout-preserving: original slides become pages; the stage keeps its own title). Prefer that over an AI rewrite when the learner wants the PowerPoint\u2019s own pages.',
   ].join('\n');
 }

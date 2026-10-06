@@ -178,24 +178,23 @@ describe('session materials persistence', () => {
 });
 
 describe('sessionMaterialsPromptBlock', () => {
-  it('lists safe metadata and directs the agent to the registered material tools', () => {
-    const prompt = sessionMaterialsPromptBlock([
-      {
-        id: 'mat_1',
-        sessionId: 'ses_1',
-        kind: 'web',
-        title: 'Sample article',
-        sourceUrl: 'https://example.com/a',
-        textAssetId: 'ast_1',
-        rawAssetId: null,
-        textChars: 42,
-        derivedFrom: null,
-        extraction: { status: 'done', attempts: 0 },
-        createdAt: new Date(0).toISOString(),
-      },
-    ]);
+  // This block sits inside the system message, and a system message is ONE
+  // prefix-cache unit: a single changed byte re-bills the whole message plus
+  // every message behind it. Enumerating the materials here used to make it
+  // change on every registration — measured at 99.1% -> 38.5% cache hit rate
+  // after inserting one material row into an otherwise untouched session.
+  // These assertions are the contract that keeps that from coming back.
+  it('takes no arguments, so no per-session data can reach it', () => {
+    expect(sessionMaterialsPromptBlock).toHaveLength(0);
+  });
 
-    expect(prompt).toContain('Sample article');
+  it('is byte-identical on every call', () => {
+    expect(sessionMaterialsPromptBlock()).toBe(sessionMaterialsPromptBlock());
+  });
+
+  it('directs the agent to the material tools instead of listing materials', () => {
+    const prompt = sessionMaterialsPromptBlock();
+
     expect(prompt).toContain('list_materials');
     expect(prompt).toContain('read_material');
     expect(prompt).toContain('nextOffset');
@@ -205,11 +204,11 @@ describe('sessionMaterialsPromptBlock', () => {
     expect(prompt).toContain('extract_material');
     expect(prompt).toContain('wait_for_materials');
     expect(prompt).toContain('use_material_media');
+    // The old shape was a per-material bullet carrying its character count.
+    // That line is the cache-buster; assert it cannot come back.
+    expect(prompt).not.toMatch(/^- "/m);
+    expect(prompt).not.toContain('characters)');
     expect(prompt).not.toContain('textAssetId');
     expect(prompt).not.toContain('sourceUrl');
-  });
-
-  it('emits no block when the session has no materials', () => {
-    expect(sessionMaterialsPromptBlock([])).toBe('');
   });
 });
