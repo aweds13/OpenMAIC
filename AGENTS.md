@@ -154,7 +154,7 @@
 
 ```bash
 cd D:/文档/jelly_ware/program/OpenMAIC
-npx vitest run tests/agent-runtime/          # 主战场（~1100 用例，~55s）
+npx vitest run tests/agent-runtime/          # 主战场（2026-10-07 实测 1255 个用例 / 66s —— **数字会涨，以末尾那行 `Tests N passed` 为准**，别照这里的数掐时间）
 npx tsc --noEmit -p tsconfig.json            # 必须 0 error
 npx eslint <改过的文件>                       # 必须 clean
 ```

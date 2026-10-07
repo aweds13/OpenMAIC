@@ -46,8 +46,15 @@ function forkAddedSources(): string[] | null {
 
 describe('★ AGENTS.md 文件地图与现实对账', () => {
   it('地图里提到的每个源码路径都真的存在（没有悬空条目）', () => {
-    // 只查源码树；跳过通配（`packages/@openmaic/**`）、依赖与运行期数据。
-    const paths = [...AGENTS.matchAll(/`((?:lib|app|components)\/[\w./-]+\.tsx?)`/g)].map((m) => m[1]!);
+    // 跳过通配（`packages/@openmaic/**`）、依赖与运行期数据。
+    // ★ `tests/` 与 `scripts/` 也要查：文档里那些「回归 pin」正是**测试文件路径**
+    //   （"改这个模块时先看这两条"）—— 文件名一改，文档就把人指向不存在的文件。
+    //   这个洞是第 23 轮发现的：原来只匹配 `lib|app|components`。
+    const paths = [
+      ...AGENTS.matchAll(
+        /`((?:lib|app|components|tests|scripts)\/[\w.\/-]+\.(?:ts|tsx|mjs|js))`/g,
+      ),
+    ].map((m) => m[1]!);
     const unique = [...new Set(paths)];
     expect(unique.length, '一个源码路径都没解析到 —— 正则或文档格式变了').toBeGreaterThan(20);
 
