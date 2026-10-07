@@ -46,15 +46,17 @@ describe.skipIf(!live)('foldQuizAttempts against the live runtime store', () => 
 
       const sessionRows = await client.query<{
         id: string;
+        stage_id: string;
         status: QuizFoldSession['status'];
         created_at: Date | string;
       }>(
-        `SELECT id, status, created_at FROM runtime_sessions
+        `SELECT id, stage_id, status, created_at FROM runtime_sessions
           WHERE stage_id = $1 AND kind = 'quizAttempt' ORDER BY created_at`,
         [stageId],
       );
       const sessions: QuizFoldSession[] = sessionRows.rows.map((row) => ({
         id: row.id,
+        stageId: row.stage_id,
         status: row.status,
         createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       }));

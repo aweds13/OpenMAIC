@@ -67,6 +67,11 @@ import {
   resolveBrowseCapability,
 } from './browse-url';
 import { learnerProfilePromptBlock, resolveLearnerProfile } from './learner-profile';
+import {
+  learnerStatePromptBlock,
+  refreshLearnerStateBestEffort,
+  resolveLearnerState,
+} from './learner-state';
 import { buildMcpTools, mcpPromptBlock } from './mcp-tools';
 import { studyModePromptBlock } from './study-mode';
 import { courseDesignPromptBlock } from './course-design';
@@ -1401,6 +1406,14 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // 学习者画像：每次运行重读（改完文件下次会话就生效，不用重启）。
     // 读不到（没配 / 路径错 / 空文件）就是 null —— 不注入，而不是注入一段空的。
     const learnerProfile = resolveLearnerProfile();
+    // 学习状态：**机器写入**的答题状态（哪道题现在错了、哪页没交卷、哪页不必再考）。
+    // 先尽力刷一次（查库 → 折叠 → 写文件），再读文件。
+    // 刷新失败时退回上一次写下的文件，**绝不抛** —— 这是"外部依赖坏了也要能跑"
+    // 的同一条原则（§1.1）。放在这里而不是提示词组装里，是因为它要查库：
+    // 每次运行只跑一次，与 buildMcpTools()/materialsIndex 同一量级。
+    // 有了这一步，「答完题」到「下一次生成看得见」之间不需要任何人手动跑命令。
+    await refreshLearnerStateBestEffort(meta.ownerId);
+    const learnerState = resolveLearnerState();
     // 材料库：agent **自己维护**的文件夹（索引层 + 主题文件）。
     // 它不只是注入 —— 还配套两个写工具，因为清单是产出而不是输入。
     const materialsIndex = resolveMaterialsIndex();
@@ -1628,6 +1641,12 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         materials: sessionMaterialsPromptBlock(),
         roster: ROSTER_TOOLS_PROMPT,
         voice: voiceCloneToolsPrompt(voiceRegistrationEnabled),
+        // ★ 放在**最后**是刻意的：这是全提示词里唯一一块「学习者答一次题就变」的内容。
+        // 前缀缓存按前缀算，它后面没有别的块 ⇒ 变一次只让这一小段重读，前面照旧命中；
+        // 放进中间会让它之后的所有块每次一起失效。
+        // 它也是条件块（没记录时整块不出现），代价与 learnerProfile 同类：只在
+        // 「从没有记录 → 第一次有记录」时翻转一次。见 §1.2。
+        ...(learnerState ? { learnerState: learnerStatePromptBlock(learnerState) } : {}),
     };
     if (process.env.OPENMAIC_DEBUG_PROMPT_FINGERPRINT === '1') {
       try {

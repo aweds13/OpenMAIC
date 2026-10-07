@@ -53,6 +53,15 @@ const PAYLOAD_VERSION = 1;
 /** 折叠需要知道的会话字段 —— `RuntimeSession` 的子集，好让本模块不依赖存储层。 */
 export interface QuizFoldSession {
   id: string;
+  /**
+   * 这一场答题会话属于哪门课。
+   *
+   * ★ **必须有** —— `document_scenes` 的主键是 `(stage_id, id)`，也就是
+   * `scene-p9` 这种 id **只在 stage 内唯一**（本部署实测：`scene-p7`/`p9`/`p12`
+   * 各有 6 个 stage 在用）。只按 `sceneId` 做键会把两门课的同名页面
+   * **合并成一页**，而下游（把题号还原成题干）会取到**另一门课的题干**。
+   */
+  stageId: string;
   status: 'active' | 'completed';
   createdAt: string;
 }
@@ -75,6 +84,8 @@ export interface QuizQuestionState {
 
 /** 一页自检折叠出来的状态。 */
 export interface QuizSceneState {
+  /** 这一页属于哪门课 —— 与 `sceneId` 一起才唯一（见 `QuizFoldSession.stageId`）。 */
+  stageId: string;
   sceneId: string;
   /**
    * 折进这一页的**可读记录条数**。
@@ -125,10 +136,21 @@ export interface FoldQuizAttemptsInput {
 }
 
 interface SceneAccumulator {
+  stageId: string;
   sceneId: string;
   records: { payload: { phase: QuizAttemptPhase; answers: QuizAnswers; results?: QuestionResult[] }; at: string }[];
   sessionIds: Set<string>;
   attemptSessions: number;
+}
+
+/**
+ * 页面身份 = `(stageId, sceneId)`。
+ *
+ * 分隔符用 NUL：stageId 是 `stage-xxxx` 形态，sceneId 是 `scene-pN`，都不会含它，
+ * 所以不存在两个不同身份拼出同一个键的可能。
+ */
+export function sceneKey(stageId: string, sceneId: string): string {
+  return `${stageId}\u0000${sceneId}`;
 }
 
 /** 会话排序 —— 与 `lib/quiz/runtime.ts` 的 `compareSessionCreationOrder` 同口径。 */
@@ -240,12 +262,13 @@ export function foldQuizAttempts(input: FoldQuizAttemptsInput): QuizAttemptFold 
 
   const byScene = new Map<string, SceneAccumulator>();
   const sceneOrder: string[] = [];
-  const sceneFor = (sceneId: string): SceneAccumulator => {
-    let scene = byScene.get(sceneId);
+  const sceneFor = (stageId: string, sceneId: string): SceneAccumulator => {
+    const key = sceneKey(stageId, sceneId);
+    let scene = byScene.get(key);
     if (!scene) {
-      scene = { sceneId, records: [], sessionIds: new Set(), attemptSessions: 0 };
-      byScene.set(sceneId, scene);
-      sceneOrder.push(sceneId);
+      scene = { stageId, sceneId, records: [], sessionIds: new Set(), attemptSessions: 0 };
+      byScene.set(key, scene);
+      sceneOrder.push(key);
     }
     return scene;
   };
@@ -266,7 +289,7 @@ export function foldQuizAttempts(input: FoldQuizAttemptsInput): QuizAttemptFold 
       continue;
     }
 
-    const scene = sceneFor(anchor);
+    const scene = sceneFor(session.stageId, anchor);
     let touched = false;
     let reachedSubmit = false;
 
@@ -295,8 +318,8 @@ export function foldQuizAttempts(input: FoldQuizAttemptsInput): QuizAttemptFold 
     if (reachedSubmit) scene.attemptSessions += 1;
   }
 
-  const scenes = sceneOrder.map((sceneId) => {
-    const scene = byScene.get(sceneId)!;
+  const scenes = sceneOrder.map((key) => {
+    const scene = byScene.get(key)!;
     const newest = scene.records.at(-1)!;
     const newestReviewed = [...scene.records]
       .reverse()
@@ -325,7 +348,8 @@ export function foldQuizAttempts(input: FoldQuizAttemptsInput): QuizAttemptFold 
     );
 
     return {
-      sceneId,
+      stageId: scene.stageId,
+      sceneId: scene.sceneId,
       records: scene.records.length,
       sessions: scene.sessionIds.size,
       attempts: scene.attemptSessions,
@@ -347,7 +371,17 @@ export function foldQuizAttempts(input: FoldQuizAttemptsInput): QuizAttemptFold 
   return { scenes, skipped };
 }
 
-/** 取一页的状态 —— 调用方最常用的那一步，省掉每次自己 find。 */
-export function sceneStateOf(fold: QuizAttemptFold, sceneId: string): QuizSceneState | undefined {
-  return fold.scenes.find((scene) => scene.sceneId === sceneId);
+/**
+ * 取一页的状态。
+ *
+ * **两个参数都要** —— 只给 `sceneId` 是不安全的：`document_scenes` 的主键是
+ * `(stage_id, id)`，同名 sceneId 可以出现在多门课里。要求 stageId 是为了让
+ * "取错课的那一页"在编译期就不可能，而不是靠调用方记得传。
+ */
+export function sceneStateOf(
+  fold: QuizAttemptFold,
+  stageId: string,
+  sceneId: string,
+): QuizSceneState | undefined {
+  return fold.scenes.find((scene) => scene.stageId === stageId && scene.sceneId === sceneId);
 }

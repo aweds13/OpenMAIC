@@ -9,6 +9,9 @@ import {
 } from '@/lib/quiz/attempt-fold';
 import type { QuestionResult } from '@/lib/quiz/grading';
 
+/** 默认 stage。页面 id 只在 stage 内唯一，所以测试也得带上课。 */
+const STAGE = 'stage-a';
+
 const T0 = '2026-10-07T02:00:00.000Z';
 const T1 = '2026-10-07T03:00:00.000Z';
 /** One second after T1 — the retry's first record. */
@@ -37,8 +40,9 @@ function session(
   id: string,
   createdAt: string,
   status: QuizFoldSession['status'] = 'completed',
+  stageId: string = STAGE,
 ): QuizFoldSession {
-  return { id, createdAt, status };
+  return { id, stageId, createdAt, status };
 }
 
 function phasePayload(
@@ -492,8 +496,42 @@ describe('foldQuizAttempts', () => {
     });
 
     expect(result.scenes.map((scene) => scene.sceneId)).toEqual(['scene-p12', 'scene-p7']);
-    expect(sceneStateOf(result, 'scene-p7')?.incorrectNow).toEqual(['q1']);
-    expect(sceneStateOf(result, 'scene-p12')?.incorrectNow).toEqual([]);
-    expect(sceneStateOf(result, 'missing')).toBeUndefined();
+    expect(sceneStateOf(result, STAGE, 'scene-p7')?.incorrectNow).toEqual(['q1']);
+    expect(sceneStateOf(result, STAGE, 'scene-p12')?.incorrectNow).toEqual([]);
+    expect(sceneStateOf(result, STAGE, 'missing')).toBeUndefined();
+  });
+
+  it('keeps same-named pages in different courses apart', () => {
+    // 回归 pin：`document_scenes` 的主键是 (stage_id, id)，所以 `scene-p9` 可以在
+    // 多门课里同时存在（本部署实测 6 个 stage 在用）。只按 sceneId 做键会把两门课
+    // 的同名页**合并成一页**，下游取题干时就会拿到另一门课的那道题。
+    const result = fold({
+      sessions: [
+        session('s-a', T0, 'completed', 'stage-a'),
+        session('s-b', T1, 'completed', 'stage-b'),
+      ],
+      records: [
+        record({
+          id: 'a1',
+          sessionId: 's-a',
+          seq: 0,
+          sceneId: 'scene-p9',
+          payload: phasePayload('reviewed', { q1: 'B' }, [graded('q1', false, 0)]),
+        }),
+        record({
+          id: 'b1',
+          sessionId: 's-b',
+          seq: 0,
+          sceneId: 'scene-p9',
+          createdAt: T2,
+          payload: phasePayload('reviewed', { q1: 'A' }, [graded('q1', true, 10)]),
+        }),
+      ],
+    });
+
+    expect(result.scenes).toHaveLength(2);
+    expect(result.scenes.map((scene) => scene.stageId)).toEqual(['stage-a', 'stage-b']);
+    expect(sceneStateOf(result, 'stage-a', 'scene-p9')?.incorrectNow).toEqual(['q1']);
+    expect(sceneStateOf(result, 'stage-b', 'scene-p9')?.incorrectNow).toEqual([]);
   });
 });

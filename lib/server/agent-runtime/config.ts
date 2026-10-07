@@ -104,6 +104,16 @@ export const agentRuntimeConfig = {
    */
   learnerProfilePath: process.env.OPENMAIC_LEARNER_PROFILE_PATH?.trim() || undefined,
   /**
+   * 学习状态（机器写入的答题状态），**与画像分开的一个文件**。
+   *
+   * 为什么要分：画像由人写，状态由机器每次整体重写 —— 共用一个文件，一次刷新
+   * 就会抹掉学习者手写的话。分工与生命周期见 `learner-state.ts` 头部。
+   *
+   * 缺省：画像同目录下的 `学习状态.md`（本部署 = `D:/文档/jelly_ware/个人数据/`）。
+   * 所以**不配也能用**；要换地方才配这个。
+   */
+  learnerStatePath: process.env.OPENMAIC_LEARNER_STATE_PATH?.trim() || undefined,
+  /**
    * Optional materials **folder** (not a single file) the agent maintains.
    *
    * 结构：`INDEX.md`（索引层，每次注入）+ 若干个主题文件（如 `dart-flutter.md`）。
