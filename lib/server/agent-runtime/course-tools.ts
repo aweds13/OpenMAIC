@@ -273,7 +273,15 @@ export const COURSE_SYSTEM_PROMPT = [
   "Reply in the user's language unless the user requests another language.",
 ].join('\n');
 
-interface CoursePromptBlocks {
+/**
+ * 提示词块：**接口里的每一个字段都会被渲染**（渲染顺序见 `PROMPT_BLOCK_ORDER`，
+ * 且那条链有编译期完备性检查）。
+ *
+ * ★ **导出它是有用途的，别收回**：`runner.ts` 里那份 `promptBlocks` 对象字面量
+ *   必须**标注**成这个类型，才能让"设了一个接口没声明的键"变成**编译错误**。
+ *   原来它是推断类型的局部变量，多余属性不检查 —— 那正是六个块被静默丢弃的原因。
+ */
+export interface CoursePromptBlocks {
   /** Pi's native `<available_skills>` discovery block. */
   availableSkills?: string;
   /**

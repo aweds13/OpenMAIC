@@ -43,6 +43,7 @@ import {
   untrustedContentPolicyPromptBlock,
 } from './fetch-url';
 import { assembleRunnerTools, buildRunnerCoursePrompt } from './runner-contract';
+import type { CoursePromptBlocks } from './course-tools';
 import { buildMaterialTools } from './material-tools';
 import { buildRosterTools, ROSTER_TOOLS_PROMPT } from './roster-tools';
 import {
@@ -1676,11 +1677,16 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // Hashing each block separately names the culprit instead of guessing:
     // compare consecutive `[prompt-fingerprint]` lines for one session, then
     // match the run against `cacheReadTokens` in data/usage/*.jsonl.
-    const promptBlocks = {
+    // ★ **必须标注类型**：标注之后"设了一个 `CoursePromptBlocks` 没声明的键"
+    //   才是**编译错误**。不标注时它是推断类型的局部变量，多余属性不检查 ——
+    //   那正是 `planFreeze` / `courseAudit` / `scratch` / `practice` / `learnerState`
+    //   五个块被**静默丢弃**的原因（第 13 轮）。
+    //   至此整条链由编译器兜住：runner 设的键 ⊆ 接口 ⊆ PROMPT_BLOCK_ORDER ⊆ 真渲染。
+    const promptBlocks: CoursePromptBlocks = {
       availableSkills: availableSkillsPromptBlock(installedSkills),
         // 技能清单是"有哪些"，这一段是"怎么用它们做选择" —— 让 agent 主动
         // 推荐几个 + 把其余方法类列全，而不是等学习者点名（他不知道有这些）。
-        ...(installedSkills.length ? { skillChoice: skillChoicePromptBlock(installedSkills) } : {}),
+        skillChoice: installedSkills.length ? skillChoicePromptBlock(installedSkills) : undefined,
         // 「听课还是自学」—— 工作台这条路没有那个开关，所以让 agent 问。
         studyMode: studyModePromptBlock(),
         // 与 studyMode 是**正交的两条轴**（输入方式 vs 评估方式），见 assessment-mode.ts 头部。
@@ -1693,19 +1699,19 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // ★ 门槛开着才提它（§1.1：不许提一个不存在的能力）。块本身无参、恒定，
         //   状态走工具结果与拒绝消息，不进系统提示词（§1.2 前缀缓存；
         //   也满足用户那句"避免提示词污染"）。开关由部署配置决定，进程内不翻转。
-        ...(planGateEnabled() ? { planFreeze: planFreezePromptBlock() } : {}),
+        planFreeze: planGateEnabled() ? planFreezePromptBlock() : undefined,
         // 无参、恒定；读数走工具结果。
         courseAudit: courseAuditPromptBlock(),
         // 无参、恒定；条目与状态走工具结果（§1.2）。
         scratch: scratchPromptBlock(Boolean(materialsIndex)),
         practice: practicePromptBlock(),
         curriculum: CURRICULUM_TOOLS_PROMPT,
-        ...(search ? { search: searchPromptBlock() } : {}),
-        ...(courseLibrary ? { courseLibrary: courseLibraryPromptBlock({ hasWebSearch: Boolean(search) }) } : {}),
-        ...(browse ? { browse: browsePromptBlock({ hasWebSearch: Boolean(search) }) } : {}),
-        ...(mcp.names.length ? { mcp: mcpPromptBlock(mcp.names) } : {}),
-        ...(materialsIndex ? { materialsLibrary: materialsIndexPromptBlock(materialsIndex) } : {}),
-        ...(learnerProfile ? { learnerProfile: learnerProfilePromptBlock(learnerProfile) } : {}),
+        search: search ? searchPromptBlock() : undefined,
+        courseLibrary: courseLibrary ? courseLibraryPromptBlock({ hasWebSearch: Boolean(search) }) : undefined,
+        browse: browse ? browsePromptBlock({ hasWebSearch: Boolean(search) }) : undefined,
+        mcp: mcp.names.length ? mcpPromptBlock(mcp.names) : undefined,
+        materialsLibrary: materialsIndex ? materialsIndexPromptBlock(materialsIndex) : undefined,
+        learnerProfile: learnerProfile ? learnerProfilePromptBlock(learnerProfile) : undefined,
         fetch: fetchPromptBlock(),
         untrustedContent: untrustedContentPolicyPromptBlock(),
         // Unconditional and constant: a session-conditional block would flip
@@ -1719,15 +1725,20 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // 放进中间会让它之后的所有块每次一起失效。
         // 它也是条件块（没记录时整块不出现），代价与 learnerProfile 同类：只在
         // 「从没有记录 → 第一次有记录」时翻转一次。见 §1.2。
-        ...(learnerState ? { learnerState: learnerStatePromptBlock(learnerState) } : {}),
+        learnerState: learnerState ? learnerStatePromptBlock(learnerState) : undefined,
     };
     if (process.env.OPENMAIC_DEBUG_PROMPT_FINGERPRINT === '1') {
       try {
         const { createHash } = await import('node:crypto');
-        const parts = Object.entries(promptBlocks).map(([name, value]) => {
-          const text = value as string;
-          return `${name}=${createHash('sha256').update(text).digest('hex').slice(0, 8)}/${text.length}`;
-        });
+        // ★ 必须过滤掉 `undefined`：条件块现在写成 `key: cond ? value : undefined`
+        //   （那样每个键才是**直接键**、才受编译期多余属性检查）。
+        //   不过滤的话 `text.length` 会抛，而它在 try/catch 里 ⇒ **指纹静默失效**。
+        const parts = Object.entries(promptBlocks)
+          .filter(([, value]) => Boolean(value))
+          .map(([name, value]) => {
+            const text = value as string;
+            return `${name}=${createHash('sha256').update(text).digest('hex').slice(0, 8)}/${text.length}`;
+          });
         console.info(`[prompt-fingerprint] ${id} ${parts.join(' ')}`);
       } catch {
         // Diagnostic only: fingerprinting must never break a run.
