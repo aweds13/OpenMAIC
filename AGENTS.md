@@ -249,7 +249,7 @@ WHERE type='tool_execution_end' AND data->>'toolName'='generate_scene'
 -- 自检页真实题量
 SELECT stage_id||' ord='||scene_order||' q='||
        coalesce(jsonb_array_length(data->'content'->'questions')::text,'?')
-FROM document_scenes WHERE data->>'type'='quiz' ORDER BY 1,2;
+FROM document_scenes WHERE data->>'type'='quiz' ORDER BY 1;   -- ★ 只有一列，ORDER BY 2 会报错
 ```
 
 **中文 SQL 字面量的坑**：`psql.exe` 在 Git Bash 下会把字面量按 GBK 发出去 ⇒
