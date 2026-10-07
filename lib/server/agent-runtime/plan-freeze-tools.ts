@@ -161,6 +161,41 @@ export function buildPlanFreezeTool(
             true,
           );
         }
+        /**
+         * ★ **先挡住会吃掉别的页的那种写**（2026-10-07 修，实测数据丢失）。
+         *
+         * `upsertOutlineEntry` 按 order 认身份 ⇒ 往一个**已被占用**的 order 写，
+         * 就是**覆盖**原来那一页的条目，而且**不报错**。而拆页/插页之后页号会顺延，
+         * agent 给新页写的 order 恰好会落在既有条目上 ⇒ 它"补一次、洞往后挪一格"。
+         *
+         * 实测（`stage-GYvpbYB_aN`）：51 页 / 计划只剩 **47 条**，缺 `37, 40, 46, 47`。
+         * agent 把这理解成**工具的容量只有 47 条**，并据此告诉学习者"要再拆页就得先
+         * 重排计划"—— 那是对着我们的 bug 做规划。
+         *
+         * 判据：**同一个 order 上已经有一条标题不同的条目** ⇒ 拒。
+         * （标题相同 = 重写同一页的 brief，那是 `add` 的正常用法，放行。）
+         */
+        const current = outline.outlines ?? [];
+        const clashes = list.filter((entry) => {
+          const existing = current.find((item) => item.order === entry.order);
+          return existing !== undefined && existing.title.trim() !== entry.title.trim();
+        });
+        if (clashes.length > 0) {
+          const detail = clashes
+            .map((entry) => {
+              const existing = current.find((item) => item.order === entry.order);
+              return `第 ${entry.order} 页已被《${existing?.title ?? ''}》占用（你要写的是《${entry.title}》）`;
+            })
+            .join('；');
+          return text(
+            `add 被拒绝：${detail}。**这一写会覆盖掉别的页的条目**，所以没有执行。` +
+              '两条路：① 你要写的是**新的一页** ⇒ 先让页号顺延（`edit_deck` 的插入/重排' +
+              '会同步计划条目），再用空出来的 order 写；' +
+              '② 你要改的是**已经在这一页上的条目** ⇒ 用同样的标题重写（也就是 `add`，会被放行），' +
+              '那表示你确认这一页就是它。',
+            true,
+          );
+        }
         let next = outline;
         for (const entry of list) {
           const result = upsertOutlineEntry(next, {
