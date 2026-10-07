@@ -108,6 +108,8 @@
 | `components/workbench/workspace/BatchDownloadDialog.tsx` | 批量下载对话框（多选 + 进度 + 逐课结果） | 入口在课程标签页工具栏 |
 | `app/api/whoami/route.ts` | 一次性诊断：owner + 课程数 + **运行期开关实际值** | 改 `.env.local` 后先看这里 |
 | `lib/quiz/attempt-fold.ts` | **答题状态折叠器**：把 `runtime_records` 里的 quiz 记录折叠成「这一页学成什么样」。纯函数，形状照 `lib/pbl/v2/runtime/fold.ts` | 见 §7「答题状态早就在库里了」 |
+| `lib/quiz/learner-state.ts` | **状态渲染器**：折叠结果 + 页面内容 → 一段能注入提示词的文本（把题号还原成题干） | 同上 |
+| `lib/server/agent-runtime/learner-state.ts` | 状态文件的**读 / 写 / 刷新**：`refreshLearnerStateFromRuntime()` 离线查库写文件；`resolveLearnerState()` 热路径只读文件 | 见 §7「学习状态文件」 |
 
 **`/api/whoami` 是第一站。** 它回显 `runtime.selfStudyDefault` 等**模块加载时求值**的
 开关 —— "我改了 `.env.local` 怎么没反应"的答案通常是"没重启"，而它会直接告诉你进程
@@ -389,6 +391,39 @@ TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/attempt-fold-live.test.ts
 （CI 无网无库也绿），要真库时一行环境变量**；断言写成"任何部署都成立的不变式"，
 具体读数用 `console.log` 打出来看。`tests/quiz/attempt-fold-live.test.ts` 是范本。
 
+### 6.6 ★ `document_scenes.id` **只在 stage 内唯一** —— 任何按 sceneId 做键的地方都要带上 stage_id
+
+2026-10-07 实测，而且这是**我自己的代码踩的**，所以单列：
+
+```sql
+-- 主键就是复合的
+SELECT pg_get_constraintdef(oid) FROM pg_constraint
+ WHERE conrelid='document_scenes'::regclass AND contype='p';
+--  document_scenes_pkey | PRIMARY KEY (stage_id, id)
+```
+
+而 `scene-p7` / `scene-p9` / `scene-p12` 这种 id **本部署各有 6 个 stage 在用**。
+后果不是"顺序不对"，是**张冠李戴**：
+
+- 折叠器一开始按 `sceneId` 单独做键 ⇒ 两门课的同名页会被**合并成一页**；
+- 内容查询 `WHERE id = ANY(...)` 少了 `stage_id` ⇒ 取到**另一门课的题干**。
+  实测那次：`stage-7tNoR37iqT`（Git/OOP/HTTP 课）的 `scene-p9` 是《OOP 用大白话讲一遍》，
+  但查询匹配到了 `stage--ShZtYAYOj` 的《自检：Dart 语法八道题》——
+  **差一点就把「你错了 Dart 的 async/await」注进一个在学 Git 的人的提示词里。**
+- 单元测试**抓不住**（假 id 都唯一），短读的 live 测试也抓不住（那次记录恰好全在一门课里）。
+  是"折叠结果 + 页面内容"做 join 的那一刻才炸出来的。
+
+**规矩**：
+
+1. 页面身份一律是 `(stageId, sceneId)`；`lib/quiz/attempt-fold.ts` 的 `sceneKey()` 是这个键
+   的唯一实现，别在别处再拼一个。
+2. 折叠器的 `sceneStateOf(fold, stageId, sceneId)` **两个参数都要** —— 让"取错课的那一页"
+   在编译期就不可能（同 §12 的 `readingPage` 必填那条思路）。
+3. 查 `document_scenes` 永远带 `stage_id`；`runtime_sessions` 的 `stage_id` 就是它的来源。
+4. 回归 pin：`tests/quiz/attempt-fold.test.ts`「keeps same-named pages in different courses apart」、
+   `tests/quiz/learner-state.test.ts`「does not borrow another course's question text…」。
+   **改这两个模块时先看这两条。**
+
 ---
 
 ## 7. 已经查清、**不要重新论证**的结论
@@ -412,6 +447,8 @@ TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/attempt-fold-live.test.ts
 | quiz 记录的形状 / 锚定 | `sessionId = quiz-attempt:<stageId>:<sceneId>:<learnerKey>`（重试是 `:retry:N` 子会话）；`payload = {payloadVersion:1, phase, answers, results?}`；`results` 只在 `reviewed` 里有。**一个 quiz 会话只锚一页**（写入器会拒绝第二个 sceneId）—— 所以折叠时锚点从记录本身取，**不要去解析 sessionId 里的编码字段** |
 | 「自检解析引用 A/B/C/D，但选项渲染出来带不带字母？」 | **带。** `components/scene-renderers/quiz-view.tsx:301` 把 `opt.value`（A–Z）渲染成一个圆形徽章，就在选项文字左边。所以解析没有指向空气 —— 这条可以从 Day 1 复盘里划掉 |
 | `components/scene-renderers/quiz-renderer.tsx` 的 "Submit Answers" 是**死按钮** | 该文件只有 83 行，按钮没有 `onClick`、答案只进 `useState`。**真正在用的测验界面是 `quiz-view.tsx`（1119 行）**，它走 `/api/quiz-grade` 判分。要改答题行为，改 `quiz-view.tsx`，别被 `quiz-renderer.tsx` 误导 |
+| **学习状态文件**：`D:\文档\jelly_ware\个人数据\学习状态.md`（与画像同目录，`learnerStatePath()` 从画像路径推） | 机器每次运行**整体重写**，人写的 `学习画像.md` 一个字都不动 —— 这正是分成两个文件的原因。注入位置是 promptBlocks 的**最后一块**（唯一会随答题变化的一块，放最后 ⇒ 只让末尾重读）；时间戳取**最新一条记录时间**而不是"现在"，否则内容每跑一次都变、缓存全废。刷新走 `refreshLearnerStateBestEffort(meta.ownerId)`（runner 开头，失败降级用旧文件）。强制刷一次：`TEST_LOAD_LOCAL_ENV=1 OPENMAIC_LEARNER_STATE_WRITE=1 npx vitest run tests/quiz/learner-state-live.test.ts` |
+| **pyBKT 最新版（1.4.3）在这台机器的系统 python 上跑不起来** —— 而且**我用的就是最新版** | PyPI `info.version` = **1.4.3，2026-08-05 发布**；GitHub CAHLR/pyBKT **281★ MIT**，master 同一天推。它自己的依赖是裸名 `numpy`/`scikit-learn`/`pandas`（**无上界**），于是装上最新的，两处各崩一次：① `import` 就挂 `AttributeError: 'list' object has no attribute 'dtype'`（上游 **issue #58 open**：`fetch_supported_metrics()` 拿 list 调 sklearn 的 `log_loss`，sklearn 1.9 要 ndarray）；② 钉了 sklearn 后 `EM_fit` 挂 `ValueError: setting an array element with a sequence`（**pandas 3** 的兼容问题）。**时间线解释了全部**：pandas 3.0.6 发于 2026-09-17、scikit-learn 1.9.1 发于 2026-09-10，**都比 1.4.3 晚一个多月**。可跑配方（uv 隔离环境钉依赖）**尚未确认** —— 别当它已经能用 |
 
 ---
 
