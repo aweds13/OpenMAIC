@@ -403,7 +403,8 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           []) as SceneOutline[];
         // 三条判据全开：**计划非空 + 已冻结 + 这一页在计划里**。
         // 夹具早就备好了（`document()` 写的冻结文件 + 每页一条 plan 条目），
-        // 强制行为由 tests/agent-runtime/plan-freeze-gate.test.ts 钉住。
+        // 强制行为由 tests/agent-runtime/generation-tools.test.ts 的
+        // 「★ 阶段冻结的门槛」一组钉住（以及 tests/agent-runtime/patch-stage-gates.test.ts 的 patch_stage 侧）。
         const gate = planGate({
           state: await readPlanFreeze(params.stageId),
           entries: planEntries,
