@@ -107,6 +107,7 @@
 | `lib/export/batch-export.ts` | **批量下载**：多门课 → 一个 ZIP（每课一文件夹） | 见 §10 |
 | `components/workbench/workspace/BatchDownloadDialog.tsx` | 批量下载对话框（多选 + 进度 + 逐课结果） | 入口在课程标签页工具栏 |
 | `app/api/whoami/route.ts` | 一次性诊断：owner + 课程数 + **运行期开关实际值** | 改 `.env.local` 后先看这里 |
+| `lib/quiz/attempt-fold.ts` | **答题状态折叠器**：把 `runtime_records` 里的 quiz 记录折叠成「这一页学成什么样」。纯函数，形状照 `lib/pbl/v2/runtime/fold.ts` | 见 §7「答题状态早就在库里了」 |
 
 **`/api/whoami` 是第一站。** 它回显 `runtime.selfStudyDefault` 等**模块加载时求值**的
 开关 —— "我改了 `.env.local` 怎么没反应"的答案通常是"没重启"，而它会直接告诉你进程
@@ -156,6 +157,17 @@ had not hydrated yet」，实测报的都是 `expected 'metaso' to be 'tavily'`�
 `webSearchProviderId: 'metaso'`），而上游那几条用例仍期望 tavily。
 已 A/B 实测：`git checkout -- lib/store/settings.ts` 之后**同样红**。改搜索相关的东西
 之前先知道这件事，别把它们算进自己的账。
+
+**第三条既有的真红**：`tests/quiz/runtime.test.ts` 有 4 条**挂住**（不是慢）——
+`recovers when another tab wins the same session create race without Web Locks`、
+`deduplicates concurrent identical lifecycle writes without Web Locks`、
+`rolls over when another tab completes after this tab observed active`、
+`reuses one active retry for concurrent retry requests across tabs`。
+2026-10-07 实测：`--testTimeout=20000` **仍然全红**（整轮 80.9s = 4 × 20s），
+所以它不是 §3.1 开头那种"并行 5s 抢占"的假红。已 A/B：当时 `git status --short`
+**只有本轮新增的两个 untracked 文件**、`HEAD = d7a5ca4`，且新模块**没有任何
+importer**（`grep -rn "attempt-fold" lib app components tests` 只有它自己的测试）——
+所以与本轮改动无因果。**都是"没有 Web Locks 时的并发路径"，改 quiz 写入之前先看这 4 条。**
 
 **测试是 hermetic 的**：`tests/setup-env.ts` **默认不加载 `.env.local`**。所以你的测试
 不依赖本机配置；要跑真端点才用 `TEST_LOAD_LOCAL_ENV=1`。
@@ -350,6 +362,33 @@ reveal**，因为"reveal everything 不是一种导航"。文件本身我们一�
 （`lib/workbench/workspace-paging.ts`）—— 本部署 7 门课**根本触发不了分页**，
 所以"课程列表要点开下一页"这类抱怨在当前数据量下不成立，别照注释去查分页逻辑。
 
+### 6.5 ★ 想"写个脚本读真数据"时：`@openmaic/dsl` 没有 `require` 条件
+
+2026-10-07 实测（想给 `attempt-fold` 写个读 PG 的小脚本，浪费了两次尝试）：
+
+`node_modules/@openmaic/dsl/package.json` 的 `exports` 只有
+`{".": {"types": "...", "import": "./dist/index.js"}}` —— **没有 `require` 条件**。
+而本仓库的 `package.json` 没有 `"type": "module"`，所以：
+
+- `npx tsx scripts/xxx.ts`（tsx 把它当 **CJS**）→ `require('@openmaic/dsl')`
+  → **`ERR_PACKAGE_PATH_NOT_EXPORTED: No "exports" main defined`**；
+- 改名 `.mts` 让入口变 ESM 也不行：它 `import` 的那个 `.ts` 仍被当 CJS 加载
+  → **`does not provide an export named 'foldQuizAttempts'`**。
+
+`lib/runtime/payload-validators.ts` 里那种「从 `@openmaic/dsl` 取运行时值」的写法
+**只在 Next/Turbopack 和 vitest 下成立**，不要在裸 node 里复刻。
+
+**规矩：要给"读真数据"的代码留可复现入口，别写独立脚本 —— 写成 vitest 用例。**
+
+```bash
+TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/attempt-fold-live.test.ts
+```
+
+模式是仓库自己的（`tests/setup-env.ts` 的注释就是这么写的）：用例用
+`describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')` 守卫 —— **默认 hermetic
+（CI 无网无库也绿），要真库时一行环境变量**；断言写成"任何部署都成立的不变式"，
+具体读数用 `console.log` 打出来看。`tests/quiz/attempt-fold-live.test.ts` 是范本。
+
 ---
 
 ## 7. 已经查清、**不要重新论证**的结论
@@ -369,6 +408,10 @@ reveal**，因为"reveal everything 不是一种导航"。文件本身我们一�
 | 首次中文检索要 8 秒 | bge-m3 冷加载（Ollama 没驻留）；之后 ~0.85s。不是 bug |
 | 开发态首次访问某路由很慢 | Next dev 按需编译。`/api/persistence/documents` 首次 **5.26s** vs 二次 0.03s |
 | 成本大头是 agent 本身 | 单次琐碎工具轮 **22,720** input tokens；长会话到 **291,608**/轮。真正的杠杆是**每门课新开对话** |
+| **答题状态早就在库里了** —— 缺的不是记录，是「折叠」和「回灌」 | 2026-10-07 实测：`runtime_records` 里 quiz 记录覆盖完整生命周期（`draft` 27 / `submitted` 3 / `reviewed` 3，共 33 条、3 个页面）。**库里没有 quiz 表**（`table_name ILIKE '%quiz%'` 零命中）—— 走通用 `runtime_records`，所以折叠层零存储改动。但**没有任何东西**把它折成状态，也没有任何东西读它 |
+| quiz 记录的形状 / 锚定 | `sessionId = quiz-attempt:<stageId>:<sceneId>:<learnerKey>`（重试是 `:retry:N` 子会话）；`payload = {payloadVersion:1, phase, answers, results?}`；`results` 只在 `reviewed` 里有。**一个 quiz 会话只锚一页**（写入器会拒绝第二个 sceneId）—— 所以折叠时锚点从记录本身取，**不要去解析 sessionId 里的编码字段** |
+| 「自检解析引用 A/B/C/D，但选项渲染出来带不带字母？」 | **带。** `components/scene-renderers/quiz-view.tsx:301` 把 `opt.value`（A–Z）渲染成一个圆形徽章，就在选项文字左边。所以解析没有指向空气 —— 这条可以从 Day 1 复盘里划掉 |
+| `components/scene-renderers/quiz-renderer.tsx` 的 "Submit Answers" 是**死按钮** | 该文件只有 83 行，按钮没有 `onClick`、答案只进 `useState`。**真正在用的测验界面是 `quiz-view.tsx`（1119 行）**，它走 `/api/quiz-grade` 判分。要改答题行为，改 `quiz-view.tsx`，别被 `quiz-renderer.tsx` 误导 |
 
 ---
 
