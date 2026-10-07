@@ -425,7 +425,19 @@ describe('★ assembled prompt: every capability combination', () => {
       const offenders = phantomToolNames(options.systemPrompt, allowed);
       if (offenders.length > 0) {
         problems.push(
-          `web=${combo.web} course=${combo.course} browse=${combo.browse} → ${offenders.join(', ')}`,
+          `web=${combo.web} course=${combo.course} browse=${combo.browse} → 提示词点名了：${offenders.join(', ')}`,
+        );
+      }
+
+      // ★ 另一半（§1.1）：注册了却**没放行** = 模型看得见、调不动，而且不报错。
+      //   工具表是 assembleRunnerTools(...) 装的，允许表是**另外手写一遍**的能力清单 ——
+      //   与第 13 轮那个 bug 是同一个形状（一个类型化的包 + 一个手写的消费者）。
+      const blocked = options.tools
+        .map((tool) => tool.name)
+        .filter((name) => !allowed.has(name));
+      if (blocked.length > 0) {
+        problems.push(
+          `web=${combo.web} course=${combo.course} browse=${combo.browse} → 注册了但没放行：${blocked.join(', ')}`,
         );
       }
     }

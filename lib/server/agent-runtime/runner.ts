@@ -34,7 +34,6 @@ import {
 } from './course-tools';
 import {
   buildCurriculumTools,
-  CURRICULUM_ALLOWLIST,
   CURRICULUM_TOOLS_PROMPT,
   probeStageAccess,
 } from './curriculum-tools';
@@ -44,16 +43,15 @@ import {
   untrustedContentPolicyPromptBlock,
 } from './fetch-url';
 import { assembleRunnerTools, buildRunnerCoursePrompt } from './runner-contract';
-import { buildMaterialTools, MATERIAL_TOOL_NAMES } from './material-tools';
-import { buildRosterTools, ROSTER_TOOL_NAMES, ROSTER_TOOLS_PROMPT } from './roster-tools';
+import { buildMaterialTools } from './material-tools';
+import { buildRosterTools, ROSTER_TOOLS_PROMPT } from './roster-tools';
 import {
   buildVoiceCloneTools,
   hasConfiguredVoiceRegistrationCapability,
-  VOICE_CLONE_TOOL_NAMES,
   voiceCloneToolsPrompt,
 } from './voice-clone-tools';
 import type { RegisteredVoiceInfo } from '@/lib/audio/voice-catalog';
-import { buildSkillEditTools, SKILL_EDIT_TOOL_NAMES } from './skill-edit-tools';
+import { buildSkillEditTools } from './skill-edit-tools';
 import { buildWebSearchTool, resolveWebSearchCapability, searchPromptBlock } from './web-search';
 import {
   buildAgentCourseSearchTool,
@@ -74,15 +72,13 @@ import {
 } from './learner-state';
 import { buildMcpTools, mcpPromptBlock } from './mcp-tools';
 import {
-  PLAN_FREEZE_TOOL_NAMES,
   buildPlanFreezeTool,
   planFreezePromptBlock,
 } from './plan-freeze-tools';
 import { planGateEnabled } from './plan-freeze';
-import { AUDIT_TOOL_NAMES, buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
-import { SCRATCH_TOOL_NAMES, buildScratchTool, scratchPromptBlock } from './scratch-tools';
+import { buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
+import { buildScratchTool, scratchPromptBlock } from './scratch-tools';
 import {
-  PRACTICE_TOOL_NAMES,
   buildPracticeScaffoldTool,
   buildPracticeResultTool,
   practicePromptBlock,
@@ -91,7 +87,6 @@ import { studyModePromptBlock } from './study-mode';
 import { assessmentModePromptBlock } from './assessment-mode';
 import { courseDesignPromptBlock } from './course-design';
 import {
-  MATERIALS_TOOL_NAMES,
   buildReadMaterialsTool,
   buildUpdateMaterialsTool,
   materialsIndexPromptBlock,
@@ -139,7 +134,6 @@ import { inventorySlide } from './course-edit/apply';
 import {
   buildPersonalHistoryTools,
   createPersonalHistorySource,
-  PERSONAL_HISTORY_TOOL_NAMES,
 } from './personal-history-tools';
 
 const log = createLogger('AgentRunner');
@@ -148,7 +142,6 @@ const SESSION_WAKEUP_FALLBACK_MS = 5_000;
 const MESSAGE_UPDATE_MIN_INTERVAL_MS = 150;
 
 /** The runner's always-registered tool; additional tools are capability-gated. */
-export const MINIMAL_AGENT_TOOL_NAMES = new Set(['ask_user']);
 
 /**
  * System prompt for a run with the given registered toolset, assembled by
@@ -1745,38 +1738,20 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       systemPrompt: buildRunnerCoursePrompt(promptBlocks),
       model: driver.piModel,
       tools,
-      allowedToolNames: new Set([
-        ...MINIMAL_AGENT_TOOL_NAMES,
-        ...(search ? ['web_search'] : []),
-        // course_search / read_document 同样跟着能力走：注册了工具就必须同时
-        // 放行，否则模型看得见却调不动 —— 比不注册更糟。
-        ...(courseLibrary ? ['course_search', 'read_document'] : []),
-        // browse_url 同理：配了浏览器 sidecar 才注册，注册了就必须放行。
-        ...(browse ? ['browse_url'] : []),
-        // 材料库的读写工具跟着索引一起走：没有索引就没有这一层。
-        ...(materialsIndex ? MATERIALS_TOOL_NAMES : []),
-        // 注册了就必须放行（§1.1），而它只在门槛开着时注册。
-        ...(planGateEnabled() ? PLAN_FREEZE_TOOL_NAMES : []),
-        // 审计与草稿纸都无条件放行（注册了就必须放行，§1.1）。
-        ...AUDIT_TOOL_NAMES,
-        ...SCRATCH_TOOL_NAMES,
-        ...PRACTICE_TOOL_NAMES,
-        // MCP 工具的名单**由服务器自己声明**，所以在运行时才知道 —— 不能写死。
-        ...mcp.names,
-        'create_skill',
-        ...SKILL_EDIT_TOOL_NAMES,
-        ...(skillReadTool ? ['read'] : []),
-        ...MATERIAL_TOOL_NAMES,
-        ...dslTools.map((tool) => tool.name),
-        ...scenePreviewTools.map((tool) => tool.name),
-        ...CURRICULUM_ALLOWLIST,
-        ...ROSTER_TOOL_NAMES,
-        ...PERSONAL_HISTORY_TOOL_NAMES,
-        // register_voice is registered only when the deployment has a voice
-        // registration backend, so the allowlist follows: clip_audio is always
-        // available, register_voice only with a backend.
-        ...(voiceRegistrationEnabled ? VOICE_CLONE_TOOL_NAMES : ['clip_audio']),
-      ]),
+      // ★ 允许表**从真正装出来的工具派生**，不再手写第二遍。
+      //
+      //   原来这里是一份 ~30 行手写的名字镜像，注释里把"注册了就必须放行（§1.1）"
+      //   重复了四遍 —— 那说明它想表达的正是"允许表 = 工具表"，只是靠人保证。
+      //   而"两份清单靠人保证"这次会话已经咬过两回：
+      //     · 材料库：`materialsTools` 由两个 builder 建，允许表却读手写的
+      //       `MATERIALS_TOOL_NAMES`；
+      //     · 第 13 轮同形状的那处（6 个提示词块被静默丢弃）。
+      //   任何一处对不上，模型就"看得见、调不动"，**而且不报错**。
+      //
+      //   派生之后这一整类不可能再发生：工具表里有什么，就放行什么。
+      //   配套判据：runner-course-search-registration 的能力矩阵里逐组合断言
+      //   `tools ⊆ allowedToolNames`（对账成了常驻守卫）。
+      allowedToolNames: new Set(tools.map((tool) => tool.name)),
       ...(plan.kind === 'start' ? {} : { history: modelMessages }),
       afterToolCall: (toolContext) => {
         toolCalls += 1;
