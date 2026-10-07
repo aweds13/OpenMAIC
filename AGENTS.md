@@ -110,6 +110,7 @@
 | `lib/quiz/attempt-fold.ts` | **答题状态折叠器**：把 `runtime_records` 里的 quiz 记录折叠成「这一页学成什么样」。纯函数，形状照 `lib/pbl/v2/runtime/fold.ts` | 见 §7「答题状态早就在库里了」 |
 | `lib/quiz/learner-state.ts` | **状态渲染器**：折叠结果 + 页面内容 → 一段能注入提示词的文本（把题号还原成题干） | 同上 |
 | `lib/server/agent-runtime/learner-state.ts` | 状态文件的**读 / 写 / 刷新**：`refreshLearnerStateFromRuntime()` 离线查库写文件；`resolveLearnerState()` 热路径只读文件 | 见 §7「学习状态文件」 |
+| `lib/quiz/coverage-gap.ts` | **覆盖缺口检查**：这一页题干/选项/解析里的内容块，在它之前所有页里出现过吗。纯函数、可算、不花模型 | 见 §7「覆盖缺口检查」 |
 
 **`/api/whoami` 是第一站。** 它回显 `runtime.selfStudyDefault` 等**模块加载时求值**的
 开关 —— "我改了 `.env.local` 怎么没反应"的答案通常是"没重启"，而它会直接告诉你进程
@@ -449,6 +450,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 | `components/scene-renderers/quiz-renderer.tsx` 的 "Submit Answers" 是**死按钮** | 该文件只有 83 行，按钮没有 `onClick`、答案只进 `useState`。**真正在用的测验界面是 `quiz-view.tsx`（1119 行）**，它走 `/api/quiz-grade` 判分。要改答题行为，改 `quiz-view.tsx`，别被 `quiz-renderer.tsx` 误导 |
 | **学习状态文件**：`D:\文档\jelly_ware\个人数据\学习状态.md`（与画像同目录，`learnerStatePath()` 从画像路径推） | 机器每次运行**整体重写**，人写的 `学习画像.md` 一个字都不动 —— 这正是分成两个文件的原因。注入位置是 promptBlocks 的**最后一块**（唯一会随答题变化的一块，放最后 ⇒ 只让末尾重读）；时间戳取**最新一条记录时间**而不是"现在"，否则内容每跑一次都变、缓存全废。刷新走 `refreshLearnerStateBestEffort(meta.ownerId)`（runner 开头，失败降级用旧文件）。强制刷一次：`TEST_LOAD_LOCAL_ENV=1 OPENMAIC_LEARNER_STATE_WRITE=1 npx vitest run tests/quiz/learner-state-live.test.ts` |
 | **pyBKT 最新版（1.4.3）在这台机器的系统 python 上跑不起来** —— 而且**我用的就是最新版** | PyPI `info.version` = **1.4.3，2026-08-05 发布**；GitHub CAHLR/pyBKT **281★ MIT**，master 同一天推。它自己的依赖是裸名 `numpy`/`scikit-learn`/`pandas`（**无上界**），于是装上最新的，两处各崩一次：① `import` 就挂 `AttributeError: 'list' object has no attribute 'dtype'`（上游 **issue #58 open**：`fetch_supported_metrics()` 拿 list 调 sklearn 的 `log_loss`，sklearn 1.9 要 ndarray）；② 钉了 sklearn 后 `EM_fit` 挂 `ValueError: setting an array element with a sequence`（**pandas 3** 的兼容问题）。**时间线解释了全部**：pandas 3.0.6 发于 2026-09-17、scikit-learn 1.9.1 发于 2026-09-10，**都比 1.4.3 晚一个多月**。可跑配方（uv 隔离环境钉依赖）**尚未确认** —— 别当它已经能用 |
+| **覆盖缺口检查**（`lib/quiz/coverage-gap.ts`）："这道题考的东西前面讲过吗"是**可算的**，但**判据要挑对** | 已接进 `generate_scene` 的写入后诊断（与 `skillScenesAgainstSkill` 并列，**不回滚、不删题**），details 里有 `coverageGapCount` / `coverageGaps` 可被 SQL 读。迭代过程（每一步都是实测逼出来的，别退回上一步）：<br>① **按字符做差集在中文散文上不成立** —— 中文没有词边界，任何改写都产生一长段"新"文字。真实课程 4 个自检页报出 **345 段**，98% 是「的是大小关系而非布尔值）；选项 D」这种措辞碎片。<br>② **改成按"内容块"比**（标点/功能字当分隔符，「和抽象是面向」→「抽象」「面向」）—— 条目可读了，但段数涨到 **559**（块变小变多）。<br>③ **加频率闸 + 已教侧必须含讲解页** → **79 段**（每页 17–26），头部是真术语（`ArrayIndexOutOfBoundsException`/`implements`/`compare`）。<br>**为什么频率闸是必需的**：讲解页和自检页是**各自独立生成**的，措辞必然不同 ⇒ "字面在讲解页出现过吗"对散文**永远为假**。所以判据只能是「**新颖**（没在已教里出现过）＋ **重复**（全课程 ≥2 次）≈ 术语」。<br>★ **一个会让报告失去意义的传参陷阱**：`findCourseCoverageGaps` 必须收到**全部页面**（讲解页也要，`questions` 给空数组）。只传自检页时第一张自检页的"已教 0 字"，满屏都是缺口 —— 实测踩过，报告里能直接看出来。<br>复现报告：`TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/coverage-gap-live.test.ts` |
 
 ---
 
