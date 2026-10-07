@@ -36,6 +36,7 @@ import {
 } from '@/lib/quiz/coverage-gap';
 import { appendToSystemPrompt, buildQuizGrounding } from '@/lib/quiz/quiz-grounding';
 import { upsertOutlineEntry } from './course-outline-write';
+import { checkPlanDependencies, formatPlanIssues } from '@/lib/quiz/plan-check';
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import { mayNameAPoolAsset } from '@/lib/media/media-placeholder';
 import { isMediaPlaceholder } from '@/lib/store/media-generation';
@@ -729,6 +730,17 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           deps.store.saveDocument({ ...afterWrite, outline: outlineUpdate.outline }),
         );
       }
+      /**
+       * T3：**计划期**依赖校验（在页面还没有被任何人读到之前）。
+       *
+       * 看的是计划（每页的 brief / keyPoints），判据是"这一页要考的东西，有没有
+       * 一页讲解排在它前面"。与写入后的 `coverageGaps` 是同一把尺子（`contentChunks`），
+       * 但更早、更便宜。修法**只允许"补"和"挪"** —— 见 `plan-check.ts` 头部。
+       */
+      const planIssues = checkPlanDependencies(
+        ((outlineUpdate.outline ?? afterWrite?.outline) as AppDocumentOutline | undefined)?.outlines ??
+          [],
+      );
       const skillViolations =
         skill && afterWrite ? checkScenesAgainstSkill(afterWrite.scenes, skill.constraints) : [];
       const persisted = afterWrite?.scenes.find((item) => item.id === scene.id) ?? scene;
@@ -783,6 +795,10 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
         }${coverageGaps.length ? `
 
 ${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}` : ''}${
+          planIssues.length ? `
+
+${formatPlanIssues(planIssues)}` : ''
+        }${
           mediaPlaceholders.length
             ? ` ${mediaPlaceholders.length} media placeholder(s) still render as skeletons.`
             : ''
@@ -799,6 +815,9 @@ ${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}` : ''}${
           skill: skill?.id,
           ...(skillViolations.length ? { skillViolations } : {}),
           outlinePersisted: outlineUpdate.changed,
+          ...(planIssues.length
+            ? { planIssueCount: planIssues.length, planIssues: planIssues.map((issue) => issue.kind) }
+            : {}),
           ...(coverageGaps.length
             ? {
                 coverageGapCount: coverageGaps.length,
