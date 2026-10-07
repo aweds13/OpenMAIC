@@ -95,6 +95,7 @@ import {
   buildReadMaterialsTool,
   buildUpdateMaterialsTool,
   materialsIndexPromptBlock,
+  listMaterialTopics,
   resolveMaterialsIndex,
 } from './materials-library';
 import {
@@ -1432,6 +1433,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // 材料库：agent **自己维护**的文件夹（索引层 + 主题文件）。
     // 它不只是注入 —— 还配套两个写工具，因为清单是产出而不是输入。
     const materialsIndex = resolveMaterialsIndex();
+    // promote 要对照**磁盘上真实存在的主题**校验，所以这里解析一次（部署配置，进程内不变）。
+    const materialTopics = listMaterialTopics();
     const materialsTools = materialsIndex
       ? [buildReadMaterialsTool(), buildUpdateMaterialsTool()]
       : [];
@@ -1617,7 +1620,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // materialsEnabled 必须跟着**注册**走，否则没配材料库的部署里 scratch 会让 agent
     // 去调一个不存在的工具（§1.1）。见 scratch-tools.ts 的 deps 注释。
     const scratchTools = [
-      buildScratchTool({ ownerId: meta.ownerId, materialsEnabled: Boolean(materialsIndex) }),
+      buildScratchTool({ ownerId: meta.ownerId, materialTopics: materialTopics }),
     ];
     // 练习脚手架：**无条件注册**。它只写文件（`课程与学习\练习\`），不起进程、不联网，
     // 是"练习真的能在 VS Code 里跑"这条路的入口。

@@ -83,25 +83,46 @@ describe('scratch 工具', () => {
     expect(textOf(dropped)).toContain('已弃');
   });
 
-  it('★ promote refuses without a materialId, and points at the library rule', async () => {
+  it('★ promote refuses without a topic, and explains that topics are the real unit', async () => {
     await call({ action: 'write', text: '要进材料库的' });
     // ★ 这条路的语义只在**配了材料库**时成立（没配库时 promote 直接整体拒绝，见下一组用例）。
     const refuse = (params: Record<string, unknown>) =>
-      buildScratchTool({ ownerId: 'anon:test-owner', materialsEnabled: true }).execute('c', params as never);
+      buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: ['java-basics'] }).execute('c', params as never);
     const refused = await refuse({ action: 'promote', id: 's001' });
     expect((refused as { isError?: boolean }).isError).toBe(true);
     expect(textOf(refused)).toContain('只收用户确认要用的');
-    expect(textOf(refused)).toContain('留在草稿纸上');
+    // 不返回 id 这件事必须写清楚，否则模型会去找一个不存在的东西。
+    expect(textOf(refused)).toContain('不返回任何 id');
+    expect(textOf(refused)).toContain('java-basics');
   });
 
-  it('promote records the pointer once the id is given', async () => {
+  it('★ refuses a topic that does not exist on disk (this WAS the silent path)', async () => {
+    // 原来接受任意 materialId：编一个也会被记下、回话还说"已进材料库" —— 静默说谎。
+    // 而且那个参数**任何工具都不会产生**（update_materials 不返回 id）。
+    await call({ action: 'write', text: '要进材料库的' });
+    const refused = await buildScratchTool({
+      ownerId: 'anon:test-owner',
+      materialTopics: ['java-basics'],
+    }).execute('c', { action: 'promote', id: 's001', topic: '编的主题' } as never);
+    expect((refused as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(refused)).toContain('没有主题');
+    expect(textOf(refused)).toContain('java-basics');
+    expect(textOf(refused)).toContain('指向空气');
+
+    // ★ 而且它**没有**被记成 promoted —— 判据要断"状态真的没变"，
+    //   不能只看回话（回话可以是对的而状态已经写坏）。
+    const index = await call({ action: 'index' });
+    expect(textOf(index)).not.toContain('== 已进材料库');
+  });
+
+  it('★ records the pointer once a REAL topic is given', async () => {
     await call({ action: 'write', text: '要进材料库的' });
     const done = await buildScratchTool({
       ownerId: 'anon:test-owner',
-      materialsEnabled: true,
-    }).execute('c', { action: 'promote', id: 's001', materialId: 'mat_abc' } as never);
+      materialTopics: ['java-basics'],
+    }).execute('c', { action: 'promote', id: 's001', topic: 'java-basics' } as never);
     expect(textOf(done)).toContain('已进材料库');
-    expect(textOf(done)).toContain('mat_abc');
+    expect(textOf(done)).toContain('java-basics');
     expect(textOf(done)).toContain('== 已进材料库');
   });
 
@@ -137,7 +158,7 @@ describe('scratch 工具', () => {
 
 describe('★ 能力注册：没配材料库的部署里，不许提材料库工具（§1.1）', () => {
   it('omits the materials-library tool when there is no library', async () => {
-    const without = buildScratchTool({ ownerId: 'anon:test-owner' });
+    const without = buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: null });
     const description = without.description;
     // 没配材料库 ⇒ 描述里一个字都不许提 update_materials
     expect(description).not.toContain('update_materials');
@@ -158,8 +179,8 @@ describe('★ 能力注册：没配材料库的部署里，不许提材料库工
   });
 
   it('names it when the library is configured', () => {
-    const withLibrary = buildScratchTool({ ownerId: 'anon:test-owner', materialsEnabled: true });
-    const without = buildScratchTool({ ownerId: 'anon:test-owner' });
+    const withLibrary = buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: ['java-basics'] });
+    const without = buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: null });
 
     // `update_materials` 出现在**参数描述**里（promote 的 materialId 那一项），
     // 所以按"整份参数表序列化后查"来断 —— 与排版/嵌套层级无关。

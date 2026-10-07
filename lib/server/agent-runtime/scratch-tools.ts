@@ -155,11 +155,12 @@ function scratchParams(materialsEnabled: boolean) {
       description: 'For `classify`: kept = still relevant; dropped = judged useless.',
     }),
   ),
-  materialId: Type.Optional(
+  topic: Type.Optional(
     Type.String({
       description: materialsEnabled
-        ? 'For `promote`: the id `update_materials` returned. Only pass this **after** the learner ' +
-          'accepted the material — the library rule is "record only what they accepted".'
+        ? 'For `promote`: the **topic file** it went into (`update_materials` writes topic files and ' +
+          'does not return an id — the topic is the only real unit). Must be one that already exists; ' +
+          'only pass this **after** the learner accepted the material.'
         : 'For `promote`: this deployment has no materials library, so nothing can be promoted. ' +
           'Leave the item on the scratchpad.',
     }),
@@ -174,20 +175,30 @@ type ScratchParams = ReturnType<typeof scratchParams>;
 export interface ScratchToolDeps {
   ownerId: string;
   /**
-   * 这个部署**是否配了材料库**。
+   * 材料库里**实际存在的主题**；**没配材料库时 `null`**（`listMaterialTopics()`）。
    *
-   * ★ 为什么必须有这个参数（§1.1）：`update_materials` 是**条件注册**的
+   * ★ 为什么必须传进来（§1.1）：`update_materials` 是**条件注册**的
    *   （`runner.ts`：`materialsIndex ? MATERIALS_TOOL_NAMES : []`）。没配材料库的部署里
    *   它根本不存在，而本工具的**描述**与 promote 的**拒绝消息**原本无条件让它去调它 ——
    *   那就是"提一个不存在的能力"，比不给指引更糟。
+   *
+   * ★ 为什么是**一张表**而不是一个 `materialsEnabled: boolean`：两个标志会漂。
+   *   "配了没有"就是 `topics !== null`，一处判定。
+   *
+   * ★ 为什么校验的是**主题**而不是某个 id：`update_materials` **不返回 id**
+   *   （`details` 只有 `{ topic, mode, created }`），材料库的单位就是主题文件。
+   *   原来那个 `materialId` 参数**任何工具都不会产生** —— 那是让模型去找一个不存在的东西。
    *   跟着部署配置变是允许的（§1.2：进程生命周期内不变），不跟会话状态变。
    */
-  materialsEnabled?: boolean;
+  materialTopics?: readonly string[] | null;
 }
 
 export function buildScratchTool(
   deps: ScratchToolDeps,
 ): AgentTool<ScratchParams, unknown> {
+  const materialsEnabled = deps.materialTopics != null;
+  const knownTopics = deps.materialTopics ?? [];
+
   return {
     name: 'scratch',
     label: 'Scratchpad',
@@ -196,15 +207,15 @@ export function buildScratchTool(
       'what you read (`source`), what you intend to put in the course (`claim`, with the source ids ' +
       'that back it), and loose todos. Then classify each item — that judgement is the point; an ' +
       'unclassified item is an owed decision and is reported back to you. `promote` only records a ' +
-      (deps.materialsEnabled
-        ? 'pointer to a materials-library entry that is **already recorded** (the learner accepted it); ' +
-          'never write to the library from here. '
+      (materialsEnabled
+        ? 'pointer to the **topic file** it was recorded in (the learner accepted it, and you wrote it ' +
+          'with `update_materials`); never write to the library from here. '
         : 'pointer — but **this deployment has no materials library**, so there is nothing to point ' +
           'at: keep such items here and do not claim they were recorded. ') +
       'Candidates you merely found stay on this paper until ' +
       'the learner accepts them — that is exactly what this paper is for. Every item gets a short ' +
       'stable id (s001…), never reused; refer to items by id, never as "that thing I read".',
-    parameters: scratchParams(deps.materialsEnabled ?? false),
+    parameters: scratchParams(materialsEnabled ?? false),
     executionMode: 'sequential',
     async execute(_id: string, params: Static<ScratchParams>) {
       const pad = await readScratchpad(deps.ownerId);
@@ -335,7 +346,7 @@ export function buildScratchTool(
       // promote
       // ★ 没配材料库 ⇒ **直接拒绝**，连 materialId 都不看。
       //   否则会记下一个指向空气的指针，而回话还说"已进材料库" —— 那是静默说谎。
-      if (!deps.materialsEnabled) {
+      if (!materialsEnabled) {
         return {
           content: [
             {
@@ -349,27 +360,46 @@ export function buildScratchTool(
           isError: true,
         };
       }
-      const materialId = (params.materialId ?? '').trim();
-      if (!materialId) {
+      const topicList = knownTopics.length
+        ? knownTopics.map((name) => `\`${name}\``).join('、')
+        : '（材料库里还没有主题文件）';
+      const topic = (params.topic ?? '').trim();
+      if (!topic) {
         return {
           content: [
             {
               type: 'text' as const,
               text:
-                deps.materialsEnabled
-                  ? 'promote 需要 materialId —— 那是 `update_materials` 写完之后返回的 id。' +
-                    '**材料库的规矩是只收用户确认要用的**：所以先把这条给学习者看、等他点头、' +
-                    '写完材料库、拿到 id，再回来 promote 记指针。找不到的话就让它先留在草稿纸上。'
-                  : '**这个部署没有配材料库**，所以 promote 没有落点 —— 这条就留在草稿纸上，' +
-                    '不要声称它已经进了材料库。（材料库是条件注册的：没配就没有那些工具。）',
+                'promote 需要 topic —— **材料库里的单位是主题文件**（`update_materials` 写主题文件，' +
+                '**不返回任何 id**）。现有主题：' +
+                topicList +
+                '。**材料库的规矩是只收用户确认要用的**：先把这条给学习者看、等他点头、' +
+                '用 `update_materials` 写进某个主题，再回来 promote。',
             },
           ],
           details: {},
           isError: true,
         };
       }
-      const next = markScratchPromoted(pad, id, materialId);
-      return renderBack(next, `${id} → 已进材料库（${materialId}）。这张纸上只留指针。`);
+      // ★ 这一步才是把"静默路径"真正关掉：对照**磁盘上真实存在的主题**校验。
+      //   原来接受任意 materialId，编一个也会被记下、回话还说"已进材料库"。
+      if (!knownTopics.includes(topic)) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text:
+                `材料库里没有主题「${topic}」。现有主题：` +
+                topicList +
+                '。先用 `update_materials` 把它写进去，再回来 promote —— 不要记一个指向空气的指针。',
+            },
+          ],
+          details: {},
+          isError: true,
+        };
+      }
+      const next = markScratchPromoted(pad, id, topic);
+      return renderBack(next, `${id} → 已进材料库（主题 ${topic}）。这张纸上只留指针。`);
     },
   };
 }
@@ -395,10 +425,10 @@ export function scratchPromptBlock(materialsEnabled = false): string {
     '  reason the scratchpad exists. An unclassified item is an owed decision and is reported back.',
     ...(materialsEnabled
       ? [
-          '- `scratch { action: "promote", id, materialId }` — **only** records a pointer to a materials',
-          '  entry that already exists; the id comes from `update_materials`, i.e. one the learner',
-          '  accepted. Candidates you merely found stay here until then; never write to the materials',
-          '  library from the scratchpad.',
+          '- `scratch { action: "promote", id, topic }` — **only** records that an item went into an',
+          '  **existing topic file** (write it with `update_materials` first; that tool returns no id,',
+          '  so the topic is the only real reference). Candidates you merely found stay here until then;',
+          '  never write to the materials library from the scratchpad.',
         ]
       : [
           '- There is **no materials library in this deployment** — `promote` has nowhere to point, so',

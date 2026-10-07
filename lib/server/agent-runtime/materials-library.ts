@@ -83,6 +83,20 @@ function listTopics(dir: string): string[] {
  * 为什么要补这一行：`INDEX.md` 是智能体自己维护的，它可能忘了更新索引表。
  * 把磁盘上真实存在的文件列出来，模型就不会"以为"某个主题不存在而重复新建。
  */
+/**
+ * 材料库里**实际存在的主题**（主题文件名去掉 `.md`）；**没配材料库时返回 `null`**。
+ *
+ * ★ 存在的理由（一条实测修正）：`update_materials` 写下的是**主题文件**，它
+ *   **不返回任何 id** —— `details` 只有 `{ topic, mode, created }`。
+ *   所以任何"记一个材料 id 再指过去"的设计都是**空的**：那个 id 从来不存在。
+ *   要引用材料库里的东西，唯一真实的单位就是**主题**。
+ */
+export function listMaterialTopics(): string[] | null {
+  const dir = materialsDir();
+  if (!dir) return null;
+  return listTopics(dir);
+}
+
 export function resolveMaterialsIndex(): string | null {
   const dir = materialsDir();
   if (!dir) return null;
