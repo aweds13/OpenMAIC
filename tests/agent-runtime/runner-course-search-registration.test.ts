@@ -18,7 +18,7 @@
 import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core';
 import { InMemorySessionRepo, Session } from '@earendil-works/pi-agent-core';
 import type { ClaimedAgentSession } from '@openmaic/storage';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   randomUUID: vi.fn(() => 'runner-test-uuid'),
@@ -379,5 +379,59 @@ describe('★ assembled prompt names no unregistered tool', () => {
 
   it('★ with the course library NOT configured (the §1.1 case)', async () => {
     expect(await phantomToolsWithCourseLibrary(false)).toEqual([]);
+  });
+});
+
+/**
+ * ★ 能力**矩阵**：不是"某个配置下干净"，而是"哪种组合下都干净"。
+ *
+ * 为什么要有这一组 —— 上一轮的实测教训：`browse_url` 块里那句"工作顺序第 1 步
+ * `web_search`"只有"**浏览配了、搜索没配**"才现形，而当时的判据只量了
+ * "课程库配/不配"两种配置 ⇒ **它照不到那一处**（是我按配置组合推出来的）。
+ *
+ * 判据只覆盖一个配置，就会漏掉只在那一个配置里不出现的 bug ——
+ * 而"漏掉"这件事本身是静默的：它照样全绿。
+ *
+ * 三个轴各自独立把关一个提示词块：`web_search` / 课程库 / `browse_url`。
+ * 2³ = 8 种组合，每种都过一遍幽灵名判据。
+ */
+describe('★ assembled prompt: every capability combination', () => {
+  const PREV_BROWSE = process.env.OPENMAIC_BROWSE_URL;
+
+  afterEach(() => {
+    if (PREV_BROWSE === undefined) delete process.env.OPENMAIC_BROWSE_URL;
+    else process.env.OPENMAIC_BROWSE_URL = PREV_BROWSE;
+  });
+
+  const COMBOS = [false, true].flatMap((web) =>
+    [false, true].flatMap((course) => [false, true].map((browse) => ({ web, course, browse }))),
+  );
+
+  it('names no unregistered tool in any of the 8 combinations', async () => {
+    const problems: string[] = [];
+
+    for (const combo of COMBOS) {
+      mocks.resolveWebSearchCapability.mockReturnValue(
+        combo.web ? { providerId: 'searxng', apiKey: '', baseUrl: 'https://search.example' } : null,
+      );
+      mocks.resolveCourseSearchCapability.mockReturnValue(
+        combo.course ? { baseUrl: 'http://127.0.0.1:8720' } : null,
+      );
+      if (combo.browse) process.env.OPENMAIC_BROWSE_URL = 'http://127.0.0.1:8730';
+      else delete process.env.OPENMAIC_BROWSE_URL;
+
+      const options = await runToBuildAgent();
+      const allowed = new Set(options.allowedToolNames ?? []);
+      const offenders = phantomToolNames(options.systemPrompt, allowed);
+      if (offenders.length > 0) {
+        problems.push(
+          `web=${combo.web} course=${combo.course} browse=${combo.browse} → ${offenders.join(', ')}`,
+        );
+      }
+    }
+
+    expect(problems, `这些组合里点了没注册的工具：\n${problems.join('\n')}`).toEqual([]);
+    // 8 种组合真的都跑过了（防止循环写错导致"一个都没量"）。
+    expect(COMBOS).toHaveLength(8);
   });
 });
