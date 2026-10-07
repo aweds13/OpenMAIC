@@ -15,6 +15,7 @@ import {
   formatCoverageGaps,
   type CoveragePage,
 } from '@/lib/quiz/coverage-gap';
+import { buildQuizGrounding } from '@/lib/quiz/quiz-grounding';
 
 const live = process.env.TEST_LOAD_LOCAL_ENV === '1' && !!process.env.DATABASE_URL;
 
@@ -116,6 +117,29 @@ describe.skipIf(!live)('coverage gaps against a real course', () => {
         `\nstage ${stageId}：${reports.length} 个自检页，合计缺口 ${totalGaps} 段` +
           reports.join('\n'),
       );
+
+      // 出题**前**注入的那一块有多大 / 长什么样 —— 注入是"拦"，缺口报告是"查"。
+      const firstQuiz = pages.find((page) => page.questions.length > 0);
+      if (firstQuiz) {
+        const grounding = buildQuizGrounding({
+          scenes: pages.map((page) => ({
+            order: page.order,
+            title: page.title,
+            content: page.content,
+          })),
+          beforeOrder: firstQuiz.order,
+        });
+        const terms = (grounding.split('allowed terms) ---')[1] ?? '')
+          .split('=== END QUIZ')[0]
+          .trim()
+          .split('\n')
+          .filter(Boolean);
+        console.log(
+          `\n[注入] 第 ${firstQuiz.order} 页《${firstQuiz.title}》：` +
+            `块 ${grounding.length} 字，词表 ${terms.length} 个，前 12 个：\n  ` +
+            terms.slice(0, 12).join(' / '),
+        );
+      }
 
       expect(reports.length).toBeGreaterThan(0);
     } finally {

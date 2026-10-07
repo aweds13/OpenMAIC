@@ -35,6 +35,7 @@ import {
   taughtTextBefore,
   type AssessedQuestion,
 } from '@/lib/quiz/coverage-gap';
+import { appendToSystemPrompt, buildQuizGrounding } from '@/lib/quiz/quiz-grounding';
 import { mayNameAPoolAsset } from '@/lib/media/media-placeholder';
 import { isMediaPlaceholder } from '@/lib/store/media-generation';
 import { createLogger } from '@/lib/logger';
@@ -572,10 +573,35 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
         imageMapping[id] = src;
       }
       const agents = doc.stage.generatedAgentConfigs;
+      /**
+       * 出题前的注入：把「前面已经讲过什么」告诉自检页生成器。
+       *
+       * 它是**另一次 LLM 调用**，看不到 agent 读过什么、也看不到别的页（见上面
+       * brief 那段注释）。所以通道只有两条：`brief`（agent 写，承载"这一页要什么"，
+       * 含要重考的考点）和这一段（**代码算**，承载"全课程的词表"—— agent 记不住，
+       * 也不该由它记）。见 `lib/quiz/quiz-grounding.ts` 头部。
+       *
+       * 与写入后的 `coverageGaps` 是同一个单位（`contentChunks` 切的块），所以
+       * "允许用的词"和"报出来的缺口"说的是同一件事，判据不会互相漂。
+       */
+      const quizGrounding =
+        params.type === 'quiz'
+          ? buildQuizGrounding({
+              scenes: doc.scenes.map((item) => ({
+                order: item.order,
+                title: item.title,
+                content: item.content,
+              })),
+              beforeOrder: params.order,
+            })
+          : '';
+      const contentAiCall = quizGrounding
+        ? appendToSystemPrompt(aiCallFor(sceneContentStage(params.type)), quizGrounding)
+        : aiCallFor(sceneContentStage(params.type));
       let content: Awaited<ReturnType<typeof generateSceneContent>>;
       let contentFailure: SceneContentFailureCode | undefined;
       try {
-        content = await generateSceneContent(outline, aiCallFor(sceneContentStage(params.type)), {
+        content = await generateSceneContent(outline, contentAiCall, {
           agents,
           languageDirective: doc.stage.languageDirective ?? '',
           allowProceduralSkill: true,

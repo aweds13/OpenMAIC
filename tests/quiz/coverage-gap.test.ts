@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   contentChunks,
   extractTaughtText,
+  stripMarkup,
   findUncoveredTerms,
   formatCoverageGaps,
   taughtTextBefore,
@@ -42,6 +43,31 @@ describe('extractTaughtText', () => {
     // 少收 ⇒ 已教侧变小 ⇒ 更容易报缺口 ⇒ 偏向误报。方向是刻意的。
     const text = extractTaughtText({ somethingNew: '未来才有的字段' });
     expect(text).toBe('');
+  });
+});
+
+describe('stripMarkup', () => {
+  it('strips tags so CSS keywords never become "taught terms"', () => {
+    // 回归 pin：实测 slide 的 content 就是 HTML，不剥会让词表变成
+    // font / style / size / 16px / monospace —— 那块注入比不注入更糟。
+    const html =
+      '<p style="font-size: 32px;"><strong>Java 条件语句</strong></p>' +
+      '<p style="font-size: 16px;">• if (条件) { }</p>';
+    const text = stripMarkup(html);
+    expect(text).toContain('Java 条件语句');
+    expect(text).toContain('if');
+    expect(text).not.toContain('font-size');
+    expect(text).not.toContain('strong');
+    expect(contentChunks(html)).not.toContain('font');
+    expect(contentChunks(html)).not.toContain('16px');
+    expect(contentChunks(html)).not.toContain('monospace');
+  });
+
+  it('leaves plain text alone and drops script/style bodies entirely', () => {
+    expect(stripMarkup('没有标记的一段话')).toBe('没有标记的一段话');
+    const withScript = stripMarkup('<style>p{color:red}</style><p>正文</p>');
+    expect(withScript).toContain('正文');
+    expect(withScript).not.toContain('color');
   });
 });
 

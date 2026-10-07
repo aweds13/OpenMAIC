@@ -87,6 +87,30 @@ const BOILERPLATE = new Set([
 ]);
 
 /**
+ * 剥掉标记，只留可读文字。
+ *
+ * ★ 为什么必须有：`document_scenes` 里 slide 元素的 `content` **就是 HTML** ——
+ *   实测原文形如
+ *   `<p style="font-size: 32px;"><strong>Java 条件语句：和 Python 有什么不同</strong></p>`。
+ *   不剥的话，"已教文本"会把 `font` / `style` / `size` / `16px` / `monospace` /
+ *   `Consolas` 这些 **CSS 关键词**当成讲过的词收进来 —— 实测注入的词表前 12 个
+ *   全是它们，**那块注入比不注入更糟**（等于告诉出题器"允许用的词是 font、style"）。
+ */
+export function stripMarkup(text: string): string {
+  if (!/[<>]/.test(text)) return text;
+  return text
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * 把一段文字切成**内容块**：标点、空白、功能字都是边界。
  *
  * ASCII 部分保留整词（`private` / `getter` / `String`），因为对技术课程来说
@@ -104,7 +128,9 @@ export function contentChunks(text: string): string[] {
     if (/^[\d\p{P}\p{S}]+$/u.test(chunk)) return;
     chunks.push(chunk);
   };
-  for (const char of text) {
+  // 防御性再剥一次：这个函数是**共享单位**，两侧（已教 / 待查）都从这里过 ——
+  // 在入口剥掉标记，比要求每个调用点都记得剥要可靠。
+  for (const char of stripMarkup(text)) {
     if (FUNCTION_CHARS.has(char) || /[\s\p{P}\p{S}]/u.test(char)) {
       flush();
       continue;
@@ -149,7 +175,8 @@ export function extractTaughtText(value: unknown): string {
     if (typeof node === 'string') {
       // `id` / `answer` / `value` / `type` 这类是**结构**（题号、答案字母、类型名），
       // 不是讲过的内容。把它们算进"已教"会让 `A`、`q1` 变成"讲过"，毫无意义。
-      if (key !== undefined && TEXT_FIELDS.has(key)) parts.push(node);
+      // slide 的 content 是 HTML —— 这里必须剥，否则 haystack 里全是 CSS 关键词。
+      if (key !== undefined && TEXT_FIELDS.has(key)) parts.push(stripMarkup(node));
       return;
     }
     if (Array.isArray(node)) {
