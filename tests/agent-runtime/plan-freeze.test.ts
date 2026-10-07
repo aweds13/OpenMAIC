@@ -1,0 +1,137 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  emptyPlanFreeze,
+  formatPlanFreezeStatus,
+  freezePlan,
+  normalizePlanFreeze,
+  planGate,
+  revisePlan,
+  type PlanFreezeState,
+} from '@/lib/server/agent-runtime/plan-freeze';
+import type { SceneOutline } from '@/lib/types/generation';
+
+const T0 = 1_700_000_000_000;
+
+function entry(order: number): SceneOutline {
+  return { id: `p${order}`, order, title: `第 ${order} 页`, type: 'slide' } as SceneOutline;
+}
+
+/** 走一遍正常路径：写计划 → 冻结。 */
+function frozen(entries: SceneOutline[]): PlanFreezeState {
+  return freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entryCount: entries.length }).state;
+}
+
+describe('冻结', () => {
+  it('★ refuses to freeze an empty plan (otherwise the gate is theatre)', () => {
+    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entryCount: 0 });
+    expect(result.state.frozen).toBe(false);
+    expect(result.error).toContain('先把要做的页写进计划');
+  });
+
+  it('freezes a non-empty plan and remembers how many entries there were', () => {
+    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entryCount: 4 });
+    expect(result.error).toBeUndefined();
+    expect(result.state.frozen).toBe(true);
+    expect(result.state.frozenAt).toBe(T0);
+    expect(result.state.frozenEntryCount).toBe(4);
+  });
+});
+
+describe('修订（边做边想与别漂的接缝）', () => {
+  it('allows changing a frozen plan — but demands a reason and leaves a trace', () => {
+    const before = frozen([entry(1), entry(2)]);
+    const noReason = revisePlan(before, { at: T0 + 1, reason: '   ' });
+    expect(noReason.error).toContain('必须写清理由');
+    expect(noReason.state.revision).toBe(0);
+
+    const ok = revisePlan(before, { at: T0 + 1, reason: '第 3 页要拆成两页，学生反馈太快' });
+    expect(ok.error).toBeUndefined();
+    expect(ok.state.revision).toBe(1);
+    expect(ok.state.revisions[0]?.reason).toContain('拆成两页');
+    expect(ok.state.frozen).toBe(true);
+  });
+
+  it('says so when asked to "revise" something that was never frozen', () => {
+    const result = revisePlan(emptyPlanFreeze('stage-a'), { at: T0, reason: '随便' });
+    expect(result.error).toContain('还没冻结');
+  });
+});
+
+describe('★ 生成前的那道门', () => {
+  it('blocks when the plan is empty and says how to fix it', () => {
+    const result = planGate({ state: emptyPlanFreeze('stage-a'), entries: [], order: 1 });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('计划是空的');
+    expect(result.message).toContain('先写计划');
+    // 门槛是给 agent 的执行指令，不是给用户的抱怨。
+    expect(result.message).toContain('generate_scene 被拒绝');
+  });
+
+  it('blocks when the plan exists but is not frozen, and points at ask_user', () => {
+    const entries = [entry(1), entry(2)];
+    const result = planGate({ state: emptyPlanFreeze('stage-a'), entries, order: 1 });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('还没冻结');
+    expect(result.message).toContain('ask_user');
+    expect(result.message).toContain('freeze_plan');
+    // 也必须说清"冻结不等于不许改"，否则 agent 会怕冻结。
+    expect(result.message).toContain('照样可以改');
+  });
+
+  it('blocks a page that has no entry in the plan, and lists what the plan does have', () => {
+    const entries = [entry(1), entry(2)];
+    const result = planGate({ state: frozen(entries), entries, order: 7 });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('计划里没有第 7 页');
+    expect(result.message).toContain('1,2');
+    expect(result.message).toContain('plan_revise');
+  });
+
+  it('lets a planned page through once the plan is frozen', () => {
+    const entries = [entry(1), entry(2)];
+    expect(planGate({ state: frozen(entries), entries, order: 2 })).toEqual({ ok: true });
+  });
+
+  it('★ the page must be IN the plan — freezing alone is not enough', () => {
+    // 这条是 T1（brief 落盘）真正的回报：以前"计划"只是对话里的一句话，
+    // 现在它是可检查的产物，于是"这一页当初为什么做"有了着落。
+    const entries = [entry(1)];
+    expect(planGate({ state: frozen(entries), entries, order: 2 }).ok).toBe(false);
+  });
+});
+
+describe('解析磁盘上的状态', () => {
+  it('repairs garbage instead of throwing', () => {
+    expect(normalizePlanFreeze('s', null).frozen).toBe(false);
+    expect(normalizePlanFreeze('s', { frozen: 'yes' }).frozen).toBe(false);
+    const repaired = normalizePlanFreeze('s', {
+      frozen: true,
+      revisions: [{ at: 1, reason: '有理由' }, { at: 2 }, null, 'x'],
+    });
+    expect(repaired.frozen).toBe(true);
+    expect(repaired.revisions).toEqual([{ at: 1, reason: '有理由' }]);
+  });
+
+  it('keeps the revision counter consistent with the log when it is missing', () => {
+    const state = normalizePlanFreeze('s', { frozen: true, revisions: [{ at: 1, reason: 'a' }] });
+    expect(state.revision).toBe(1);
+  });
+});
+
+describe('状态行', () => {
+  it('says未冻结 when it is not frozen', () => {
+    expect(formatPlanFreezeStatus(emptyPlanFreeze('s'), 3)).toContain('未冻结');
+  });
+
+  it('reports the revision count, and notices drift in the entry count', () => {
+    const state = frozen([entry(1), entry(2)]);
+    expect(formatPlanFreezeStatus(state, 2)).toContain('修订 0 次');
+    expect(formatPlanFreezeStatus(state, 2)).not.toContain('冻结时是');
+    // 冻结之后悄悄加了页 —— 要看得见。
+    expect(formatPlanFreezeStatus(state, 5)).toContain('冻结时是 2 条');
+  });
+});
