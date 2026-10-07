@@ -565,7 +565,7 @@ const FETCH_URL_SCHEMA = Type.Object({
     minLength: 1,
     maxLength: 8_192,
     description:
-      'An HTTP(S) URL already shown by the user or returned by web_search in this session.',
+      'An HTTP(S) URL already shown by the user or returned by a search in this session.',
   }),
 });
 
@@ -593,7 +593,7 @@ export function buildFetchUrlTool(deps: FetchUrlToolDependencies): AgentTool<nev
     name: 'fetch_url',
     label: 'Fetch URL into materials',
     description:
-      "Fetch a URL on an origin already seen in a user message or this session's web_search results, " +
+      "Fetch a URL on an origin already seen in a user message or this session's search results, " +
       'extract its full reusable content into a web material, and return a short first-page preview ' +
       'with the material id. Use it when the user references a specific page or when a search hit ' +
       'needs its full content. The preview is NOT the page — it is the first 2000 characters of a ' +
@@ -605,7 +605,7 @@ export function buildFetchUrlTool(deps: FetchUrlToolDependencies): AgentTool<nev
       if (!(await urlAllowed(deps.sessionId, params.url))) {
         const message =
           'URL is not allowed: this URL is not on an origin previously seen in this session ' +
-          '(from a user message or web_search results). Ask the user to share a direct link, ' +
+          '(from a user message or search results). Ask the user to share a direct link, ' +
           'or run web_search for that domain first.';
         // NOT an error: this is the trust gate refusing a URL on purpose — a
         // normal business answer with the exact remediation (ask the user /

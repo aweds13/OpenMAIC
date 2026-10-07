@@ -57,6 +57,7 @@ import {
   scratchPromptBlock,
 } from '@/lib/server/agent-runtime/scratch-tools';
 import type { SceneOutline } from '@/lib/types/generation';
+import { phantomToolNames, toolLikeTokens } from './_tool-name-tokens';
 
 /** 我自己的模块声明的工具集。 */
 const OWN_TOOLS = new Set<string>([
@@ -88,21 +89,6 @@ function allowedFor(materialsEnabled: boolean): Set<string> {
     ...ALWAYS_ON_UPSTREAM,
     ...(materialsEnabled ? CONDITIONAL_UPSTREAM : []),
   ]);
-}
-
-/**
- * 反引号里、小写开头、**含下划线**的标识符。
- *
- * ★ 前瞻 `(?=[\s`(])` 是必需的：工具名有两种写法 ——
- *   裸的（`` `plan_freeze` ``）和**调用形状**的（`` `practice_scaffold { stageId, … }` ``）。
- *   第一版的正则要求"紧跟反引号"，于是**只抓得到裸的**，漏掉了调用形状的 ——
- *   也就是说它比自己声称的窄。（两处历史 bug 恰好是裸写法，所以还是抓到了，
- *   但那不能拿来证明覆盖面。）
- */
-function toolLikeTokens(text: string): string[] {
-  const found = new Set<string>();
-  for (const match of text.matchAll(/`([a-z][a-z0-9]*_[a-z0-9_]+)(?=[\s`(])/g)) found.add(match[1]!);
-  return [...found];
 }
 
 /** 本 fork 自己的模块产出的、模型能看到的所有文字。 */
@@ -158,9 +144,7 @@ describe('★ 我点名的工具必须真的存在（幽灵工具名 = 把 agent
     const allowed = allowedFor(false);
     const offenders: string[] = [];
     for (const { where, text } of ownTexts(false)) {
-      for (const token of toolLikeTokens(text)) {
-        if (!allowed.has(token)) offenders.push(`${where} → ${token}`);
-      }
+      for (const token of phantomToolNames(text, allowed)) offenders.push(`${where} → ${token}`);
     }
     expect(offenders, `幽灵工具名：\n${offenders.join('\n')}`).toEqual([]);
   });
@@ -169,9 +153,7 @@ describe('★ 我点名的工具必须真的存在（幽灵工具名 = 把 agent
     const allowed = allowedFor(true);
     const offenders: string[] = [];
     for (const { where, text } of ownTexts(true)) {
-      for (const token of toolLikeTokens(text)) {
-        if (!allowed.has(token)) offenders.push(`${where} → ${token}`);
-      }
+      for (const token of phantomToolNames(text, allowed)) offenders.push(`${where} → ${token}`);
     }
     expect(offenders, `幽灵工具名：\n${offenders.join('\n')}`).toEqual([]);
   });

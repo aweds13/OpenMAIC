@@ -112,6 +112,7 @@ vi.mock('@/lib/server/agent-runtime/user-skills', async (importActual) => {
 });
 
 import { runSession } from '@/lib/server/agent-runtime/runner';
+import { phantomToolNames } from './_tool-name-tokens';
 
 const SESSION_ID = 'session-1';
 const WORKER_ID = `runner-t:${process.pid}`;
@@ -348,5 +349,35 @@ describe('browse_url runner registration', () => {
 
     expect(options.tools.map((t) => t.name)).not.toContain('browse_url');
     expect(options.systemPrompt).not.toContain('## Reading the web: look with the browser');
+  });
+});
+
+/**
+ * ★ 幽灵工具名判据，量的是**整份装配出来的提示词**（不只是本 fork 自己的块）。
+ *
+ * 这条补上了 `tool-name-invariant.test.ts` 管不到的那一半：那一条只看我们自己的
+ * 五个提示词块与四个工具；而**上游块也会提到工具名** —— 手册 §1.1 记的历史 bug
+ * 正是这一类（`browse_url` 的描述一度写着"课程目录用 `course_search`"，
+ * 而没配课程库的部署里它根本不存在）。
+ *
+ * ★ 两种能力配置各量一遍：提示词块是**跟着能力走**的，只量一种等于没量分叉。
+ *   这也是"判据要比它声称的宽"那条规矩的直接应用（见结论库）。
+ */
+describe('★ assembled prompt names no unregistered tool', () => {
+  async function phantomToolsWithCourseLibrary(configured: boolean): Promise<string[]> {
+    mocks.resolveCourseSearchCapability.mockReturnValue(
+      configured ? { baseUrl: 'http://127.0.0.1:8720' } : null,
+    );
+    const options = await runToBuildAgent();
+    const allowed = new Set(options.allowedToolNames ?? []);
+    return phantomToolNames(options.systemPrompt, allowed);
+  }
+
+  it('with the course library configured', async () => {
+    expect(await phantomToolsWithCourseLibrary(true)).toEqual([]);
+  });
+
+  it('★ with the course library NOT configured (the §1.1 case)', async () => {
+    expect(await phantomToolsWithCourseLibrary(false)).toEqual([]);
   });
 });

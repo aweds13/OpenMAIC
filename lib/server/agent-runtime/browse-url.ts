@@ -100,7 +100,18 @@ export function buildAgentBrowseUrlTool(capability: BrowseConfig): AgentTool<nev
  *   browse_url 读一遍就完事 —— 内容没落成 material，后面的页面生成引用不到，
  *   等于白读。顺序写清楚，模型才会接着调 fetch_url。
  */
-export function browsePromptBlock(): string {
+/**
+ * browse 块的**能力条件**。
+ *
+ * ★ `hasWebSearch` 必填（§12 同一条思路）：本块由 browse_url 能力单独把关，而
+ *   `web_search` 是**另一个**能力。实测（2026-10-07）：浏览配了、搜索没配时，
+ *   块里的"工作顺序第 1 步"会让模型去调一个不存在的工具。
+ */
+export interface BrowsePromptCapabilities {
+  hasWebSearch: boolean;
+}
+
+export function browsePromptBlock(capabilities: BrowsePromptCapabilities): string {
   return [
     '## Reading the web: look with the browser, keep with fetch_url',
     '',
@@ -116,10 +127,21 @@ export function browsePromptBlock(): string {
     '',
     'So the working order is:',
     '',
-    '1. `web_search` — find which pages exist (a returned URL enters this session\'s trust gate).',
-    '2. `browse_url` — open a candidate and see what is actually on it.',
-    '3. `fetch_url` — once a page is worth keeping, store it; then `read_material` through the',
-    '   stored copy at 8000 characters a page, following `nextOffset` until it stops coming back.',
+    // ★ 只点名真的注册了的能力（§1.1）：`web_search` 是**另一个**能力，
+    //   本块由 browse_url 单独把关 —— 浏览配了、搜索没配时，原来的第 1 步
+    //   会让模型去找一个不存在的工具。
+    ...(capabilities.hasWebSearch
+      ? [
+          "1. `web_search` — find which pages exist (a returned URL enters this session's trust gate).",
+          '2. `browse_url` — open a candidate and see what is actually on it.',
+          '3. `fetch_url` — once a page is worth keeping, store it; then `read_material` through the',
+          '   stored copy at 8000 characters a page, following `nextOffset` until it stops coming back.',
+        ]
+      : [
+          '1. `browse_url` — open a candidate and see what is actually on it.',
+          '2. `fetch_url` — once a page is worth keeping, store it; then `read_material` through the',
+          '   stored copy at 8000 characters a page, following `nextOffset` until it stops coming back.',
+        ]),
     '',
     'Reading a page you browsed but never fetched means you cannot quote it, page through it, or',
     're-read it after the context is compacted. If the content matters, fetch it.',

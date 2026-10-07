@@ -1693,7 +1693,10 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // 与 studyMode 是**正交的两条轴**（输入方式 vs 评估方式），见 assessment-mode.ts 头部。
         assessmentMode: assessmentModePromptBlock(),
         // 审计那几条 SDK 层建议的应用层版本：拆解、贯通、密度、术语、去水话。
-        courseDesign: courseDesignPromptBlock(),
+        courseDesign: courseDesignPromptBlock({
+          hasMaterials: Boolean(materialsIndex),
+          hasCourseLibrary: Boolean(courseLibrary),
+        }),
         // ★ 门槛开着才提它（§1.1：不许提一个不存在的能力）。块本身无参、恒定，
         //   状态走工具结果与拒绝消息，不进系统提示词（§1.2 前缀缓存；
         //   也满足用户那句"避免提示词污染"）。开关由部署配置决定，进程内不翻转。
@@ -1705,8 +1708,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         practice: practicePromptBlock(),
         curriculum: CURRICULUM_TOOLS_PROMPT,
         ...(search ? { search: searchPromptBlock() } : {}),
-        ...(courseLibrary ? { courseLibrary: courseLibraryPromptBlock() } : {}),
-        ...(browse ? { browse: browsePromptBlock() } : {}),
+        ...(courseLibrary ? { courseLibrary: courseLibraryPromptBlock({ hasWebSearch: Boolean(search) }) } : {}),
+        ...(browse ? { browse: browsePromptBlock({ hasWebSearch: Boolean(search) }) } : {}),
         ...(mcp.names.length ? { mcp: mcpPromptBlock(mcp.names) } : {}),
         ...(materialsIndex ? { materialsLibrary: materialsIndexPromptBlock(materialsIndex) } : {}),
         ...(learnerProfile ? { learnerProfile: learnerProfilePromptBlock(learnerProfile) } : {}),

@@ -63,7 +63,7 @@ describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')('工作台提示词审�
 
     const blocks: Record<string, string> = {
       studyMode: studyModePromptBlock(),
-      courseDesign: courseDesignPromptBlock(),
+      courseDesign: courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: true }),
       curriculum: CURRICULUM_TOOLS_PROMPT,
       ...(materialsIndex ? { materialsLibrary: materialsIndexPromptBlock(materialsIndex) } : {}),
       ...(learnerProfile ? { learnerProfile: learnerProfilePromptBlock(learnerProfile) } : {}),

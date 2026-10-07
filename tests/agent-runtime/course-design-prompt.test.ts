@@ -18,7 +18,7 @@ import { courseDesignPromptBlock } from '@/lib/server/agent-runtime/course-desig
 import { PAGE_DENSITY_TARGET } from '@/lib/server/agent-runtime/study-mode';
 
 describe('courseDesignPromptBlock', () => {
-  const block = courseDesignPromptBlock();
+  const block = courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: true });
 
   it('demands at least two layers per knowledge point', () => {
     expect(block).toContain('### Decompose each knowledge point');
@@ -70,5 +70,40 @@ describe('courseDesignPromptBlock', () => {
 
   it('says these belong in the brief, because the generator sees nothing else', () => {
     expect(block).toMatch(/sees \*\*only the brief you write\*\*/);
+  });
+});
+
+/**
+ * ★ 能力条件：只点名**真的注册了**的能力（§1.1）。
+ *
+ * 这一组是实测逼出来的：整份装配提示词的幽灵名判据第一次跑就抓到本块 ——
+ * 它**无条件注入**，却点名了材料库与 `course_search`/`read_document`
+ * 这两个**条件注册**的能力。
+ */
+describe('courseDesignPromptBlock 的能力条件', () => {
+  it('names the local capabilities when they are registered', () => {
+    const block = courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: true });
+    expect(block).toContain('materials library');
+    expect(block).toContain('course_search');
+    expect(block).toContain('read_document');
+  });
+
+  it('★ names neither when neither is registered', () => {
+    const block = courseDesignPromptBlock({ hasMaterials: false, hasCourseLibrary: false });
+    expect(block).not.toContain('course_search');
+    expect(block).not.toContain('read_document');
+    expect(block).not.toContain('materials library');
+    // 但它还得说清"用自己手上的本地材料"，不能因为去掉工具名就整段消失。
+    expect(block).toContain('local material');
+  });
+
+  it('names only the one that is registered', () => {
+    const onlyLibrary = courseDesignPromptBlock({ hasMaterials: false, hasCourseLibrary: true });
+    expect(onlyLibrary).toContain('course_search');
+    expect(onlyLibrary).not.toContain('materials library');
+
+    const onlyMaterials = courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: false });
+    expect(onlyMaterials).toContain('materials library');
+    expect(onlyMaterials).not.toContain('course_search');
   });
 });

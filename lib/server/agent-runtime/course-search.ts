@@ -100,13 +100,37 @@ export function buildAgentReadDocumentTool(
  *   写成"优先本地"会诱导模型用一篇不相干的本地讲义去顶替一个本该联网
  *   查的开源项目 —— 那比查不到更糟，因为看起来像有依据。
  */
-export function courseLibraryPromptBlock(): string {
+/**
+ * 课程库块的**能力条件**。
+ *
+ * ★ `hasWebSearch` 必填（§12 同一条思路）：本块由课程库能力单独把关，而
+ *   `web_search` 是**另一个**能力。实测（2026-10-07）：课程库配了、web search 没配时，
+ *   本块仍然说"You have … and `web_search` for the open web" —— 模型会去找那个不存在的工具。
+ *
+ * ★ 标题**不动**：pin 里断言了它（`## Local library and the web are complementary`），
+ *   而那里恰好是"课程库配了、web search 没配"的配置 —— 改标题会连带破断言，
+ *   且标题只是描述话题，不是让模型去调什么。
+ */
+export interface CourseLibraryCapabilities {
+  hasWebSearch: boolean;
+}
+
+export function courseLibraryPromptBlock(capabilities: CourseLibraryCapabilities): string {
+  const { hasWebSearch } = capabilities;
   return [
     '## Local library and the web are complementary',
     '',
-    'You have `course_search` + `read_document` for the learner\'s LOCAL library, and `web_search`',
-    'for the open web. **They are not alternatives — use whichever the question needs, and use both',
-    'when it needs both.**',
+    ...(hasWebSearch
+      ? [
+          "You have `course_search` + `read_document` for the learner's LOCAL library, and `web_search`",
+          'for the open web. **They are not alternatives — use whichever the question needs, and use both',
+          'when it needs both.**',
+        ]
+      : [
+          "You have `course_search` + `read_document` for the learner's LOCAL library.",
+          '**This deployment has no web search** — work from the local library and your own knowledge,',
+          'and say so when the local library does not cover something.',
+        ]),
     '',
     '**Local library (`course_search`)** — two shelves, picked by `layer`:',
     '',
@@ -124,10 +148,14 @@ export function courseLibraryPromptBlock(): string {
     '',
     'Never treat one chunk as the whole text, and never invent a document id.',
     '',
-    '**`web_search`** — the open web. Reach for it when the material is *not* local and cannot be:',
-    'open-source projects and their repos, well-known free e-books and courses, current releases,',
-    'version-specific behaviour, anything that changed recently. A topic existing in the local',
-    'library does **not** make web search unnecessary — the learner may want the community',
-    'implementation even when a lecture note covers the concept.',
+    ...(hasWebSearch
+      ? [
+          '**`web_search`** — the open web. Reach for it when the material is *not* local and cannot be:',
+          'open-source projects and their repos, well-known free e-books and courses, current releases,',
+          'version-specific behaviour, anything that changed recently. A topic existing in the local',
+          'library does **not** make web search unnecessary — the learner may want the community',
+          'implementation even when a lecture note covers the concept.',
+        ]
+      : []),
   ].join('\n');
 }

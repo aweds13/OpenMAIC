@@ -32,7 +32,24 @@
  */
 import { PAGE_DENSITY_TARGET } from './study-mode';
 
-export function courseDesignPromptBlock(): string {
+/**
+ * 课程设计块的**能力条件**。
+ *
+ * ★ 参数**必填**（不给默认值）是刻意的 —— 与 §12 的 `readingPage` 同一条思路：
+ *   漏传不报错、只会静默地把"用 `course_search`/`read_document` 查已有覆盖"这句话
+ *   还回来，而那正是 §1.1 那个 bug（提示词指名一个没注册的工具）。
+ *   必填之后编译器会挡住每一个漏传的调用点。
+ *
+ * ★ 实测来历（2026-10-07）：`tool-name-invariant` 扩到整份装配提示词之后，
+ *   第一条就抓到本块 —— 它是**无条件注入**的，却点名了两个**条件注册**的能力
+ *   （材料库、课程库）。没配它们的部署里，模型会去找不存在的工具。
+ */
+export interface CourseDesignCapabilities {
+  hasMaterials: boolean;
+  hasCourseLibrary: boolean;
+}
+
+export function courseDesignPromptBlock(capabilities: CourseDesignCapabilities): string {
   return [
     '## Designing the course, not just the pages',
     '',
@@ -86,10 +103,21 @@ export function courseDesignPromptBlock(): string {
     '3. **Say what you borrowed and what you added.** In the brief, name the reference project and',
     '   its URL, and state which parts of the plan follow it and which you adapted for a learner.',
     '   A project plan that silently diverges from the source is indistinguishable from an invented one.',
-    '4. **Use their own materials for the domain content** — the materials library and',
-    '   `course_search`/`read_document` for anything the course already covers. GitHub supplies the',
-    '   *shape* of the work; the local material supplies the *subject matter*. Fill the remaining',
-    '   gap yourself, and say that that is what you did.',
+    '4. **Use their own materials for the domain content** — ' +
+      // ★ 只点名**真的注册了**的能力（§1.1）。这一段原来是无条件写的，
+      //   于是没配课程库/材料库的部署里，模型会去找不存在的工具。
+      [
+        capabilities.hasMaterials && capabilities.hasCourseLibrary
+          ? 'the materials library and `course_search`/`read_document`'
+          : capabilities.hasCourseLibrary
+            ? '`course_search`/`read_document`'
+            : capabilities.hasMaterials
+              ? 'the materials library'
+              : 'whatever local material the learner already has',
+        'for anything the course already covers. GitHub supplies the',
+        '   *shape* of the work; the local material supplies the *subject matter*. Fill the remaining',
+        '   gap yourself, and say that that is what you did.',
+      ].join(' '),
     '5. **If nothing suitable exists or the search fails, say so** and design a smaller honest',
     '   project. Never claim a reference you did not read.',
     '',    '### Say nothing that only a live teacher could say',

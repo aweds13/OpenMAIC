@@ -82,7 +82,7 @@ describe('buildAgentBrowseUrlTool', () => {
 });
 
 describe('browsePromptBlock', () => {
-  const block = browsePromptBlock();
+  const block = browsePromptBlock({ hasWebSearch: true });
 
   it('lays out look-then-keep so the model does not browse and forget to store', () => {
     expect(block).toContain('## Reading the web: look with the browser');
@@ -94,5 +94,28 @@ describe('browsePromptBlock', () => {
 
   it('states the SSRF boundary instead of leaving a refusal unexplained', () => {
     expect(block).toMatch(/private and internal network addresses/);
+  });
+});
+
+/**
+ * ★ 能力条件：只点名真的注册了的能力（§1.1）。
+ *
+ * 实测来历（2026-10-07）：整份装配提示词的幽灵名判据抓到 `web_search` 被点名，
+ * 而那个配置里**没有** web search。本块由 browse_url 单独把关 —— 两个能力是分开的。
+ */
+describe('browsePromptBlock 的能力条件', () => {
+  it('includes the search step when web search is registered', () => {
+    const block = browsePromptBlock({ hasWebSearch: true });
+    expect(block).toContain('web_search');
+    expect(block).toContain('1. `web_search`');
+  });
+
+  it('★ drops the search step (and renumbers) when it is not', () => {
+    const block = browsePromptBlock({ hasWebSearch: false });
+    expect(block).not.toContain('web_search');
+    // 剩下的两步要重新编号，否则"第 1 步"没了、却从第 2 步开始。
+    expect(block).toContain('1. `browse_url`');
+    expect(block).toContain('2. `fetch_url`');
+    expect(block).not.toContain('3. `fetch_url`');
   });
 });
