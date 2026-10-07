@@ -84,6 +84,7 @@ import { SCRATCH_TOOL_NAMES, buildScratchTool, scratchPromptBlock } from './scra
 import {
   PRACTICE_TOOL_NAMES,
   buildPracticeScaffoldTool,
+  buildPracticeResultTool,
   practicePromptBlock,
 } from './practice-tools';
 import { studyModePromptBlock } from './study-mode';
@@ -1615,7 +1616,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     const scratchTools = [buildScratchTool({ ownerId: meta.ownerId })];
     // 练习脚手架：**无条件注册**。它只写文件（`课程与学习\练习\`），不起进程、不联网，
     // 是"练习真的能在 VS Code 里跑"这条路的入口。
-    const practiceTools = [buildPracticeScaffoldTool()];
+    const practiceTools = [buildPracticeScaffoldTool(), buildPracticeResultTool()];
     const tools = assembleRunnerTools(
       [askUserTool],
       auditTools,

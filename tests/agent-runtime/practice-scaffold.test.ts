@@ -14,7 +14,11 @@ import {
   practiceDirName,
   validateSpec,
 } from '@/lib/practice/scaffold';
-import { buildPracticeScaffoldTool, practiceStageDir } from '@/lib/server/agent-runtime/practice-tools';
+import {
+  buildPracticeResultTool,
+  buildPracticeScaffoldTool,
+  practiceStageDir,
+} from '@/lib/server/agent-runtime/practice-tools';
 
 const SPEC = {
   title: '两数之和',
@@ -241,5 +245,65 @@ describe('practice_scaffold 工具', () => {
       checks: [],
     } as never);
     expect((noChecks as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+describe('practice_result（把结果读回来给 agent）', () => {
+  const resultTool = () => buildPracticeResultTool({ root });
+
+  it('★ says plainly that the learner has not run the checks yet', async () => {
+    const scaffold = buildPracticeScaffoldTool({ root });
+    await scaffold.execute('c', { stageId: 'stage-a', order: 3, ...SPEC } as never);
+
+    const read = await resultTool().execute('c', { stageId: 'stage-a', order: 3 } as never);
+    expect((read as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(read)).toContain('还没有跑过判据');
+    expect(textOf(read)).toContain('Ctrl+Shift+B');
+  });
+
+  it('★ reports which checks failed and what to go back and teach', async () => {
+    const scaffold = buildPracticeScaffoldTool({ root });
+    const written = await scaffold.execute('c', { stageId: 'stage-a', order: 3, ...SPEC } as never);
+    const dir = (written as { details: { dir: string } }).details.dir;
+    writeFileSync(
+      join(dir, PRACTICE_RESULT),
+      JSON.stringify({
+        ranAt: '2026-10-07T00:00:00.000Z',
+        total: 2,
+        passed: 1,
+        failed: 1,
+        results: [
+          { name: '输出是 3', ok: true },
+          { name: '处理负数', ok: false, problems: ['输出里没有：-1'] },
+        ],
+      }),
+      'utf8',
+    );
+
+    const read = await resultTool().execute('c', { stageId: 'stage-a', order: 3 } as never);
+    const text = textOf(read);
+    expect(text).toContain('1/2 通过');
+    expect(text).toContain('✓ 输出是 3');
+    expect(text).toContain('✗ 处理负数');
+    expect(text).toContain('输出里没有：-1');
+    // 失败时要说清下一步是"回去讲"，不是重发练习。
+    expect(text).toContain('该讲的东西');
+    // ★ 并且**明说没有进错题本** —— 不许静默地假装回流了。
+    expect(text).toContain('没有进错题本');
+    expect((read as { details: { persistedToRuntimeRecords: boolean } }).details.persistedToRuntimeRecords).toBe(false);
+  });
+
+  it('lists the exercises when a page has more than one, instead of guessing', async () => {
+    const scaffold = buildPracticeScaffoldTool({ root });
+    await scaffold.execute('c', { stageId: 'stage-a', order: 3, ...SPEC } as never);
+    await scaffold.execute('c', {
+      stageId: 'stage-a',
+      order: 3,
+      ...SPEC,
+      title: '另一道',
+    } as never);
+    const read = await resultTool().execute('c', { stageId: 'stage-a', order: 3 } as never);
+    expect((read as { isError?: boolean }).isError).toBe(true);
+    expect(textOf(read)).toContain('请用 title 指定');
   });
 });

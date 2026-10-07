@@ -260,6 +260,7 @@ describe('web_search runner registration', () => {
       'course_audit',
       'scratch',
       'practice_scaffold',
+      'practice_result',
       'web_search',
       'create_skill',
       'read_skill',
@@ -296,7 +297,7 @@ describe('web_search runner registration', () => {
       'search_chats',
       'read_chat',
     ]);
-    expect([...(options.allowedToolNames ?? [])].sort()).toEqual([ 'ask_user', 'clip_audio', 'course_audit', 'create_folder', 'create_skill', 'create_stage', 'duplicate_scene', 'edit_deck', 'extract_material', 'fetch_url', 'generate_actions', 'generate_image', 'generate_scene', 'generate_tts', 'grep_stage', 'import_pptx', 'list_folder_stages', 'list_materials', 'list_scenes', 'list_voices', 'move_to_folder', 'patch_skill', 'patch_stage', 'practice_scaffold', 'read_chat', 'read_classroom', 'read_material', 'read_skill', 'read_stage', 'read_stage_outline', 'rename_stage', 'scratch', 'search_chats', 'search_classrooms', 'search_material', 'set_roster', 'use_material_media', 'wait_for_materials', 'web_search', ]);
+    expect([...(options.allowedToolNames ?? [])].sort()).toEqual([ 'ask_user', 'clip_audio', 'course_audit', 'create_folder', 'create_skill', 'create_stage', 'duplicate_scene', 'edit_deck', 'extract_material', 'fetch_url', 'generate_actions', 'generate_image', 'generate_scene', 'generate_tts', 'grep_stage', 'import_pptx', 'list_folder_stages', 'list_materials', 'list_scenes', 'list_voices', 'move_to_folder', 'patch_skill', 'patch_stage', 'practice_result', 'practice_scaffold', 'read_chat', 'read_classroom', 'read_material', 'read_skill', 'read_stage', 'read_stage_outline', 'rename_stage', 'scratch', 'search_chats', 'search_classrooms', 'search_material', 'set_roster', 'use_material_media', 'wait_for_materials', 'web_search', ]);
     expect(options.systemPrompt).toContain('## Web search');
     expect(options.systemPrompt).toContain('web_search');
     // The material tools are always registered, so their guidance and the
@@ -318,6 +319,7 @@ describe('web_search runner registration', () => {
       'course_audit',
       'scratch',
       'practice_scaffold',
+      'practice_result',
       'create_skill',
       'read_skill',
       'patch_skill',
@@ -353,7 +355,7 @@ describe('web_search runner registration', () => {
       'search_chats',
       'read_chat',
     ]);
-    expect([...(options.allowedToolNames ?? [])].sort()).toEqual([ 'ask_user', 'clip_audio', 'course_audit', 'create_folder', 'create_skill', 'create_stage', 'duplicate_scene', 'edit_deck', 'extract_material', 'fetch_url', 'generate_actions', 'generate_image', 'generate_scene', 'generate_tts', 'grep_stage', 'import_pptx', 'list_folder_stages', 'list_materials', 'list_scenes', 'list_voices', 'move_to_folder', 'patch_skill', 'patch_stage', 'practice_scaffold', 'read_chat', 'read_classroom', 'read_material', 'read_skill', 'read_stage', 'read_stage_outline', 'rename_stage', 'scratch', 'search_chats', 'search_classrooms', 'search_material', 'set_roster', 'use_material_media', 'wait_for_materials', ]);
+    expect([...(options.allowedToolNames ?? [])].sort()).toEqual([ 'ask_user', 'clip_audio', 'course_audit', 'create_folder', 'create_skill', 'create_stage', 'duplicate_scene', 'edit_deck', 'extract_material', 'fetch_url', 'generate_actions', 'generate_image', 'generate_scene', 'generate_tts', 'grep_stage', 'import_pptx', 'list_folder_stages', 'list_materials', 'list_scenes', 'list_voices', 'move_to_folder', 'patch_skill', 'patch_stage', 'practice_result', 'practice_scaffold', 'read_chat', 'read_classroom', 'read_material', 'read_skill', 'read_stage', 'read_stage_outline', 'rename_stage', 'scratch', 'search_chats', 'search_classrooms', 'search_material', 'set_roster', 'use_material_media', 'wait_for_materials', ]);
     expect(options.systemPrompt).not.toContain('web_search');
     expect(options.systemPrompt).not.toContain('## Web search');
     // The always-registered material tools keep their prompt blocks regardless

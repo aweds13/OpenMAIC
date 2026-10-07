@@ -22,7 +22,7 @@
  * 5. **不起进程**：工具只写文件。跑命令是**学习者自己**在 VS Code 里按 Ctrl+Shift+B。
  *    这样 web 服务不需要拿到"执行任意命令"的能力。
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 
@@ -31,13 +31,14 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 import {
   buildScaffold,
+  PRACTICE_RESULT,
   PRACTICE_RUNNER,
   type PracticeCheck,
   type PracticeFile,
   type PracticeLanguage,
 } from '@/lib/practice/scaffold';
 
-export const PRACTICE_TOOL_NAMES = ['practice_scaffold'] as const;
+export const PRACTICE_TOOL_NAMES = ['practice_scaffold', 'practice_result'] as const;
 
 /** 练习根目录。默认按 §6.8 落在 `课程与学习\练习\`。 */
 export function practiceRoot(): string {
@@ -212,6 +213,155 @@ export function buildPracticeScaffoldTool(
   };
 }
 
+const RESULT_PARAMS = Type.Object({
+  stageId: Type.String({ description: 'The course the exercise belongs to.' }),
+  order: Type.Integer({ minimum: 1, description: 'The page the exercise came from.' }),
+  title: Type.Optional(
+    Type.String({
+      description: 'Only needed when several exercises exist for the same page — pass one of the names it lists back.',
+    }),
+  ),
+});
+
+export interface PracticeResultToolDeps {
+  root?: string;
+}
+
+/**
+ * 读回练习结果 —— 这是"两个联动到一起"里**回到 OpenMAIC 的那一半**。
+ *
+ * ── 它做了什么、没做什么（不许含糊）────────────────────────────
+ *
+ * ✅ 读 `result.json`，把哪几条过了、哪几条没过、**原样的失败原因**交回给 agent，
+ *    让它据此调整（重讲那一页 / 换一道更小的练习 / 拆页）。
+ * ❌ **它不写 `runtime_records`** —— 所以**不会**自动进错题本与 `学习状态.md`。
+ *    原因不是懒：测验记录是**浏览器端**写的（`lib/quiz/runtime.ts` 走
+ *    `navigator.locks`），而 `result.json` 是学习者在 VS Code 里跑出来的**磁盘文件**，
+ *    两者是跨端的一跳。硬接需要新端点（= 给 web 服务"接受任意脚本写入"的能力），
+ *    或者给练习记录写一套自己的折叠器。**这两条都是设计决定，不由我替他定。**
+ *    所以这一版把"agent 能看见"做完，并在回话里**明说没写库** —— 静默地假装回流了
+ *    比不回流更糟。
+ */
+export function buildPracticeResultTool(
+  deps: PracticeResultToolDeps = {},
+): AgentTool<typeof RESULT_PARAMS, unknown> {
+  return {
+    name: 'practice_result',
+    label: 'Read back a practice result',
+    description:
+      'Read the `result.json` the learner produced by running the checks in an exercise folder. Tells you ' +
+      'which checks passed, which failed, and the exact failure text — so you can adjust (re-explain that ' +
+      'page, split it, or set a smaller exercise). **It does not write to the error book**: the practice ' +
+      'result stays a file on disk and will not appear in `学习状态.md`. Read it after the learner says ' +
+      'they ran the checks.',
+    parameters: RESULT_PARAMS,
+    executionMode: 'sequential',
+    async execute(_id: string, params: Static<typeof RESULT_PARAMS>) {
+      const root = resolve(deps.root ?? practiceRoot());
+      const stageDir = practiceStageDir(params.stageId, root);
+      const prefix = `${String(params.order).padStart(2, '0')}-`;
+
+      let names: string[];
+      try {
+        names = (await readdir(stageDir, { withFileTypes: true }))
+          .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
+          .map((entry) => entry.name)
+          .sort();
+      } catch {
+        return text(
+          `这一页还没有练习文件夹（${stageDir} 下没有 ${prefix}*）。` +
+            '先用 `practice_scaffold` 生成一个。',
+          true,
+        );
+      }
+
+      if (names.length === 0) {
+        return text(
+          `这一页还没有练习文件夹（${stageDir} 下没有 ${prefix}*）。` +
+            '先用 `practice_scaffold` 生成一个。',
+          true,
+        );
+      }
+
+      const picked = params.title
+        ? names.filter((name) => name === params.title || name.endsWith(`-${params.title}`))
+        : names;
+      if (picked.length === 0) {
+        return text(`这一页下没有叫「${params.title}」的练习。现有：${names.join(' / ')}`, true);
+      }
+      if (picked.length > 1) {
+        return text(
+          `这一页下有 ${picked.length} 个练习，请用 title 指定一个：\n` +
+            names.map((name) => `  · ${name}`).join('\n'),
+          true,
+        );
+      }
+
+      const dir = join(stageDir, picked[0]!);
+      let raw: string;
+      try {
+        raw = await readFile(join(dir, PRACTICE_RESULT), 'utf8');
+      } catch {
+        // ★ 静默的反面：说清"还没跑"，并给出怎么跑。
+        return text(
+          `练习 \`${picked[0]}\` **还没有跑过判据**（没有 ${PRACTICE_RESULT}）。\n` +
+            `让学习者用 VS Code 打开：${dir}\n` +
+            '然后按 **Ctrl+Shift+B**（或跑 `node check.mjs`）。跑完再来读。',
+          true,
+        );
+      }
+
+      let parsed: {
+        total?: number;
+        passed?: number;
+        failed?: number;
+        ranAt?: string;
+        results?: { name?: string; ok?: boolean; problems?: string[] }[];
+      };
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return text(
+          `${PRACTICE_RESULT} 读不出来（不是合法 JSON）。让他重跑一次 \`node check.mjs\`。`,
+          true,
+        );
+      }
+
+      const lines = [
+        `练习 \`${picked[0]}\` 的结果（${parsed.ranAt ?? '时间未知'}）：` +
+          `**${parsed.passed ?? 0}/${parsed.total ?? 0} 通过**`,
+        '',
+        ...(parsed.results ?? []).map((item) =>
+          `  ${item.ok ? '✓' : '✗'} ${item.name ?? '(无名)'}${
+            item.problems?.length ? ` —— ${item.problems.join('；')}` : ''
+          }`,
+        ),
+      ];
+      if ((parsed.failed ?? 0) > 0) {
+        lines.push(
+          '',
+          '★ 没过的那几条就是**下一步该讲的东西** —— 回到对应的讲解页补讲或拆页，' +
+            '不要只是把这条练习重发一遍。',
+          '★ 提醒：这份结果**没有进错题本**（`学习状态.md` 看不到它）。' +
+            '要让它进错题本，得先把"练习结果写库"这条设计定下来。',
+        );
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+        details: {
+          dir,
+          total: parsed.total ?? 0,
+          passed: parsed.passed ?? 0,
+          failed: parsed.failed ?? 0,
+          // ★ 明写这一条，供 SQL / 后续接线判断：练习结果**没有**进 runtime_records。
+          persistedToRuntimeRecords: false,
+        },
+      };
+    },
+  };
+}
+
 /**
  * 系统提示词里的那一句 —— **无参、恒定**（§1.2 前缀缓存）。
  */
@@ -233,5 +383,8 @@ export function practicePromptBlock(): string {
     '  (that deletes the learner\'s own work there — do not pass it casually).',
     '- It does **not** open VS Code and does **not** run anything: it only creates files. Running is',
     '  the learner\'s step, on their own machine, where they can see it happen.',
+    '- After they say they ran the checks, read it back with `practice_result { stageId, order }`.',
+    '  A failing check tells you **what to go back and teach** — do not just re-issue the exercise.',
+    '  That reads a file on disk; it does **not** put the result in the error book (`学习状态.md`).',
   ].join('\n');
 }
