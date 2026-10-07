@@ -282,6 +282,12 @@ interface CoursePromptBlocks {
    * See `skillChoicePromptBlock()` in skills.ts for why.
    */
   skillChoice?: string;
+  /**
+   * 「讲课 / 作业 / 考试」这条**评估方式**轴（与 听课/自学 正交）。
+   * 无参、恒定；模式本身是对话里的事，不进提示词做状态。
+   * 见 `assessment-mode.ts` 头部：它是**姿态不是闸**。
+   */
+  assessmentMode?: string;
   /** Multi-stage workflow guidance (explicit stage ids and folders). */
   curriculum?: string;
   /** Present exactly when the web_search tool is registered. */

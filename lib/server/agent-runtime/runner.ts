@@ -88,6 +88,7 @@ import {
   practicePromptBlock,
 } from './practice-tools';
 import { studyModePromptBlock } from './study-mode';
+import { assessmentModePromptBlock } from './assessment-mode';
 import { courseDesignPromptBlock } from './course-design';
 import {
   MATERIALS_TOOL_NAMES,
@@ -1682,6 +1683,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         ...(installedSkills.length ? { skillChoice: skillChoicePromptBlock(installedSkills) } : {}),
         // 「听课还是自学」—— 工作台这条路没有那个开关，所以让 agent 问。
         studyMode: studyModePromptBlock(),
+        // 与 studyMode 是**正交的两条轴**（输入方式 vs 评估方式），见 assessment-mode.ts 头部。
+        assessmentMode: assessmentModePromptBlock(),
         // 审计那几条 SDK 层建议的应用层版本：拆解、贯通、密度、术语、去水话。
         courseDesign: courseDesignPromptBlock(),
         // ★ 门槛开着才提它（§1.1：不许提一个不存在的能力）。块本身无参、恒定，
