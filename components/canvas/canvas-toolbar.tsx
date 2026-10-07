@@ -15,6 +15,8 @@ import {
   Repeat,
   Maximize2,
   Minimize2,
+  Mouse,
+  MouseOff,
   Quote,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -65,6 +67,22 @@ export interface CanvasToolbarProps {
    * the compiler does it.
    */
   readonly readingPage: boolean;
+  /**
+   * Wheel-turns-the-page switch, shown **only on a reading page** and only when
+   * the caller actually runs a wheel handler (`onToggleWheelPageTurn` present).
+   *
+   * Both conditions matter:
+   *   · On a narrated page the wheel never turns anything, so the toggle would be
+   *     an inert control;
+   *   · the roundtable layout renders this same toolbar but drives pages with its
+   *     own chrome (no `onWheel` on the stage), so a wheel toggle there would be
+   *     a second inert control.
+   *
+   * `undefined` (the roundtable case) counts as "on" — that is the wheel's
+   * behaviour everywhere else, and it keeps this a display-only default.
+   */
+  readonly wheelPageTurn?: boolean;
+  readonly onToggleWheelPageTurn?: () => void;
   readonly playbackSpeed?: number;
   readonly onCycleSpeed?: () => void;
   readonly showElementReference?: boolean;
@@ -131,6 +149,8 @@ export function CanvasToolbar({
   autoPlayLecture,
   onToggleAutoPlay,
   readingPage,
+  wheelPageTurn,
+  onToggleWheelPageTurn,
   playbackSpeed = 1,
   onCycleSpeed,
   showElementReference,
@@ -146,6 +166,8 @@ export function CanvasToolbar({
   // control is not offered: the engine parks on such a page and only moves when
   // the learner does. Navigation stays — that is the whole point.
   const showPlayPause = !isLiveSession && !readingPage;
+  // Absent switch = the wheel behaves as it does everywhere else (it turns).
+  const wheelTurnEnabled = wheelPageTurn !== false;
 
   const whiteboardElementCount = useStageStore(
     (s) => s.stage?.whiteboard?.[0]?.elements?.length || 0,
@@ -422,6 +444,45 @@ export function CanvasToolbar({
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">
                   {autoPlayLecture ? t('roundtable.autoPlayOff') : t('roundtable.autoPlay')}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {/*
+            Wheel-turns-the-page switch — reading pages only, and only where a
+            wheel handler actually exists (see `onToggleWheelPageTurn`).
+
+            为什么需要它：长测验页 / PBL 面板 / 代码块**自己也要上下滚**，而滚轮
+            同时在翻页 —— 用户的原话是「有时课件内部也要上下滑动，有冲突」。
+            `innerScrollConsumesWheel` 让内部滚动优先，这个按钮管剩下的一切：
+            关掉之后滚轮只滚内容，翻页回到按钮 / 方向键。选择**记住**（settings）。
+          */}
+          {onToggleWheelPageTurn && readingPage && (
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onToggleWheelPageTurn}
+                    className={cn(
+                      ctrlBtn,
+                      'w-8 h-6',
+                      wheelTurnEnabled
+                        ? 'text-violet-600 dark:text-violet-400'
+                        : 'text-gray-500 dark:text-gray-400',
+                    )}
+                    aria-label={t('stage.wheelPageTurn')}
+                    aria-pressed={wheelTurnEnabled}
+                  >
+                    {wheelTurnEnabled ? (
+                      <Mouse className="w-3.5 h-3.5" />
+                    ) : (
+                      <MouseOff className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {wheelTurnEnabled ? t('stage.wheelPageTurnOff') : t('stage.wheelPageTurnOn')}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

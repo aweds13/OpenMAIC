@@ -655,7 +655,10 @@
     "exitFullscreen": "Sair da tela cheia",
     "editCourse": "Editar curso",
     "doneEditing": "Concluir edição",
-    "proModeDisabledHint": "A edição não está disponível nesta página — abra um slide do curso para editar no modo Pro."
+    "proModeDisabledHint": "A edição não está disponível nesta página — abra um slide do curso para editar no modo Pro.",
+    "wheelPageTurn": "Rolar para virar a página",
+    "wheelPageTurnOff": "Desativar rolagem para virar página",
+    "wheelPageTurnOn": "Ativar rolagem para virar página"
   },
   "classroomComplete": {
     "title": "Curso concluído",

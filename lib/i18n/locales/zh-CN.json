@@ -244,7 +244,10 @@
     "exitFullscreen": "退出全屏",
     "editCourse": "编辑课程",
     "doneEditing": "完成编辑",
-    "proModeDisabledHint": "本页不支持编辑——打开任意课程页即可使用 Pro 模式编辑。"
+    "proModeDisabledHint": "本页不支持编辑——打开任意课程页即可使用 Pro 模式编辑。",
+    "wheelPageTurn": "滚轮翻页",
+    "wheelPageTurnOff": "关闭滚轮翻页",
+    "wheelPageTurnOn": "开启滚轮翻页"
   },
   "edit": {
     "proMode": "专业模式",

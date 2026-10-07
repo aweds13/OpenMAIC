@@ -242,7 +242,10 @@
     "exitFullscreen": "Quitter le plein écran",
     "editCourse": "Modifier le cours",
     "doneEditing": "Terminer les modifications",
-    "proModeDisabledHint": "L’édition n’est pas disponible sur cette page. Ouvrez une diapositive de cours pour la modifier en mode Pro."
+    "proModeDisabledHint": "L’édition n’est pas disponible sur cette page. Ouvrez une diapositive de cours pour la modifier en mode Pro.",
+    "wheelPageTurn": "Molette pour tourner la page",
+    "wheelPageTurnOff": "Désactiver le changement de page à la molette",
+    "wheelPageTurnOn": "Activer le changement de page à la molette"
   },
   "edit": {
     "proMode": "Pro",

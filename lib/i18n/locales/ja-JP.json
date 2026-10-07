@@ -242,7 +242,10 @@
     "exitFullscreen": "全画面表示を終了",
     "editCourse": "コースを編集",
     "doneEditing": "編集を完了",
-    "proModeDisabledHint": "このページでは編集できません。コースのスライドを開くと Pro モードで編集できます。"
+    "proModeDisabledHint": "このページでは編集できません。コースのスライドを開くと Pro モードで編集できます。",
+    "wheelPageTurn": "ホイールでページ送り",
+    "wheelPageTurnOff": "ホイールのページ送りをオフ",
+    "wheelPageTurnOn": "ホイールのページ送りをオン"
   },
   "edit": {
     "proMode": "プロモード",

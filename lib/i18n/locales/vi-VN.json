@@ -242,7 +242,10 @@
     "exitFullscreen": "Thoát toàn màn hình",
     "editCourse": "Sửa bài học",
     "doneEditing": "Sửa xong",
-    "proModeDisabledHint": "Trang này không sửa được — hãy mở một slide bài học để dùng chế độ Pro."
+    "proModeDisabledHint": "Trang này không sửa được — hãy mở một slide bài học để dùng chế độ Pro.",
+    "wheelPageTurn": "Cuộn chuột để chuyển trang",
+    "wheelPageTurnOff": "Tắt chuyển trang bằng cuộn chuột",
+    "wheelPageTurnOn": "Bật chuyển trang bằng cuộn chuột"
   },
   "edit": {
     "proMode": "Pro",

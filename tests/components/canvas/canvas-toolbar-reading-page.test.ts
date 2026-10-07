@@ -23,7 +23,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { CanvasToolbar } from '@/components/canvas/canvas-toolbar';
 
@@ -35,9 +35,11 @@ vi.mock('@/lib/hooks/use-i18n', () => ({ useI18n: () => ({ t: (key: string) => k
 describe('CanvasToolbar on a reading page', () => {
   let container: HTMLDivElement;
   let root: Root;
+  let onToggleWheel: Mock<() => void>;
 
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    onToggleWheel = vi.fn<() => void>();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -48,7 +50,7 @@ describe('CanvasToolbar on a reading page', () => {
     container.remove();
   });
 
-  async function renderToolbar(readingPage: boolean, withAutoPlay = true) {
+  async function renderToolbar(readingPage: boolean, withAutoPlay = true, wheelPageTurn?: boolean) {
     await act(async () =>
       root.render(
         createElement(CanvasToolbar, {
@@ -60,6 +62,11 @@ describe('CanvasToolbar on a reading page', () => {
           onWhiteboardClose: vi.fn(),
           readingPage,
           ...(withAutoPlay ? { autoPlayLecture: false, onToggleAutoPlay: vi.fn() } : {}),
+          // `undefined` = the roundtable layout, which renders this same toolbar
+          // but has no wheel handler on the stage.
+          ...(wheelPageTurn === undefined
+            ? {}
+            : { wheelPageTurn, onToggleWheelPageTurn: onToggleWheel }),
           onPrevSlide: vi.fn(),
           onNextSlide: vi.fn(),
           onPlayPause: vi.fn(),
@@ -68,8 +75,10 @@ describe('CanvasToolbar on a reading page', () => {
     );
   }
 
-  const playPause = () => container.querySelector('button[aria-label="Play"], button[aria-label="Pause"]');
+  const playPause = () =>
+    container.querySelector('button[aria-label="Play"], button[aria-label="Pause"]');
   const autoPlay = () => container.querySelector('button[aria-label="Auto-play"]');
+  const wheelToggle = () => container.querySelector('button[aria-label="stage.wheelPageTurn"]');
   const navButtons = () =>
     Array.from(container.querySelectorAll('button')).filter((b) => {
       const label = b.getAttribute('aria-label') ?? '';
@@ -96,5 +105,43 @@ describe('CanvasToolbar on a reading page', () => {
     // Whatever the page shows, it must not become un-navigable: the learner
     // moves through a reading course with prev/next, not with play.
     expect(navButtons().length).toBeGreaterThan(0);
+  });
+
+  /**
+   * 滚轮翻页的开关（用户：「滚轮功能可以自己自由在看课时关掉才行」）。
+   *
+   * 这一条必须是**渲染**测试：开关是"传了才出现"的 —— 漏传不会报错，只会
+   * 让用户**找不到关掉它的地方**，而那正是他要的东西。所以这里按 DOM 断言
+   * 按钮在不在、按下去了没。
+   */
+  it('offers the wheel switch on a reading page, and reports it as on/off', async () => {
+    await renderToolbar(true, true, true);
+    expect(wheelToggle()).not.toBeNull();
+    expect(wheelToggle()?.getAttribute('aria-pressed')).toBe('true');
+
+    await renderToolbar(true, true, false);
+    expect(wheelToggle()).not.toBeNull();
+    expect(wheelToggle()?.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('clicking the wheel switch calls back — the learner can turn it off', async () => {
+    await renderToolbar(true, true, true);
+
+    await act(async () => {
+      (wheelToggle() as HTMLButtonElement).click();
+    });
+
+    expect(onToggleWheel).toHaveBeenCalledTimes(1);
+  });
+
+  it('withholds the wheel switch where the wheel turns nothing', async () => {
+    // 有讲稿的页：滚轮从来就不翻页，摆一个开关等于摆一个假控件。
+    await renderToolbar(false, true, true);
+    expect(wheelToggle()).toBeNull();
+
+    // roundtable 布局：它渲染同一个工具栏，但舞台上没有滚轮处理（不传回调）——
+    // 那里摆开关同样是假的。
+    await renderToolbar(true);
+    expect(wheelToggle()).toBeNull();
   });
 });

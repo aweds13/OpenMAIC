@@ -394,6 +394,17 @@ export interface SettingsState {
   ttsMuted: boolean;
   ttsVolume: number; // 0-1, actual volume level
   autoPlayLecture: boolean;
+  /**
+   * Does the wheel turn the page on a **reading page** (a scene with no
+   * actions)?
+   *
+   * 默认开 —— 在阅读页上这是最顺的手势。但课件**自己也会滚**：长测验页
+   * （`quiz-renderer.tsx` 的 `overflow-y-auto`）、PBL 面板、代码块都要上下滚，
+   * 用户的原话就是「有时课件内部也要上下滑动，有冲突」。所以它必须是一个
+   * 用户**当场能关掉**的开关，而且**记住**：关掉之后滚轮只滚内容，翻页回到
+   * 按钮 / 方向键。见 `lib/playback/reading-navigation.ts`。
+   */
+  wheelPageTurn: boolean;
   playbackSpeed: PlaybackSpeed;
 
   // Agent settings
@@ -440,6 +451,7 @@ export interface SettingsState {
   setTTSMuted: (muted: boolean) => void;
   setTTSVolume: (volume: number) => void;
   setAutoPlayLecture: (autoPlay: boolean) => void;
+  setWheelPageTurn: (enabled: boolean) => void;
   setPlaybackSpeed: (speed: PlaybackSpeed) => void;
   setSelectedAgentIds: (ids: string[]) => void;
   setAgentMode: (mode: 'preset' | 'auto') => void;
@@ -1126,6 +1138,7 @@ export const useSettingsStore = create<SettingsState>()(
         ttsMuted: false,
         ttsVolume: 1,
         autoPlayLecture: false,
+        wheelPageTurn: true,
         playbackSpeed: 1,
 
         // Layout preferences
@@ -1340,6 +1353,8 @@ export const useSettingsStore = create<SettingsState>()(
         setTTSVolume: (volume) => set({ ttsVolume: Math.max(0, Math.min(1, volume)) }),
 
         setAutoPlayLecture: (autoPlay) => set({ autoPlayLecture: autoPlay }),
+
+        setWheelPageTurn: (enabled) => set({ wheelPageTurn: enabled }),
 
         setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
 

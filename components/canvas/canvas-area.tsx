@@ -10,7 +10,12 @@ import { Whiteboard } from '@/components/whiteboard';
 import { CanvasToolbar } from '@/components/canvas/canvas-toolbar';
 import type { CanvasToolbarProps } from '@/components/canvas/canvas-toolbar';
 import type { Scene, StageMode } from '@/lib/types/stage';
-import { resolveWheelTurn } from '@/lib/playback/reading-navigation';
+import {
+  canTurnPageOnWheel,
+  innerScrollConsumesWheel,
+  resolveWheelTurn,
+} from '@/lib/playback/reading-navigation';
+import { useSettingsStore } from '@/lib/store';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { ClassroomCompletePageConnected } from '@/components/scene-renderers/classroom-complete';
 import { ContainBox } from '@/components/edit/ContainBox';
@@ -23,8 +28,16 @@ import { SlideElementPickOverlay } from '@/components/canvas/slide-element-pick-
  * CanvasArea takes everything the toolbar takes EXCEPT `readingPage` — it is the
  * component that DERIVES that flag (from `currentScene.actions`), so requiring it
  * as an input would be a lie and would force every caller to duplicate the rule.
+ *
+ * `wheelPageTurn` / `onToggleWheelPageTurn` are omitted for the same reason: the
+ * wheel handler lives in THIS component, so the switch it consults has to be
+ * owned here too. Letting a caller pass them in would mean two places to wire and
+ * one of them certain to drift.
  */
-interface CanvasAreaProps extends Omit<CanvasToolbarProps, 'readingPage'> {
+interface CanvasAreaProps extends Omit<
+  CanvasToolbarProps,
+  'readingPage' | 'wheelPageTurn' | 'onToggleWheelPageTurn'
+> {
   readonly currentScene: Scene | null;
   readonly mode: StageMode;
   readonly hideToolbar?: boolean;
@@ -75,6 +88,16 @@ export function CanvasArea({
 }: CanvasAreaProps) {
   const { t } = useI18n();
   const inWorkbenchPanel = useInWorkbenchPanel();
+  /**
+   * 滚轮翻页是**用户自己的开关**（持久化在 settings 里）。
+   *
+   * 阅读页上滚轮翻页是最顺的手势，但课件**自己也会滚** —— 长测验页
+   * （`quiz-renderer.tsx` 的 `overflow-y-auto`）、PBL 面板、代码块都要上下滑。
+   * 用户的原话是「滚轮功能可以自己自由在看课时关掉才行，因为有时课件内部也要
+   * 上下滑动，有冲突」。所以：开关关掉 ⇒ 滚轮一个字都不管，翻页回到按钮/方向键。
+   */
+  const wheelPageTurn = useSettingsStore((s) => s.wheelPageTurn);
+  const setWheelPageTurn = useSettingsStore((s) => s.setWheelPageTurn);
   const showControls = mode === 'playback' && !whiteboardOpen;
   /**
    * A scene with no actions is a page to READ, not a lecture to play.
@@ -94,12 +117,24 @@ export function CanvasArea({
    * natural "next" gestures are free here and nowhere else. One gesture must
    * equal one page: the wheel is debounced, otherwise a single flick skips
    * several pages at once.
+   *
+   * 但那条前提有例外（见 `wheelPageTurn`），所以滚轮这条手势有两个闸：
+   * 用户的开关，以及"这一滚是不是被页内某个可滚容器吃掉了"。
    */
   const wheelLatchRef = useRef(0);
-  const canTurnPage = showControls && readingPage && !isLiveSession && !isPendingScene;
+  const canTurnPage = canTurnPageOnWheel({
+    showControls,
+    readingPage,
+    isLiveSession: !!isLiveSession,
+    isPendingScene: !!isPendingScene,
+    wheelPageTurn,
+  });
   const handleReadingWheel = useCallback(
     (e: React.WheelEvent) => {
       if (!canTurnPage) return;
+      // 页内还有东西可滚（长测验页、PBL 面板、代码块）⇒ 这一滚归它，
+      // 既不翻页也不阻止默认行为，让它原生滚。滚到头再滚才轮到翻页。
+      if (innerScrollConsumesWheel(e.target, e.deltaY, e.currentTarget)) return;
       const turn = resolveWheelTurn(e.deltaY, wheelLatchRef.current, Date.now());
       if (!turn) return;
       wheelLatchRef.current = Date.now();
@@ -357,6 +392,8 @@ export function CanvasArea({
           onNextSlide={onNextSlide}
           onPlayPause={onPlayPause}
           readingPage={readingPage}
+          wheelPageTurn={wheelPageTurn}
+          onToggleWheelPageTurn={() => setWheelPageTurn(!wheelPageTurn)}
           onWhiteboardClose={onWhiteboardClose}
           isPresenting={isPresenting}
           onTogglePresentation={onTogglePresentation}
