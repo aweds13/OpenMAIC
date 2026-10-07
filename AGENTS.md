@@ -367,7 +367,8 @@ Caused by: 文件存在。(os error 80)   ← 硬杀留下的残留
 ### 6.3 其他
 
 - **改环境变量要重启**：`.env.local` 在进程启动时读。先看 `/api/whoami` 的 `runtime`。
-- **`RUNNING_MAP` 单会话单 worker**：`OPENMAIC_AGENT_RUNTIME_MAX_CONCURRENT=1` 是故意的。
+- **单会话单 worker**：worker 循环的闸是 `ctx.running.size < config.maxConcurrent`（`runner.ts` 的 `runWorker`）。`maxConcurrent` 读 `OPENMAIC_AGENT_RUNTIME_MAX_CONCURRENT`（**代码默认 2，本部署 `.env.local` 刻意设 1**），第一站看 `/api/whoami` 的 `runtime.maxConcurrent`。
+  （2026-10-07：这条原来写的是 `RUNNING_MAP` —— 那个符号**在代码里根本不存在**，照着它去搜会一无所获。）
 - **UI 有两层折叠**：左边栏默认「对话」，课程在折叠的文件夹里 —— 用户说"课程不见了"
   先怀疑这个，再怀疑数据。
 - **`DELETE /api/stages/<id>` 是软删**（`stage_meta.deleted_at`），不是真删。
