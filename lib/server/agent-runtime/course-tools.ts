@@ -353,6 +353,24 @@ interface CoursePromptBlocks {
   roster?: string;
   /** Voice-cloning guidance (clip_audio / register_voice; always registered). */
   voice?: string;
+  /**
+   * 阶段冻结的门槛开着时才出现（`OPENMAIC_PLAN_GATE=1`）。
+   * 见 plan-freeze-tools.ts：门槛关着就不许提它（§1.1）。
+   */
+  planFreeze?: string;
+  /** 修一门**已有**课程之前先审计（`course_audit`；无条件注册）。 */
+  courseAudit?: string;
+  /** 草稿纸（`scratch`；无条件注册）—— agent 的工作记忆。 */
+  scratch?: string;
+  /** 练习脚手架／结果读回（`practice_scaffold` / `practice_result`；无条件注册）。 */
+  practice?: string;
+  /**
+   * ★ **学习者状态**（`learners/学习状态.md`）：学过哪些页、错在哪几题。
+   *
+   * 它是**唯一会随答题变化**的一块 —— 所以渲染顺序上放**最后**：
+   * 前面全是不变量，只有末尾会重读（§1.2 前缀缓存）。
+   */
+  learnerState?: string;
 }
 
 /**
@@ -360,33 +378,80 @@ interface CoursePromptBlocks {
  * actually has. The DSL compatibility block is always present; every other
  * block is included only when the corresponding capability is registered.
  */
+/**
+ * 提示词块的**渲染顺序**。
+ *
+ * ★ 这个数组与 `CoursePromptBlocks` 之间有一条**编译期**完备性检查（见下）：
+ *   往接口里加字段、却忘了加到这里 ⇒ **编译不过**。
+ *
+ * ── 为什么必须有这条检查（一次真事故，2026-10-07）────────────────
+ *
+ * 原渲染函数是**逐个 `if (blocks.X)`** 写的。于是"往 `promptBlocks` 里塞一个键"
+ * 与"真的渲染它"是**两件事**，而前者**不报错**（`promptBlocks` 是推断类型的变量，
+ * 传给函数时不做多余属性检查）。实测有 **6 个块被静默丢弃**：
+ *
+ *   `assessmentMode`（接口声明了，渲染函数没检查）
+ *   `planFreeze` / `courseAudit` / `scratch` / `practice`（连接口都没声明）
+ *   **`learnerState`**（同上）—— 学习状态的内容**从未到达模型**
+ *
+ * 那意味着那几轮写的全部行为指引都是**死代码**：块被构造、被传进来、然后被扔掉。
+ * 改成"顺序表驱动 + 编译期完备"之后，这种漏法在类型层面就不可能了 ——
+ * 与 §12 的 `readingPage` 必填是同一条思路：**让编译器兜，别靠纪律。**
+ */
+const PROMPT_BLOCK_ORDER = [
+  'availableSkills',
+  'skillChoice',
+  // 紧跟在技能之后：它说的是"你选好的教学法要怎么落到页面上"
+  'studyMode',
+  // 与 studyMode **正交**的另一条轴（输入方式 vs 评估方式）
+  'assessmentMode',
+  // 计划先于"每页具体怎么写"：没有计划条目就生成不了页
+  'planFreeze',
+  'courseDesign',
+  // 修**已有**课程：紧接着"怎么写页"，因为它讲的是"改哪一页"
+  'courseAudit',
+  'practice',
+  'curriculum',
+  'search',
+  'courseLibrary',
+  // 「怎么看网页」必须紧跟能力清单、且在 fetch 之前
+  'browse',
+  'mcp',
+  'materialsLibrary',
+  // 工作记忆：在"为谁做"之前
+  'scratch',
+  'learnerProfile',
+  'dslTools',
+  'fetch',
+  'untrustedContent',
+  'materials',
+  'roster',
+  'voice',
+  // ★ 唯一会随答题变化的一块，放**最后** ⇒ 只让末尾重读（§1.2）
+  'learnerState',
+] as const satisfies readonly (keyof CoursePromptBlocks)[];
+
+/**
+ * 编译期完备性：接口里有、顺序表里没有的字段 ⇒ 这里报错（`never` 约束不满足）。
+ * **零运行时开销**（纯类型）。
+ */
+type MissingPromptBlock = Exclude<keyof CoursePromptBlocks, (typeof PROMPT_BLOCK_ORDER)[number]>;
+type AssertNever<_T extends never> = true;
+type _PromptBlockOrderIsComplete = AssertNever<MissingPromptBlock>;
+
+/**
+ * The agent's system prompt, assembled from the capabilities this session
+ * actually has. The DSL compatibility block is always present; every other
+ * block is included only when the corresponding capability is registered.
+ *
+ * ★ 渲染由 {@link PROMPT_BLOCK_ORDER} 驱动 —— 不要退回"逐个 if"的写法：
+ *   那正是让 6 个块被静默丢弃的原因。
+ */
 export function courseSystemPrompt(blocks: CoursePromptBlocks): string {
   const parts = [COURSE_SYSTEM_PROMPT];
-  if (blocks.availableSkills) parts.push('', blocks.availableSkills);
-  // 紧跟在清单之后：清单说"有哪些"，这一段说"怎么用它们做选择"。
-  if (blocks.skillChoice) parts.push('', blocks.skillChoice);
-  // 紧跟在技能之后：它说的是"你选好的教学法要怎么落到页面上"。
-  if (blocks.studyMode) parts.push('', blocks.studyMode);
-  // 课程设计质量规则 —— 紧接着讲"每页具体怎么写"。
-  if (blocks.courseDesign) parts.push('', blocks.courseDesign);
-  if (blocks.curriculum) parts.push('', blocks.curriculum);
-  if (blocks.search) parts.push('', blocks.search);
-  if (blocks.courseLibrary) parts.push('', blocks.courseLibrary);
-  // 「怎么看网页」紧跟在能力清单之后，且必须在 fetch 之前 —— browse 讲的是
-  // "先看、再存"，fetch 讲的是"存下来怎么分段读"，顺序反了模型会跳步。
-  if (blocks.browse) parts.push('', blocks.browse);
-  // MCP 是外部能力，紧跟在本地库说明之后 —— 两者互补，放一起读最清楚。
-  if (blocks.mcp) parts.push('', blocks.mcp);
-  // 材料库在画像之前：先给"用什么材料"，再用"为谁做"收尾。
-  if (blocks.materialsLibrary) parts.push('', blocks.materialsLibrary);
-  // 画像放在最后：它是"为谁做"的框架，让它在所有能力说明之后收尾，
-  // 模型读到规划指令时最近的上下文就是学习者是谁。
-  if (blocks.learnerProfile) parts.push('', blocks.learnerProfile);
-  if (blocks.dslTools) parts.push('', blocks.dslTools);
-  if (blocks.fetch) parts.push('', blocks.fetch);
-  if (blocks.untrustedContent) parts.push('', blocks.untrustedContent);
-  if (blocks.materials) parts.push('', blocks.materials);
-  if (blocks.roster) parts.push('', blocks.roster);
-  if (blocks.voice) parts.push('', blocks.voice);
+  for (const key of PROMPT_BLOCK_ORDER) {
+    const value = blocks[key];
+    if (value) parts.push('', value);
+  }
   return parts.join('\n');
 }

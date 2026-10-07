@@ -435,3 +435,101 @@ describe('★ assembled prompt: every capability combination', () => {
     expect(COMBOS).toHaveLength(8);
   });
 });
+
+/**
+ * ★ 门槛开着 ⇒ **解锁路径必须同时注册**，否则是**死锁**。
+ *
+ * ── 为什么单开这一组 ────────────────────────────────────────────
+ *
+ * 门槛（`OPENMAIC_PLAN_GATE=1`，**本部署就是开的**）会让 `generate_scene` 拒绝没有
+ * 计划条目的页。合法的解锁路径只有一条：用 `plan_freeze { action: "add" }` 写计划。
+ *
+ * 而 `plan_freeze` 在三处**条件注册**（`runner.ts` 的 1589 构建 / 1703 提示词块 /
+ * 1759 放行）。**任何一处坏掉，部署就死锁**：生成被拒、而解锁工具要么不存在、
+ * 要么"看得见调不动"、要么 agent 根本不知道有它。
+ *
+ * 实测（2026-10-07）这个缺口是真的：`OPENMAIC_PLAN_GATE` 在测试里只出现在
+ * `generation-tools.test.ts`（直接调 `generate_scene` 验强制行为），
+ * **从来没有测试开着门槛跑过 runner 级装配** ⇒ 那三处接线一路未被验证。
+ *
+ * 判据写成"三处一起断"，因为它们缺一不可 —— 分开写会让人以为通过一处就够了。
+ */
+describe('★ plan gate ON ⇒ the unlock path must be registered too', () => {
+  const PREV = process.env.OPENMAIC_PLAN_GATE;
+
+  afterEach(() => {
+    if (PREV === undefined) delete process.env.OPENMAIC_PLAN_GATE;
+    else process.env.OPENMAIC_PLAN_GATE = PREV;
+  });
+
+  it('registers plan_freeze in tools, allowlist and prompt — all three at once', async () => {
+    process.env.OPENMAIC_PLAN_GATE = '1';
+    const options = await runToBuildAgent();
+    const names = options.tools.map((tool) => tool.name);
+
+    // ① 构建：工具真的在装配里（少这一处 = 根本没有）
+    expect(names).toContain('plan_freeze');
+    // 不重复注册（同一组被加两次的话，工具表里会出现两个同名项）
+    expect(names.filter((name) => name === 'plan_freeze')).toHaveLength(1);
+    // ② 放行：注册了不放行 = "看得见、调不动"（§1.1）
+    expect([...(options.allowedToolNames ?? [])]).toContain('plan_freeze');
+    // ③ 提示词块：不告诉它，它就得自己碰运气（少这一处 = 静默的不可发现）
+    expect(options.systemPrompt).toContain('plan_freeze');
+  });
+
+  it('registers none of it when the gate is off (the default elsewhere)', async () => {
+    delete process.env.OPENMAIC_PLAN_GATE;
+    const options = await runToBuildAgent();
+    expect(options.tools.map((tool) => tool.name)).not.toContain('plan_freeze');
+    expect([...(options.allowedToolNames ?? [])]).not.toContain('plan_freeze');
+    // 门槛关着就不该提它 —— 否则是"提一个不存在的能力"（§1.1 的另一半）。
+    expect(options.systemPrompt).not.toContain('plan_freeze');
+  });
+});
+
+/**
+ * ★ 提示词块**真的到达模型**。
+ *
+ * ── 这一组的来历（2026-10-07，本次会话最严重的一个 bug）──────────
+ *
+ * `courseSystemPrompt()` 原来是**逐个 `if (blocks.X)`** 写的，于是"往
+ * `promptBlocks` 里塞一个键"和"真的渲染它"是两件事，而前者**不报错**
+ * （`promptBlocks` 是推断类型的变量，传参时不做多余属性检查）。
+ *
+ * 实测有 **6 个块被静默丢弃**：`assessmentMode`、`planFreeze`、`courseAudit`、
+ * `scratch`、`practice`、**`learnerState`**。也就是那几轮写的全部行为指引
+ * ——包括"先冻结计划才能生成""修课前先审计""claim 要两个来源""练习结果会回来"
+ * 以及**学习状态本身**——**从未到达模型**。块被构造、被传进来、然后被扔掉。
+ *
+ * 修法是结构性的：渲染改成 `PROMPT_BLOCK_ORDER` 驱动，并配一条**编译期完备性检查**
+ * （往接口加字段却忘了加进顺序表 ⇒ 编译不过；已用变异测试验过它会报错）。
+ *
+ * 这组判据是**行为层**的证明：那些块的正文真的出现在 system prompt 里。
+ * 只靠类型不够 —— 类型能保证"被检查"，不能保证"内容对"。
+ */
+describe('★ prompt blocks actually reach the model', () => {
+  it('includes the blocks that used to be dropped silently', async () => {
+    const options = await runToBuildAgent();
+    const prompt = options.systemPrompt;
+
+    // 每个块用它的标题来认（稳定、且是块自己的第一行）。
+    expect(prompt).toContain('## Assessment mode: teaching / homework / exam');
+    expect(prompt).toContain('## Repairing a course you already made');
+    expect(prompt).toContain('## You have a scratchpad');
+    expect(prompt).toContain('## Practice happens in a real folder');
+  });
+
+  it('★ and the plan-freeze block only when its gate is on', async () => {
+    const PREV = process.env.OPENMAIC_PLAN_GATE;
+    try {
+      process.env.OPENMAIC_PLAN_GATE = '1';
+      expect((await runToBuildAgent()).systemPrompt).toContain('## The course plan is a durable artifact');
+
+      delete process.env.OPENMAIC_PLAN_GATE;
+      expect((await runToBuildAgent()).systemPrompt).not.toContain('## The course plan is a durable artifact');
+    } finally {
+      if (PREV === undefined) delete process.env.OPENMAIC_PLAN_GATE;
+      else process.env.OPENMAIC_PLAN_GATE = PREV;
+    }
+  });
+});
