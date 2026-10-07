@@ -29,6 +29,12 @@ import { createGenerationAiCallFactory, sceneContentStage } from './generation-a
 import { synthesizeSceneNarration } from './scene-tts';
 import { toGenerationContent } from './generation-content';
 import { checkScenesAgainstSkill } from './skills';
+import {
+  findUncoveredTerms,
+  formatCoverageGaps,
+  taughtTextBefore,
+  type AssessedQuestion,
+} from '@/lib/quiz/coverage-gap';
 import { mayNameAPoolAsset } from '@/lib/media/media-placeholder';
 import { isMediaPlaceholder } from '@/lib/store/media-generation';
 import { createLogger } from '@/lib/logger';
@@ -362,6 +368,40 @@ export function filterKnownActions(actions: readonly Action[]): Action[] {
   return actions.filter((action) => isActionType(action.type));
 }
 
+/**
+ * 从一页已落盘的自检里取出待查文本。
+ *
+ * 只挑有题号的题（生成层偶尔会漏字段，缺了就不查它，而不是整页放弃）。
+ */
+function quizQuestionsOf(scene: Scene): AssessedQuestion[] {
+  const content = scene.content as { questions?: unknown };
+  if (!Array.isArray(content.questions)) return [];
+  const questions: AssessedQuestion[] = [];
+  for (const entry of content.questions) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const question = entry as { id?: unknown; question?: unknown; options?: unknown; analysis?: unknown };
+    if (typeof question.id !== 'string' || typeof question.question !== 'string') continue;
+    const options = Array.isArray(question.options)
+      ? question.options
+          .map((option) =>
+            typeof option === 'string'
+              ? option
+              : typeof (option as { label?: unknown })?.label === 'string'
+                ? (option as { label: string }).label
+                : undefined,
+          )
+          .filter((label): label is string => typeof label === 'string')
+      : [];
+    questions.push({
+      id: question.id,
+      question: question.question,
+      options,
+      ...(typeof question.analysis === 'string' ? { analysis: question.analysis } : {}),
+    });
+  }
+  return questions;
+}
+
 export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never, never>[] {
   const routed = createGenerationAiCallFactory({ abortSignal: deps.abortSignal });
   const aiCallFor = (stage: Parameters<typeof routed>[0]) => deps.aiCall ?? routed(stage);
@@ -644,6 +684,26 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
       const skillViolations =
         skill && afterWrite ? checkScenesAgainstSkill(afterWrite.scenes, skill.constraints) : [];
       const persisted = afterWrite?.scenes.find((item) => item.id === scene.id) ?? scene;
+      /**
+       * 覆盖缺口检查（自检页才做）。
+       *
+       * 判据是**可算的**：这一页题干/选项/解析里的内容块，在**它之前所有页**
+       * （含讲解页）里出现过吗。见 lib/quiz/coverage-gap.ts 头部 —— 为什么换掉
+       * "让 AI 再看一遍"、为什么按内容块而不是按字符、为什么加频率闸。
+       *
+       * 方向是**宁可误报不可漏报**，所以它是诊断不是拒绝：不回滚、不删题，
+       * 让 agent 去决定补讲、改写、还是标成「本课不展开」。
+       */
+      const coverageGaps =
+        params.type === 'quiz' && afterWrite
+          ? findUncoveredTerms({
+              questions: quizQuestionsOf(persisted),
+              taughtText: taughtTextBefore(
+                afterWrite.scenes.map((item) => ({ order: item.order, content: item.content })),
+                scene.order,
+              ),
+            })
+          : [];
       const mediaPlaceholders = collectUnresolvedMediaPlaceholders(persisted);
       deps.onCheckpoint({
         tool: 'generate_scene',
@@ -672,7 +732,9 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           skillViolations.length
             ? ` SKILL CONSTRAINT CHECK against "${skill?.id}": ${skillViolations.join('; ')}.`
             : ''
-        }${
+        }${coverageGaps.length ? `
+
+${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}` : ''}${
           mediaPlaceholders.length
             ? ` ${mediaPlaceholders.length} media placeholder(s) still render as skeletons.`
             : ''
@@ -688,6 +750,12 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           ...(quizShortfall ? { quizShortfall: true } : {}),
           skill: skill?.id,
           ...(skillViolations.length ? { skillViolations } : {}),
+          ...(coverageGaps.length
+            ? {
+                coverageGapCount: coverageGaps.length,
+                coverageGaps: coverageGaps.slice(0, 12).map((gap) => gap.term),
+              }
+            : {}),
           ...(mediaPlaceholders.length ? { mediaPlaceholders } : {}),
         },
         quizShortfall,
