@@ -873,6 +873,9 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
         title: next.title,
         sceneType: next.type,
         detail: params.intent,
+        // ★ 保持原样：这处是**有类型的** `CheckpointInfo`，而它**没有声明**这两个字段 ——
+        //   原来用条件展开写，**展开不受多余属性检查** ⇒ 编译器一直没说话（第 15 轮那条）。
+        //   这里不擅自改行为（那会改变 checkpoint 载荷的字段集合），只记下来。
         ...(diagnostics.coverageGaps.length || diagnostics.planIssues.length
           ? {
               coverageGapCount: diagnostics.coverageGaps.length,
@@ -888,15 +891,16 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
           updated: { sceneId: next.id, order: next.order, type: next.type, ops: params.ops.length },
           ops: opDetails,
           tree: sceneTree(next),
+          // ★ 计数无条件、样本列表按需（同 generation-tools）。
+          coverageGapCount: diagnostics.coverageGaps.length,
+          planIssueCount: diagnostics.planIssues.length,
           ...(diagnostics.coverageGaps.length
             ? {
-                coverageGapCount: diagnostics.coverageGaps.length,
                 coverageGaps: diagnostics.coverageGaps.slice(0, 12).map((gap) => gap.term),
               }
             : {}),
           ...(diagnostics.planIssues.length
             ? {
-                planIssueCount: diagnostics.planIssues.length,
                 planIssues: diagnostics.planIssues.map((issue) => issue.kind),
               }
             : {}),

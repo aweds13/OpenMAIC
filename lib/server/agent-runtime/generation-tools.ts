@@ -787,17 +787,18 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           skill: skill?.id,
           ...(skillViolations.length ? { skillViolations } : {}),
           outlinePersisted: outlineUpdate.changed,
+          // ★ **计数无条件写、样本列表按需写**。
+          //   原来两个都是条件的 ⇒ 缺口为 0 时字段**根本不出现**，
+          //   于是 SQL 读出来是 NULL，**分不清"跑过且干净"和"这条路没跑过"** ——
+          //   而"缺了 0 个"正是修复成功时的读数，最需要被看见的就是它。
+          //   （样本列表仍然按需：空数组没有信息量。）
+          planIssueCount: diagnostics.planIssues.length,
+          coverageGapCount: diagnostics.coverageGaps.length,
           ...(diagnostics.planIssues.length
-            ? {
-                planIssueCount: diagnostics.planIssues.length,
-                planIssues: diagnostics.planIssues.map((issue) => issue.kind),
-              }
+            ? { planIssues: diagnostics.planIssues.map((issue) => issue.kind) }
             : {}),
           ...(diagnostics.coverageGaps.length
-            ? {
-                coverageGapCount: diagnostics.coverageGaps.length,
-                coverageGaps: diagnostics.coverageGaps.slice(0, 12).map((gap) => gap.term),
-              }
+            ? { coverageGaps: diagnostics.coverageGaps.slice(0, 12).map((gap) => gap.term) }
             : {}),
           ...(mediaPlaceholders.length ? { mediaPlaceholders } : {}),
         },
