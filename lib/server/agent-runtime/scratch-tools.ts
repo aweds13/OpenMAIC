@@ -104,7 +104,8 @@ export async function writeScratchpad(ownerId: string, pad: Scratchpad): Promise
 // 工具
 // ─────────────────────────────────────────────────────────────────
 
-const SCRATCH_PARAMS = Type.Object({
+function scratchParams(materialsEnabled: boolean) {
+  return Type.Object({
   action: Type.Union(
     [
       Type.Literal('write'),
@@ -156,22 +157,37 @@ const SCRATCH_PARAMS = Type.Object({
   ),
   materialId: Type.Optional(
     Type.String({
-      description:
-        'For `promote`: the id `update_materials` returned. Only pass this **after** the learner ' +
-        'accepted the material — the library rule is "record only what they accepted".',
+      description: materialsEnabled
+        ? 'For `promote`: the id `update_materials` returned. Only pass this **after** the learner ' +
+          'accepted the material — the library rule is "record only what they accepted".'
+        : 'For `promote`: this deployment has no materials library, so nothing can be promoted. ' +
+          'Leave the item on the scratchpad.',
     }),
   ),
   query: Type.Optional(Type.String({ description: 'For `search`: substring over text/source/id.' })),
-  sessionId: Type.Optional(Type.String({ description: 'Who wrote it. Pass the current session id.' })),
-});
+    sessionId: Type.Optional(Type.String({ description: 'Who wrote it. Pass the current session id.' })),
+  });
+}
+
+type ScratchParams = ReturnType<typeof scratchParams>;
 
 export interface ScratchToolDeps {
   ownerId: string;
+  /**
+   * 这个部署**是否配了材料库**。
+   *
+   * ★ 为什么必须有这个参数（§1.1）：`update_materials` 是**条件注册**的
+   *   （`runner.ts`：`materialsIndex ? MATERIALS_TOOL_NAMES : []`）。没配材料库的部署里
+   *   它根本不存在，而本工具的**描述**与 promote 的**拒绝消息**原本无条件让它去调它 ——
+   *   那就是"提一个不存在的能力"，比不给指引更糟。
+   *   跟着部署配置变是允许的（§1.2：进程生命周期内不变），不跟会话状态变。
+   */
+  materialsEnabled?: boolean;
 }
 
 export function buildScratchTool(
   deps: ScratchToolDeps,
-): AgentTool<typeof SCRATCH_PARAMS, unknown> {
+): AgentTool<ScratchParams, unknown> {
   return {
     name: 'scratch',
     label: 'Scratchpad',
@@ -180,13 +196,17 @@ export function buildScratchTool(
       'what you read (`source`), what you intend to put in the course (`claim`, with the source ids ' +
       'that back it), and loose todos. Then classify each item — that judgement is the point; an ' +
       'unclassified item is an owed decision and is reported back to you. `promote` only records a ' +
-      'pointer to a materials-library entry that is **already recorded** (the learner accepted it); ' +
-      'never write to the library from here. Candidates you merely found stay on this paper until ' +
+      (deps.materialsEnabled
+        ? 'pointer to a materials-library entry that is **already recorded** (the learner accepted it); ' +
+          'never write to the library from here. '
+        : 'pointer — but **this deployment has no materials library**, so there is nothing to point ' +
+          'at: keep such items here and do not claim they were recorded. ') +
+      'Candidates you merely found stay on this paper until ' +
       'the learner accepts them — that is exactly what this paper is for. Every item gets a short ' +
       'stable id (s001…), never reused; refer to items by id, never as "that thing I read".',
-    parameters: SCRATCH_PARAMS,
+    parameters: scratchParams(deps.materialsEnabled ?? false),
     executionMode: 'sequential',
-    async execute(_id: string, params: Static<typeof SCRATCH_PARAMS>) {
+    async execute(_id: string, params: Static<ScratchParams>) {
       const pad = await readScratchpad(deps.ownerId);
 
       /** 写/改之后统一回读全貌 —— 这就是"通知"。 */
@@ -313,6 +333,22 @@ export function buildScratchTool(
       }
 
       // promote
+      // ★ 没配材料库 ⇒ **直接拒绝**，连 materialId 都不看。
+      //   否则会记下一个指向空气的指针，而回话还说"已进材料库" —— 那是静默说谎。
+      if (!deps.materialsEnabled) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text:
+                '**这个部署没有配材料库**，所以 promote 没有落点 —— 这条就留在草稿纸上，' +
+                '不要声称它已经进了材料库。（材料库是条件注册的：没配就没有那些工具。）',
+            },
+          ],
+          details: {},
+          isError: true,
+        };
+      }
       const materialId = (params.materialId ?? '').trim();
       if (!materialId) {
         return {
@@ -320,9 +356,12 @@ export function buildScratchTool(
             {
               type: 'text' as const,
               text:
-                'promote 需要 materialId —— 那是 `update_materials` 写完之后返回的 id。' +
-                '**材料库的规矩是只收用户确认要用的**：所以先把这条给学习者看、等他点头、' +
-                '写完材料库、拿到 id，再回来 promote 记指针。找不到的话就让它先留在草稿纸上。',
+                deps.materialsEnabled
+                  ? 'promote 需要 materialId —— 那是 `update_materials` 写完之后返回的 id。' +
+                    '**材料库的规矩是只收用户确认要用的**：所以先把这条给学习者看、等他点头、' +
+                    '写完材料库、拿到 id，再回来 promote 记指针。找不到的话就让它先留在草稿纸上。'
+                  : '**这个部署没有配材料库**，所以 promote 没有落点 —— 这条就留在草稿纸上，' +
+                    '不要声称它已经进了材料库。（材料库是条件注册的：没配就没有那些工具。）',
             },
           ],
           details: {},
@@ -340,7 +379,7 @@ export function buildScratchTool(
  *
  * 状态与条目一律走工具结果，这里只说"有这张纸、它是干什么的、怎么用"。
  */
-export function scratchPromptBlock(): string {
+export function scratchPromptBlock(materialsEnabled = false): string {
   return [
     '## You have a scratchpad — use it instead of remembering',
     '',
@@ -354,9 +393,17 @@ export function scratchPromptBlock(): string {
     '  verification**: the tool reports back any claim with fewer than two, and that is the point.',
     '- `scratch { action: "classify", id, status: "kept" | "dropped" }` — this judgement is the',
     '  reason the scratchpad exists. An unclassified item is an owed decision and is reported back.',
-    '- `scratch { action: "promote", id, materialId }` — **only** records a pointer to a materials',
-    '  entry that already exists, i.e. one the learner accepted. Candidates you merely found stay',
-    '  here until then; never write to the materials library from the scratchpad.',
+    ...(materialsEnabled
+      ? [
+          '- `scratch { action: "promote", id, materialId }` — **only** records a pointer to a materials',
+          '  entry that already exists; the id comes from `update_materials`, i.e. one the learner',
+          '  accepted. Candidates you merely found stay here until then; never write to the materials',
+          '  library from the scratchpad.',
+        ]
+      : [
+          '- There is **no materials library in this deployment** — `promote` has nowhere to point, so',
+          '  keep such items on the scratchpad and do not claim they were recorded anywhere.',
+        ]),
     '',
     'Items get short stable ids (`s001`…), never reused. **Refer to items by id** — "the thing I read',
     'earlier" is not a reference.',

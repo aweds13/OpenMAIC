@@ -208,8 +208,8 @@ export function planGate(input: PlanGateInput, options: PlanGateOptions = {}): P
       message:
         `generate_scene 被拒绝：计划有 ${entries.length} 条但**还没冻结**。冻结的语义是"我打算做这些页"，` +
         '所以冻结之前先跟学习者确认一句（`ask_user`：这一版计划做这些页、这个顺序，行不行）。' +
-        '确认后用 `freeze_plan` 冻结，然后回来生成。' +
-        '**冻结之后照样可以改、可以继续查资料** —— 改计划要用 `plan_revise` 写明理由，痕迹会留下。',
+        '确认后用 `plan_freeze { action: "freeze" }` 冻结，然后回来生成。' +
+        '**冻结之后照样可以改、可以继续查资料** —— 改计划要用 `plan_freeze { action: "revise", reason }` 写明理由，痕迹会留下。',
     };
   }
 
@@ -223,7 +223,7 @@ export function planGate(input: PlanGateInput, options: PlanGateOptions = {}): P
       message:
         `generate_scene 被拒绝：计划里没有第 ${order} 页。计划里的页号是 ${orders}。` +
         '**先在计划里给这一页写一条 brief**（写清这页要教什么、密度目标、跟前面哪一页接上）再生成。' +
-        '如果你是想新增一页，用 `plan_revise` 说明为什么加。',
+        '如果你是想新增一页，用 `plan_freeze { action: "revise", reason }` 说明为什么加。',
     };
   }
 

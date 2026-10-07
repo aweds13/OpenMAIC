@@ -401,15 +401,14 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
       if (planGateEnabled()) {
         const planEntries = ((doc?.outline as AppDocumentOutline | undefined)?.outlines ??
           []) as SceneOutline[];
-        const gate = planGate(
-          {
-            state: await readPlanFreeze(params.stageId),
-            entries: planEntries,
-            order: params.order,
-          },
-          // 分阶段：先强制"计划非空 + 已冻结"，"这一页必须在计划里"那条等测试夹具跟上。
-          { requirePlannedPage: false },
-        );
+        // 三条判据全开：**计划非空 + 已冻结 + 这一页在计划里**。
+        // 夹具早就备好了（`document()` 写的冻结文件 + 每页一条 plan 条目），
+        // 强制行为由 tests/agent-runtime/plan-freeze-gate.test.ts 钉住。
+        const gate = planGate({
+          state: await readPlanFreeze(params.stageId),
+          entries: planEntries,
+          order: params.order,
+        });
         if (!gate.ok) {
           return result(
             gate.message,

@@ -1614,7 +1614,11 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     ];
     // 草稿纸：**无条件注册**。它是 agent 自己的工作记忆（本地文件），不依赖任何外部能力。
     // 没有它，lib/scratch/scratchpad.ts 就只是死代码（实测过：生产代码零引用）。
-    const scratchTools = [buildScratchTool({ ownerId: meta.ownerId })];
+    // materialsEnabled 必须跟着**注册**走，否则没配材料库的部署里 scratch 会让 agent
+    // 去调一个不存在的工具（§1.1）。见 scratch-tools.ts 的 deps 注释。
+    const scratchTools = [
+      buildScratchTool({ ownerId: meta.ownerId, materialsEnabled: Boolean(materialsIndex) }),
+    ];
     // 练习脚手架：**无条件注册**。它只写文件（`课程与学习\练习\`），不起进程、不联网，
     // 是"练习真的能在 VS Code 里跑"这条路的入口。
     const practiceTools = [buildPracticeScaffoldTool(), buildPracticeResultTool()];
@@ -1694,7 +1698,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // 无参、恒定；读数走工具结果。
         courseAudit: courseAuditPromptBlock(),
         // 无参、恒定；条目与状态走工具结果（§1.2）。
-        scratch: scratchPromptBlock(),
+        scratch: scratchPromptBlock(Boolean(materialsIndex)),
         practice: practicePromptBlock(),
         curriculum: CURRICULUM_TOOLS_PROMPT,
         ...(search ? { search: searchPromptBlock() } : {}),

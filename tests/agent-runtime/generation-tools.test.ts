@@ -883,3 +883,120 @@ describe('generate_scene — quiz question count', () => {
     expect(current.get()?.scenes).toHaveLength(0);
   });
 });
+
+/**
+ * ★ 门槛的**强制行为**。
+ *
+ * 这一组存在的理由：`OPENMAIC_PLAN_GATE` 在本部署里是**开**的，而其余所有用例都在它
+ * **关**的状态下跑 —— 也就是说这道门槛在生产里拦人，却**从来没有被测试执行过**。
+ * 那就是"静默"：一个生效的判据，没有任何东西证明它真的生效。
+ *
+ * 所以这里显式打开它，把三条判据各钉一遍（计划空 / 没冻结 / 这一页不在计划里），
+ * 并且**钉住"该放行的时候放行"** —— 只有拒绝路径被测过的门禁，可能把一切都拒掉。
+ */
+describe('★ 阶段冻结的门槛（OPENMAIC_PLAN_GATE=1 时才生效）', () => {
+  const freezeDir = () =>
+    process.env.OPENMAIC_PLAN_FREEZE_DIR ?? join(process.cwd(), 'data', 'plan-freeze');
+
+  /** 把 stage-test 的冻结状态写成指定样子（夹具 document() 默认写"已冻结"）。 */
+  const setFrozen = (frozen: boolean, entryCount = 1) => {
+    mkdirSync(freezeDir(), { recursive: true });
+    writeFileSync(
+      join(freezeDir(), 'stage-test.json'),
+      JSON.stringify({
+        stageId: 'stage-test',
+        frozen,
+        frozenAt: frozen ? 1 : undefined,
+        frozenEntryCount: entryCount,
+        revision: 0,
+        revisions: [],
+      }),
+      'utf8',
+    );
+  };
+
+  it('★ 门槛关着时不拦（默认部署以外的地方不受影响）', async () => {
+    delete process.env.OPENMAIC_PLAN_GATE;
+    const current = state(document([])); // 空计划 —— 门槛开着的话这里就该被拒
+    // 给一个**能用的** aiCall：门槛关着时它会一路跑到内容生成器。
+    // 第一版给的是空 stub（返回 undefined），于是崩在 json-repair 里 ——
+    // 那反而**证明**了它没被拦，但测试要的是"跑完且不出现拒绝"。
+    const aiCall = vi.fn(async () => JSON.stringify([{ type: 'text', content: '内容' }]));
+    const generate = find(buildGenerationTools(deps(current.store, { aiCall })), 'generate_scene');
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'X',
+      type: 'slide',
+      brief: 'b',
+    } as never);
+    expect(JSON.stringify(response)).not.toContain('被拒绝');
+  });
+
+  it('★ 计划为空 ⇒ 拒，并告诉它先写计划', async () => {
+    process.env.OPENMAIC_PLAN_GATE = '1';
+    const current = state(document([]));
+    const generate = find(buildGenerationTools(deps(current.store, { aiCall: vi.fn() })), 'generate_scene');
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'X',
+      type: 'slide',
+      brief: 'b',
+    } as never);
+    expect(JSON.stringify(response)).toContain('计划是空的');
+    delete process.env.OPENMAIC_PLAN_GATE;
+  });
+
+  it('★ 有计划但没冻结 ⇒ 拒，并让它先跟学习者确认再冻结', async () => {
+    process.env.OPENMAIC_PLAN_GATE = '1';
+    const current = state(document([slide('s1', 1)]));
+    setFrozen(false);
+    const generate = find(buildGenerationTools(deps(current.store, { aiCall: vi.fn() })), 'generate_scene');
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'X',
+      type: 'slide',
+      brief: 'b',
+    } as never);
+    expect(JSON.stringify(response)).toContain('还没冻结');
+    expect(JSON.stringify(response)).toContain('plan_freeze');
+    delete process.env.OPENMAIC_PLAN_GATE;
+  });
+
+  it('★ 这一页不在计划里 ⇒ 拒，并列出计划里的页号', async () => {
+    process.env.OPENMAIC_PLAN_GATE = '1';
+    const current = state(document([slide('s1', 1)]));
+    setFrozen(true, 1);
+    const generate = find(buildGenerationTools(deps(current.store, { aiCall: vi.fn() })), 'generate_scene');
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 9,
+      title: 'X',
+      type: 'slide',
+      brief: 'b',
+    } as never);
+    const body = JSON.stringify(response);
+    expect(body).toContain('计划里没有第 9 页');
+    expect(body).toContain('plan_freeze');
+    delete process.env.OPENMAIC_PLAN_GATE;
+  });
+
+  it('★ 计划非空 + 已冻结 + 这一页在计划里 ⇒ **放行**（门禁不能把一切都拒掉）', async () => {
+    process.env.OPENMAIC_PLAN_GATE = '1';
+    const current = state(document([slide('s1', 1)]));
+    setFrozen(true, 1);
+    const aiCall = vi.fn(async () => JSON.stringify([{ type: 'text', content: '内容' }]));
+    const generate = find(buildGenerationTools(deps(current.store, { aiCall })), 'generate_scene');
+    const response = await generate.execute('call', {
+      stageId: 'stage-test',
+      order: 1,
+      title: 'X',
+      type: 'slide',
+      brief: 'b',
+    } as never);
+    expect(JSON.stringify(response)).not.toContain('被拒绝');
+    delete process.env.OPENMAIC_PLAN_GATE;
+  });
+});

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildScratchTool,
   readScratchpad,
+  scratchPromptBlock,
   scratchpadFile,
   writeScratchpad,
 } from '@/lib/server/agent-runtime/scratch-tools';
@@ -84,7 +85,10 @@ describe('scratch 工具', () => {
 
   it('★ promote refuses without a materialId, and points at the library rule', async () => {
     await call({ action: 'write', text: '要进材料库的' });
-    const refused = await call({ action: 'promote', id: 's001' });
+    // ★ 这条路的语义只在**配了材料库**时成立（没配库时 promote 直接整体拒绝，见下一组用例）。
+    const refuse = (params: Record<string, unknown>) =>
+      buildScratchTool({ ownerId: 'anon:test-owner', materialsEnabled: true }).execute('c', params as never);
+    const refused = await refuse({ action: 'promote', id: 's001' });
     expect((refused as { isError?: boolean }).isError).toBe(true);
     expect(textOf(refused)).toContain('只收用户确认要用的');
     expect(textOf(refused)).toContain('留在草稿纸上');
@@ -92,7 +96,10 @@ describe('scratch 工具', () => {
 
   it('promote records the pointer once the id is given', async () => {
     await call({ action: 'write', text: '要进材料库的' });
-    const done = await call({ action: 'promote', id: 's001', materialId: 'mat_abc' });
+    const done = await buildScratchTool({
+      ownerId: 'anon:test-owner',
+      materialsEnabled: true,
+    }).execute('c', { action: 'promote', id: 's001', materialId: 'mat_abc' } as never);
     expect(textOf(done)).toContain('已进材料库');
     expect(textOf(done)).toContain('mat_abc');
     expect(textOf(done)).toContain('== 已进材料库');
@@ -125,5 +132,42 @@ describe('scratch 工具', () => {
     const onDisk = await readScratchpad('anon:test-owner');
     expect(onDisk.items.map((item) => item.id)).toEqual(['s001']);
     expect(onDisk.nextSeq).toBe(2);
+  });
+});
+
+describe('★ 能力注册：没配材料库的部署里，不许提材料库工具（§1.1）', () => {
+  it('omits the materials-library tool when there is no library', async () => {
+    const without = buildScratchTool({ ownerId: 'anon:test-owner' });
+    const description = without.description;
+    // 没配材料库 ⇒ 描述里一个字都不许提 update_materials
+    expect(description).not.toContain('update_materials');
+    expect(description).toContain('no materials library');
+
+    const prompt = scratchPromptBlock(false);
+    expect(prompt).not.toContain('update_materials');
+    expect(prompt).toContain('no materials library in this deployment');
+
+    // promote 的拒绝消息也不许提一个不存在的工具
+    await call({ action: 'write', text: '一条候选' });
+    const refused = await buildScratchTool({ ownerId: 'anon:test-owner' }).execute('c', {
+      action: 'promote',
+      id: 's001',
+    } as never);
+    expect(textOf(refused)).not.toContain('update_materials');
+    expect(textOf(refused)).toContain('没有配材料库');
+  });
+
+  it('names it when the library is configured', () => {
+    const withLibrary = buildScratchTool({ ownerId: 'anon:test-owner', materialsEnabled: true });
+    const without = buildScratchTool({ ownerId: 'anon:test-owner' });
+
+    // `update_materials` 出现在**参数描述**里（promote 的 materialId 那一项），
+    // 所以按"整份参数表序列化后查"来断 —— 与排版/嵌套层级无关。
+    expect(JSON.stringify(withLibrary.parameters)).toContain('update_materials');
+    expect(JSON.stringify(without.parameters)).not.toContain('update_materials');
+
+    expect(scratchPromptBlock(true)).toContain('update_materials');
+    expect(scratchPromptBlock(true)).not.toContain('no materials library');
+    expect(without.description).toContain('no materials library');
   });
 });

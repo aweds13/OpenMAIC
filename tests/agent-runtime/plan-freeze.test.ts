@@ -9,6 +9,7 @@ import {
   revisePlan,
   type PlanFreezeState,
 } from '@/lib/server/agent-runtime/plan-freeze';
+import { PLAN_FREEZE_TOOL_NAMES } from '@/lib/server/agent-runtime/plan-freeze-tools';
 import type { SceneOutline } from '@/lib/types/generation';
 
 const T0 = 1_700_000_000_000;
@@ -76,7 +77,11 @@ describe('★ 生成前的那道门', () => {
     if (result.ok) return;
     expect(result.message).toContain('还没冻结');
     expect(result.message).toContain('ask_user');
-    expect(result.message).toContain('freeze_plan');
+    // ★ 这里原来钉的是 `freeze_plan` —— 一个**根本不存在的工具**。
+    //   拒绝消息指向不存在的工具 = agent 卡死在自己看不懂的指引上（§1.1 的反面），
+    //   而这条测试当时在**保护**那个 bug。现在钉真实工具名，并用下面的不变式防它回来。
+    expect(result.message).toContain('plan_freeze');
+    expect(result.message).toContain('action: "freeze"');
     // 也必须说清"冻结不等于不许改"，否则 agent 会怕冻结。
     expect(result.message).toContain('照样可以改');
   });
@@ -88,7 +93,8 @@ describe('★ 生成前的那道门', () => {
     if (result.ok) return;
     expect(result.message).toContain('计划里没有第 7 页');
     expect(result.message).toContain('1,2');
-    expect(result.message).toContain('plan_revise');
+    expect(result.message).toContain('plan_freeze');
+    expect(result.message).toContain('action: "revise"');
   });
 
   it('lets a planned page through once the plan is frozen', () => {
@@ -133,5 +139,34 @@ describe('状态行', () => {
     expect(formatPlanFreezeStatus(state, 2)).not.toContain('冻结时是');
     // 冻结之后悄悄加了页 —— 要看得见。
     expect(formatPlanFreezeStatus(state, 5)).toContain('冻结时是 2 条');
+  });
+});
+
+describe('★ 拒绝消息里点名的工具必须真实存在', () => {
+  // 这条不变式是有来历的：消息里原本写着 `freeze_plan` / `plan_revise` ——
+  // **两个都不存在**（真实的是 `plan_freeze`，动作 freeze/revise），
+  // 而当时的测试正**钉着**那个错名。agent 照着消息去调，只会拿到"没有这个工具"。
+  // 所以这里同时钉两边：消息里不许出现幽灵名，且消息点名的那个必须在注册表里。
+  const PHANTOMS = ['freeze_plan', 'plan_revise'];
+
+  it('never names a tool that is not in the registry', () => {
+    const messages = [
+      planGate({ state: emptyPlanFreeze('stage-x'), entries: [], order: 1 }),
+      planGate({ state: emptyPlanFreeze('stage-x'), entries: [entry(1)], order: 1 }),
+      planGate({
+        state: freezePlan(emptyPlanFreeze('stage-x'), { at: T0, entryCount: 1 }).state,
+        entries: [entry(1)],
+        order: 9,
+      }),
+    ]
+      .map((result) => (result.ok ? '' : result.message))
+      .join('\n');
+
+    for (const phantom of PHANTOMS) {
+      expect(messages).not.toContain(phantom);
+      expect(PLAN_FREEZE_TOOL_NAMES as readonly string[]).not.toContain(phantom);
+    }
+    expect(messages).toContain('plan_freeze');
+    expect(PLAN_FREEZE_TOOL_NAMES as readonly string[]).toContain('plan_freeze');
   });
 });
