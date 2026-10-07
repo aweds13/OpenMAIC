@@ -81,6 +81,11 @@ import {
 import { planGateEnabled } from './plan-freeze';
 import { AUDIT_TOOL_NAMES, buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
 import { SCRATCH_TOOL_NAMES, buildScratchTool, scratchPromptBlock } from './scratch-tools';
+import {
+  PRACTICE_TOOL_NAMES,
+  buildPracticeScaffoldTool,
+  practicePromptBlock,
+} from './practice-tools';
 import { studyModePromptBlock } from './study-mode';
 import { courseDesignPromptBlock } from './course-design';
 import {
@@ -1608,10 +1613,14 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // 草稿纸：**无条件注册**。它是 agent 自己的工作记忆（本地文件），不依赖任何外部能力。
     // 没有它，lib/scratch/scratchpad.ts 就只是死代码（实测过：生产代码零引用）。
     const scratchTools = [buildScratchTool({ ownerId: meta.ownerId })];
+    // 练习脚手架：**无条件注册**。它只写文件（`课程与学习\练习\`），不起进程、不联网，
+    // 是"练习真的能在 VS Code 里跑"这条路的入口。
+    const practiceTools = [buildPracticeScaffoldTool()];
     const tools = assembleRunnerTools(
       [askUserTool],
       auditTools,
       scratchTools,
+      practiceTools,
       planFreezeTools,
       webSearchTools,
       courseSearchTools,
@@ -1682,6 +1691,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         courseAudit: courseAuditPromptBlock(),
         // 无参、恒定；条目与状态走工具结果（§1.2）。
         scratch: scratchPromptBlock(),
+        practice: practicePromptBlock(),
         curriculum: CURRICULUM_TOOLS_PROMPT,
         ...(search ? { search: searchPromptBlock() } : {}),
         ...(courseLibrary ? { courseLibrary: courseLibraryPromptBlock() } : {}),
@@ -1736,6 +1746,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // 审计与草稿纸都无条件放行（注册了就必须放行，§1.1）。
         ...AUDIT_TOOL_NAMES,
         ...SCRATCH_TOOL_NAMES,
+        ...PRACTICE_TOOL_NAMES,
         // MCP 工具的名单**由服务器自己声明**，所以在运行时才知道 —— 不能写死。
         ...mcp.names,
         'create_skill',
