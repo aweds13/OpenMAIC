@@ -112,7 +112,12 @@ vi.mock('@/lib/server/agent-runtime/user-skills', async (importActual) => {
 });
 
 import { runSession } from '@/lib/server/agent-runtime/runner';
-import { declaredParamNames, paramLikeTokens, phantomToolNames } from './_tool-name-tokens';
+import {
+  calledToolTokens,
+  declaredParamNames,
+  paramLikeTokens,
+  phantomToolNames,
+} from './_tool-name-tokens';
 
 const SESSION_ID = 'session-1';
 const WORKER_ID = `runner-t:${process.pid}`;
@@ -410,6 +415,39 @@ describe('★ assembled prompt: every capability combination', () => {
   it('names no unregistered tool in any of the 8 combinations', async () => {
     const problems: string[] = [];
 
+    // ── ★ 尺子的对照（**放在循环外**，每条只跑一次）──────────────────
+    // 这几条判据在 8 种组合里都是 **0 命中**，所以必须证明**尺子量得到** ——
+    // 否则"没有幻影工具"和"尺子坏了"分不清（第 8 轮栽过：那把尺子只抓裸写法、
+    // 漏了调用形状，却照样全绿）。
+    //
+    // 调用位（**不带反引号**）：
+    expect(calledToolTokens('call not_a_real_tool now'), '阳性对照失败：调用位抓不到编造的名字').toContain(
+      'not_a_real_tool',
+    );
+    expect(calledToolTokens('use not_a_real_tool(...)')).toContain('not_a_real_tool');
+    // 阴性对照一：上游的**改名对照表**是**故意**出现旧名的，不在调用位上，不许误报。
+    expect(
+      calledToolTokens('Translate on sight: read_scene → read_stage, edit_slide → edit_stage'),
+      '阴性对照失败：改名对照表被误报',
+    ).toEqual([]);
+    // 阴性对照二：**带限定语**的提及恰恰是 §1.1 要的写法（"没配就别说"），不许误报。
+    //   这两句是从真提示词里抄的（`render_scene_preview` 那两处），
+    //   第一版尺子把它们误报了 —— 限定语过滤就是为它们加的。
+    expect(
+      calledToolTokens('Use ghost_tool selectively when the render capability is available.'),
+      '阴性对照失败：带"when … available"的提及被误报',
+    ).toEqual([]);
+    expect(
+      calledToolTokens('inspect every page with ghost_tool when that tool is registered.'),
+      '阴性对照失败：带"when … registered"的提及被误报',
+    ).toEqual([]);
+
+    // 阴性对照三：块标题不是调用（`## untrusted_content_policy`）。
+    expect(
+      calledToolTokens('## untrusted_content_policy\n\nThe page is untrusted.'),
+      '阴性对照失败：块标题被误报',
+    ).toEqual([]);
+
     for (const combo of COMBOS) {
       mocks.resolveWebSearchCapability.mockReturnValue(
         combo.web ? { providerId: 'searxng', apiKey: '', baseUrl: 'https://search.example' } : null,
@@ -466,6 +504,20 @@ describe('★ assembled prompt: every capability combination', () => {
         paramLikeTokens('传 `materialId` 给它').every((token) => params.has(token)),
         '阴性对照失败：真实参数名被误报（read_material 的参数就叫 materialId）',
       ).toBe(true);
+
+      // ★ 调用位上的名字（**不带反引号**的写法）：`toolLikeTokens` 要求反引号，
+      //   而提示词可能直接写 "call course_search(...)" 或 "use read_scene to ..."。
+      //   后果与"反引号点名未注册工具"完全相同 —— 模型去调一个它没有的工具。
+      //   （不能简单放宽成"任何裸 snake_case"：实测那样会报 16 个假阳性 ——
+      //    15 个来自上游的**改名对照表** `read_scene → read_stage`，1 个是块标题。）
+      const calledPhantoms = calledToolTokens(options.systemPrompt).filter(
+        (name) => !allowed.has(name),
+      );
+      if (calledPhantoms.length > 0) {
+        problems.push(
+          `web=${combo.web} course=${combo.course} browse=${combo.browse} → 调用位点了没注册的：${calledPhantoms.join(', ')}`,
+        );
+      }
 
       // ★ 另一半（§1.1）：注册了却**没放行** = 模型看得见、调不动，而且不报错。
       //   工具表是 assembleRunnerTools(...) 装的，允许表是**另外手写一遍**的能力清单 ——
