@@ -147,10 +147,22 @@ reading-page 那套与批量下载对话框；漏看它就会以为"改动只在
 | `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
 | `lib/playback/reading-navigation.ts` | **阅读页滚轮翻页的判据**（阈值 12 / 去抖 450ms / 两道闸：用户开关 + 页内还能滚） | 实现在 `二开说明.md` §八；`readingPage` 是**必填**布尔量，漏传只是静默还回播放键 |
 
-**运行期可变目录**（都有默认值；三个都在 `/api/whoami` 的 `runtime` 里回显，所以"它到底写哪去了"随时可查）：
-`OPENMAIC_PLAN_FREEZE_DIR`（默认 `data/plan-freeze/`）· `OPENMAIC_SCRATCHPAD_DIR`（默认 `data/scratchpad/`）·
-`OPENMAIC_PRACTICE_DIR`（默认 `课程与学习\练习\`）· `OPENMAIC_MATERIALS_DIR` / `OPENMAIC_LEARNER_PROFILE_PATH`（见 §6.8）。
+**运行期可变目录** —— **五个都在 `/api/whoami` 的 `runtime` 里回显**，"它到底写哪去了"随时可查：
+
+| 环境变量 | 默认 | whoami 的键 |
+|---|---|---|
+| `OPENMAIC_LEARNER_PROFILE_PATH` | `个人数据\学习画像.md` | `learnerProfilePath` |
+| `OPENMAIC_MATERIALS_DIR` | `个人数据\材料清单` | `materialsDir` |
+| `OPENMAIC_SCRATCHPAD_DIR` | `<仓库>\data\scratchpad` | `scratchpadDir` |
+| `OPENMAIC_PLAN_FREEZE_DIR` | `<仓库>\data\plan-freeze` | `planFreezeDir` |
+| `OPENMAIC_PRACTICE_DIR` | `课程与学习\练习` | `practiceDir` |
+
+★ **2026-10-07 对账四个数据目录时发现 `practiceDir` 根本没被回显**（而这一段原来写着
+"三个都在…里回显"，还列了五个变量）—— 于是"我生成的练习去哪了"没有地方可查。
+已补进 whoami。**加新目录时，顺手把它加进 whoami 的 `runtime`。**
+
 测试用 `tests/setup-env.ts` 把它们指到临时目录（hermetic）。
+`data/scratchpad/` 与 `课程与学习\练习/` 是**懒创建**的 —— 没用过就不存在，这不代表坏了。
 
 **`/api/whoami` 是第一站。** 它回显 `runtime.selfStudyDefault` 等**模块加载时求值**的
 开关 —— "我改了 `.env.local` 怎么没反应"的答案通常是"没重启"，而它会直接告诉你进程

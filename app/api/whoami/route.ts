@@ -23,6 +23,7 @@ import { agentRuntimeConfig } from '@/lib/server/agent-runtime/config';
 import { planGateEnabled } from '@/lib/server/agent-runtime/plan-freeze';
 import { planFreezeDir } from '@/lib/server/agent-runtime/plan-freeze-store';
 import { scratchpadDir } from '@/lib/server/agent-runtime/scratch-tools';
+import { practiceRoot } from '@/lib/server/agent-runtime/practice-tools';
 import { getOwnerScopedDocumentStore } from '@/lib/server/agent-runtime/owner-scoped-documents';
 import { withRequestOwnerId } from '@/lib/server/agent-runtime/with-owner';
 
@@ -59,6 +60,10 @@ export async function GET(req: NextRequest) {
       // 回显路径是为了"东西到底写到哪去了"永远能在第一站查到。
       scratchpadDir: scratchpadDir(),
       planFreezeDir: planFreezeDir(),
+      // ★ 练习文件夹落在哪 —— 原来**没有回显**（2026-10-07 对账四个数据目录时发现的）。
+      //   而 `practice_scaffold` 会把文件写到 `课程与学习\练习\<stageId>\<NN-标题>\`，
+      //   不回显就等于"我生成的练习去哪了"没有地方能查 —— 正是 §6.8 要避免的那种静默。
+      practiceDir: practiceRoot(),
       // ★ 同时能跑几场会话（本部署 `.env.local` 刻意设 1）。为什么回显它：
       //   "为什么两门课在同时生成"只能从这里查 —— 原来**没有任何地方回显它**，
       //   于是改了 `.env.local` 之后没有任何办法证实改动生效了（手册 §6.3 里
