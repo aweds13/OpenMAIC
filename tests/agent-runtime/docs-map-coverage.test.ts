@@ -132,3 +132,54 @@ describe('★ AGENTS.md 里点名的符号还在', () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * ★ 动过的**一级条目**必须写进手册。
+ *
+ * ── 来历（实测抓到过真的）──────────────────────────────────────
+ * 2026-10-07：§0 写着"改动**全部在** `lib/` `app/` `tests/` 和 `skills/agent-runtime/`"，
+ * 而 `git diff` 显示还动了 **`components/`（7 个文件，含 2 个新增）** 和 **`next.config.ts`**。
+ * `components/` 里有 reading-page 那套与批量下载对话框 —— 新窗口读到"改动全在那四个根"
+ * 就**不会去 `components/` 找**（而 §12 的表格里偏偏列着 `components/canvas/canvas-area.tsx`，
+ * 文档自相矛盾）。`next.config.ts` 里那条 `allowedDevOrigins` 更是**完全没被记录**。
+ *
+ * 判据：基线以来动过的每个一级条目，都必须在 `AGENTS.md` 里出现过。
+ * （文档自身那几个 —— `AGENTS.md` / `二开说明.md` / `复盘/` —— 跳过。）
+ */
+describe('★ 动过的一级条目都写在手册里', () => {
+  it('每个被改动的顶层目录/文件都在 AGENTS.md 里出现过', () => {
+    let roots: string[] | null = null;
+    try {
+      // ★ `-c core.quotepath=false` 是**必须的**：git 默认会把非 ASCII 文件名
+      //   八进制转义并加引号（`"\\344\\272\\214..."`），于是 `AGENTS.md` / `复盘`
+      //   这种中文路径永远匹配不上 —— 判据会报**假阳性**（第一次跑就报了 2 个）。
+      const out = execFileSync(
+        'git',
+        ['-c', 'core.quotepath=false', 'diff', '--name-only', `${BASELINE}..HEAD`],
+        { encoding: 'utf8' },
+      );
+      roots = [
+        ...new Set(
+          out
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((line) => line.split('/')[0]!),
+        ),
+      ];
+    } catch {
+      roots = null;
+    }
+    if (roots === null) {
+      expect(true).toBe(true);
+      return;
+    }
+    expect(roots.length, '一个改动都没解析到 —— 基线写错了').toBeGreaterThan(3);
+
+    // 这几项**就是**文档自身，当然不会在正文里被"提到"。
+    const selfReferential = new Set(['AGENTS.md', '二开说明.md', '复盘']);
+    const missing = roots.filter((root) => !selfReferential.has(root) && !AGENTS.includes(root));
+    expect(missing, `这些顶层条目被改过，但手册里没有它们 —— 新窗口不会去那里找：`).toEqual([]);
+  });
+});
+

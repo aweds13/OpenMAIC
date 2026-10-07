@@ -26,8 +26,11 @@
 ## 0. 一句话现状
 
 这是 THU-MAIC **OpenMAIC** 的二开分支（`my-extensions`，基线 `57fbcc4`）。
-改动**全部在 `lib/` `app/` `tests/` 和 `skills/agent-runtime/`**，`packages/@openmaic/**`
-一行没动 —— 那是上游，当只读用。
+改动落在 `lib/` `app/` **`components/`** `tests/` `skills/`，外加 `next.config.ts`。
+**以 `git diff --name-only 57fbcc4..HEAD` 为准**（`components/` 里有 7 个文件 ——
+reading-page 那套与批量下载对话框；漏看它就会以为"改动只在服务端"）。
+唯一**一行没动**的是 `packages/@openmaic/**` —— 那是上游，当只读用
+（`git diff --stat 57fbcc4..HEAD -- packages/@openmaic` 为空，可随时复验）。
 
 使用者是**一个自学者**（天津大学计算机大一，备二面）。他对产物的要求是实测出来的，
 不是偏好：
@@ -354,6 +357,21 @@ Caused by: 文件存在。(os error 80)   ← 硬杀留下的残留
 > 正确做法是自己走目录树，遇到 `ReparsePoint` **不下钻**，用**非递归**的
 > `[System.IO.Directory]::Delete($path, $false)` 只摘链接。
 > 见 `_tools/openmaic/start_all.ps1` 的 `Clear-TurbopackJunctions`。
+
+### 6.1b ★ `127.0.0.1:3000` 打开时"所有按钮都没反应" —— Next 16 的 dev origin 拦截
+
+Next.js 16 的 dev server **默认只允许 `localhost`**，把其它来源对自己 `/_next/*`
+的请求当**跨域**拦掉。而本机（以及桌面快捷方式）用的是 `127.0.0.1:3000`：
+
+```
+HTML 能加载、页面看起来正常，但 JS 分块全被 403 拦掉
+⇒ 所有按钮都没反应（事件处理器根本没挂上）
+⇒ 控制台里是 "Blocked cross-origin request to Next.js dev resource /_next/..."
+```
+
+**不是**你的组件坏了、也不是 hydration 失败 —— 是**资源根本没到浏览器**。
+修法在 `next.config.ts` 的 `allowedDevOrigins: ['127.0.0.1', 'localhost']`
+（**只影响开发期**，生产构建不看这个键）。改完要重启 dev server。
 
 ### 6.2 这台机器上会挂死的命令
 
