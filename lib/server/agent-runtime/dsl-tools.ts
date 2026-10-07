@@ -21,6 +21,10 @@ import {
   omitReadSceneMediaBytes,
 } from './course-edit/media-byte-omission';
 import { COURSE_STAGE_ID_DESCRIPTION } from './course-stage';
+import { planGate, planGateEnabled } from './plan-freeze';
+import { readPlanFreeze } from './plan-freeze-store';
+import { auditCourse, NOVEL_P90 } from '@/lib/quiz/course-audit';
+import type { SceneOutline } from '@/lib/types/generation';
 
 const READ_PAGE_CHARS = 12_000;
 const SEARCH_CONTEXT_CHARS = 200;
@@ -108,6 +112,14 @@ export const PATCH_COURSE_SCHEMA = Type.Object({
     minItems: 1,
     description: 'Atomic operations: every op succeeds or the scene is not persisted.',
   }),
+  overloadAcknowledged: Type.Optional(
+    Type.Boolean({
+      description:
+        'Set true ONLY after showing the learner this page\'s overload numbers and getting their ' +
+        'answer. Required when the page is overloaded (more new material than one page should ' +
+        'carry) — patch_stage refuses it otherwise so a repair cannot silently skip the learner.',
+    }),
+  ),
 });
 
 export const GREP_COURSE_SCHEMA = Type.Object({
@@ -790,6 +802,72 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
           true,
         );
       }
+      // ── ★ 两道闸（2026-10-07 加，用户实测逼出来的）────────────────────────
+      // 起因：说「修复一下 Day 1」，agent 只查了一下计划状态就**直接 patch_stage 改页** ——
+      //   不问、也不把计划/审计给学习者看。两处结构性原因：
+      //   ① 门槛原来**只挂在 `generate_scene`** 上 ⇒ "修复"这条最常见的路**完全不受管**
+      //      （结论库里我自己写过"门禁必须挂在两条写入路径上"，当时只修了诊断那两条）；
+      //   ② 根本没有"这一页超载了，先给学习者看数字并确认"这道闸。
+      // 两道都在**任何写入之前**拦，而拒绝信息本身就是给 agent 的指令（§4：提示词管不住的，
+      // 在代码里给默认值）。
+      if (planGateEnabled()) {
+        const planEntries = ((loaded.doc.outline as AppDocumentOutline | undefined)?.outlines ??
+          []) as SceneOutline[];
+        const gate = planGate(
+          {
+            state: await readPlanFreeze(params.stageId),
+            entries: planEntries,
+            order: resolved.scene.order,
+          },
+          { tool: 'patch_stage' },
+        );
+        if (!gate.ok) {
+          return toolResult(
+            gate.message,
+            {
+              intent: params.intent,
+              blocked: 'plan-not-frozen',
+              order: resolved.scene.order,
+              planEntries: planEntries.length,
+            },
+            true,
+          );
+        }
+      }
+
+      const prePatchAudit = auditCourse(
+        loaded.doc.scenes.map((scene) => ({
+          stageId: loaded.stageId,
+          sceneId: scene.id,
+          order: scene.order,
+          title: scene.title,
+          type: scene.type,
+          content: scene.content,
+        })),
+      );
+      const overload = prePatchAudit.overloadedPages.find(
+        (page) => page.order === resolved.scene.order,
+      );
+      if (overload && params.overloadAcknowledged !== true) {
+        return toolResult(
+          `patch_stage 被拒绝：第 ${overload.order} 页《${overload.title}》**超载** —— ` +
+            `它一次引入 ${overload.novel} 个新块，而"一页该承载多少"的实测 90 分位是 ${NOVEL_P90}` +
+            `（这门课讲解页的中位数是 ${prePatchAudit.medianNovel}）。` +
+            '**先把这些数字给学习者看，并用 `ask_user` 问他想怎么修**（拆成 2–3 页 / 改写这一页 / 先不动），' +
+            '拿到答复之后**再**调 `patch_stage`，并带上 `overloadAcknowledged: true`。' +
+            '（`course_audit` 给出整门课的同一份读数，用来决定该修哪一页。）',
+          {
+            intent: params.intent,
+            blocked: 'page-overloaded',
+            order: overload.order,
+            novel: overload.novel,
+            novelP90: NOVEL_P90,
+            medianNovel: prePatchAudit.medianNovel,
+          },
+          true,
+        );
+      }
+
       let next = structuredClone(resolved.scene);
       const opDetails: unknown[] = [];
       for (let index = 0; index < params.ops.length; index += 1) {

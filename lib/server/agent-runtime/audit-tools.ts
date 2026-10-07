@@ -117,5 +117,11 @@ export function courseAuditPromptBlock(): string {
     '  concepts to make a finding go away is not a repair.',
     '- A course made before the plan was kept as an artifact has **no plan** — that is expected.',
     '  For those, this audit is the tool; the plan-based checks cannot see them.',
+    '- ★ **An overloaded page cannot be patched silently** (2026-10-07). `patch_stage` refuses it',
+    "  until you have shown the learner the numbers (that page's novel vs the p90 line) and asked",
+    '  which repair they want — then pass `overloadAcknowledged: true`. **The flag is your receipt',
+    '  for having asked**: the tool cannot see your conversation, so it trusts the flag. Do not set',
+    '  it without actually asking. The reason it exists: asked to "fix Day 1", an agent went straight',
+    '  to editing an overloaded page — no audit, no question, no plan shown.',
   ].join('\n');
 }

@@ -187,18 +187,31 @@ export interface PlanGateOptions {
    *   **这不是取消这条判据** —— 纯函数这里默认 true、有 13 条测试钉着，只是调用点还没开。
    */
   requirePlannedPage?: boolean;
+
+  /**
+   * 被拒的是哪个工具 —— 只用来**把拒绝信息说对**。默认 `'generate_scene'`。
+   *
+   * ★ 2026-10-07 加：门槛原来**只挂在 `generate_scene`** 上，于是"**修复**一页"
+   *   走 `patch_stage` 时**完全不受管** —— 用户实测：说「修复一下 Day 1」，
+   *   agent 只查了一下计划状态就直接 `patch_stage` 改页，不问也不给看计划。
+   *   修法是把门槛也挂到 `patch_stage`（见 `dsl-tools.ts`），而拒绝信息里必须报
+   *   **它自己的**名字，否则模型会以为自己该去调 `generate_scene`。
+   */
+  tool?: string;
 }
 
 export function planGate(input: PlanGateInput, options: PlanGateOptions = {}): PlanGateResult {
   const { state, entries, order } = input;
+  const tool = options.tool ?? 'generate_scene';
 
   if (entries.length === 0) {
     return {
       ok: false,
       message:
-        'generate_scene 被拒绝：这门课的计划是空的。**先写计划** —— 用 `edit_deck`/计划工具把' +
-        '要做的每一页写成一条（页号 + 标题 + 一句 brief），**再**回来生成。' +
-        '计划是给你自己看的：它会按需读出（read_stage_outline），不进系统提示词。',
+        `${tool} 被拒绝：这门课的计划是空的。**先写计划** —— 用 ` +
+        '`edit_deck`/计划工具把要做的每一页写成一条（页号 + 标题 + 一句 brief），**再**回来。' +
+        '计划是给你自己看的：它会按需读出（read_stage_outline），不进系统提示词。' +
+        '**已有的旧课**可以用 `plan_freeze { action: "backfill" }` 从现有页面推导出来（只补缺、不覆盖）。',
     };
   }
 
@@ -206,9 +219,9 @@ export function planGate(input: PlanGateInput, options: PlanGateOptions = {}): P
     return {
       ok: false,
       message:
-        `generate_scene 被拒绝：计划有 ${entries.length} 条但**还没冻结**。冻结的语义是"我打算做这些页"，` +
+        `${tool} 被拒绝：计划有 ${entries.length} 条但**还没冻结**。冻结的语义是"我打算做这些页"，` +
         '所以冻结之前先跟学习者确认一句（`ask_user`：这一版计划做这些页、这个顺序，行不行）。' +
-        '确认后用 `plan_freeze { action: "freeze" }` 冻结，然后回来生成。' +
+        '确认后用 `plan_freeze { action: "freeze" }` 冻结，然后回来。' +
         '**冻结之后照样可以改、可以继续查资料** —— 改计划要用 `plan_freeze { action: "revise", reason }` 写明理由，痕迹会留下。',
     };
   }
@@ -221,8 +234,8 @@ export function planGate(input: PlanGateInput, options: PlanGateOptions = {}): P
     return {
       ok: false,
       message:
-        `generate_scene 被拒绝：计划里没有第 ${order} 页。计划里的页号是 ${orders}。` +
-        '**先在计划里给这一页写一条 brief**（写清这页要教什么、密度目标、跟前面哪一页接上）再生成。' +
+        `${tool} 被拒绝：计划里没有第 ${order} 页。计划里的页号是 ${orders}。` +
+        '**先在计划里给这一页写一条 brief**（写清这页要教什么、密度目标、跟前面哪一页接上）再动它。' +
         '如果你是想新增一页，用 `plan_freeze { action: "revise", reason }` 说明为什么加。',
     };
   }
