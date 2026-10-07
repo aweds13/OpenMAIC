@@ -114,6 +114,26 @@ function deps(store: CourseStore, extra: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * 一份**最小的合法 slide 载荷** —— 两个 describe 共用（第 26 轮提升到模块作用域，
+ * 免得"诊断计数"那条 pin 再抄一份）。slide 页天然 **0 个覆盖缺口**，
+ * 所以它也是"干净那一档"的载体。
+ */
+const slideRaw = JSON.stringify({
+  elements: [
+    {
+      id: 'title_1',
+      type: 'text',
+      left: 60,
+      top: 40,
+      width: 880,
+      height: 80,
+      content: '<p>Variables</p>',
+    },
+  ],
+  background: { type: 'solid', color: '#ffffff' },
+});
+
 describe('generation and deck tools', () => {
   it('reports active-skill diagnostics against the persisted stage after generation', async () => {
     const current = state(document([]));
@@ -627,21 +647,6 @@ describe('generation and deck tools', () => {
  *      完整对象再当成功返回。
  */
 describe('generate_scene — self-study narration suppression', () => {
-  const slideRaw = JSON.stringify({
-    elements: [
-      {
-        id: 'title_1',
-        type: 'text',
-        left: 60,
-        top: 40,
-        width: 880,
-        height: 80,
-        content: '<p>Variables</p>',
-      },
-    ],
-    background: { type: 'solid', color: '#ffffff' },
-  });
-
   function actionsSpy() {
     return vi.fn(async () => [
       { id: 'a1', type: 'speech', text: 'Hello class' },
@@ -998,5 +1003,64 @@ describe('★ 阶段冻结的门槛（OPENMAIC_PLAN_GATE=1 时才生效）', () 
     } as never);
     expect(JSON.stringify(response)).not.toContain('被拒绝');
     delete process.env.OPENMAIC_PLAN_GATE;
+  });
+});
+
+/**
+ * ★ 回归 pin：**诊断计数必须无条件出现在 `details` 里**（0 也要）。
+ *
+ * ── 来历（2026-10-07 实测）──────────────────────────────────────
+ * 这两条写入路径（`generate_scene` / `patch_stage`）原来都写
+ *
+ *     ...(diagnostics.coverageGaps.length
+ *       ? { coverageGapCount: n, coverageGaps: [...] }
+ *       : {})
+ *
+ * ⇒ **缺口为 0 时字段根本不出现**，§3.3 的 SQL 读出来是 NULL。
+ * 而"缺口 0 个"**正是修复成功时的读数** —— 于是无法区分"修好了"和"这条路没跑过"。
+ * 这是**被设计出来的静默**：验证者看到的 NULL 有两种互相矛盾的解释。
+ *
+ * 已改成「计数无条件、样本列表按需」。这条用例钉的就是**"0 也要在"**。
+ *
+ * ⚠️ **没有这条 pin 的话，改回条件展开之后所有测试照样全绿**，歧义静默回归。
+ */
+describe('★ 诊断计数无条件出现', () => {
+  it('一页 slide 没有任何缺口时，coverageGapCount / planIssueCount 仍然在 details 里且为 0', async () => {
+    const current = state(document([]));
+    // `slideRaw` 是本文件已有的正常页面载荷；`selfStudy: true` 让第二次模型调用
+    // （讲稿）不发生 —— 而 slide 页**天然 0 个覆盖缺口**（`scene-diagnostics` 的
+    // `onSlide.coverageGaps === []`），所以这正是"干净"那一档。
+    const generate = find(
+      buildGenerationTools(
+        deps(current.store, {
+          // 内联 spy：`selfStudy: true` 下它**不该**被调用，
+          // 真被调用了说明自学抑制坏了（那条性质由上面的 describe 钉着）。
+          generateActions: vi.fn(async () => []),
+          aiCall: vi.fn(async () => slideRaw),
+        }),
+      ),
+      'generate_scene',
+    );
+
+    const response = (await generate.execute('slide-1', {
+      stageId: 'stage-test',
+      order: 1,
+      title: '只有一页',
+      type: 'slide',
+      brief: '讲一件事',
+      selfStudy: true,
+    } as never)) as { details: Record<string, unknown> };
+
+    // ★ 用 `in` 而不是 `toBe(0)`：要钉的是"**键在**"，
+    //   而条件展开下键会整个消失（那时 `toBe(0)` 报的是 undefined，看不出真因）。
+    expect('coverageGapCount' in response.details, 'coverageGapCount 不在 details 里').toBe(true);
+    expect('planIssueCount' in response.details, 'planIssueCount 不在 details 里').toBe(true);
+    expect(response.details.coverageGapCount).toBe(0);
+    expect(response.details.planIssueCount).toBe(0);
+
+    // 计数与样本必须**一致**：样本按需（没有就不出现），但计数一定对得上。
+    if ('coverageGaps' in response.details) {
+      expect(response.details.coverageGaps).toEqual([]);
+    }
   });
 });
