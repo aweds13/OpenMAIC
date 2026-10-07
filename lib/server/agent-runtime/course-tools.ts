@@ -406,7 +406,9 @@ export interface CoursePromptBlocks {
  * 改成"顺序表驱动 + 编译期完备"之后，这种漏法在类型层面就不可能了 ——
  * 与 §12 的 `readingPage` 必填是同一条思路：**让编译器兜，别靠纪律。**
  */
-const PROMPT_BLOCK_ORDER = [
+// 导出是**有用途的**：提示词审计用例拿它算"这一份 dump 缺了哪些块" ——
+// 那份"缺"的清单原来是手写的、并且会过时（实测漏了 5 个块）。
+export const PROMPT_BLOCK_ORDER = [
   'availableSkills',
   'skillChoice',
   // 紧跟在技能之后：它说的是"你选好的教学法要怎么落到页面上"

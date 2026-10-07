@@ -27,7 +27,14 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { assessmentModePromptBlock } from '@/lib/server/agent-runtime/assessment-mode';
+import { courseAuditPromptBlock } from '@/lib/server/agent-runtime/audit-tools';
 import { courseDesignPromptBlock } from '@/lib/server/agent-runtime/course-design';
+import { PROMPT_BLOCK_ORDER } from '@/lib/server/agent-runtime/course-tools';
+import { planGateEnabled } from '@/lib/server/agent-runtime/plan-freeze';
+import { planFreezePromptBlock } from '@/lib/server/agent-runtime/plan-freeze-tools';
+import { practicePromptBlock } from '@/lib/server/agent-runtime/practice-tools';
+import { scratchPromptBlock } from '@/lib/server/agent-runtime/scratch-tools';
 import { CURRICULUM_TOOLS_PROMPT } from '@/lib/server/agent-runtime/curriculum-tools';
 import {
   fetchPromptBlock,
@@ -61,8 +68,19 @@ describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')('工作台提示词审�
     const learnerProfile = resolveLearnerProfile();
     const learnerState = resolveLearnerState();
 
+    // ★ 这份清单必须**尽量贴近 runner 真正拼的东西**，否则 dump 是误导的：
+    //   一个拿着它去审"提示词有没有冲突"的人，看不到没被拼进来的那些块。
+    //   实测（2026-10-07）：原来漏了 assessmentMode / courseAudit / scratch / practice /
+    //   planFreeze 五个 —— 而它打印的"缺（未拼进来）"清单**也是手写的、同样过时**。
+    //   现在"缺"的清单由 `PROMPT_BLOCK_ORDER` **算出来**，不可能再过时。
     const blocks: Record<string, string> = {
       studyMode: studyModePromptBlock(),
+      // 与 studyMode 正交的另一条轴（输入方式 vs 评估方式）
+      assessmentMode: assessmentModePromptBlock(),
+      courseAudit: courseAuditPromptBlock(),
+      practice: practicePromptBlock(),
+      scratch: scratchPromptBlock(Boolean(materialsIndex)),
+      ...(planGateEnabled() ? { planFreeze: planFreezePromptBlock() } : {}),
       courseDesign: courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: true }),
       curriculum: CURRICULUM_TOOLS_PROMPT,
       ...(materialsIndex ? { materialsLibrary: materialsIndexPromptBlock(materialsIndex) } : {}),
@@ -75,6 +93,9 @@ describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')('工作台提示词审�
       ...(learnerState ? { learnerState: learnerStatePromptBlock(learnerState) } : {}),
     };
 
+    // ★ `dslTools` 不算"缺"：渲染器 `buildRunnerCoursePrompt` 自己会补上它。
+    const missing = PROMPT_BLOCK_ORDER.filter((key) => key !== 'dslTools' && !(key in blocks));
+
     const prompt = buildRunnerCoursePrompt(blocks as Parameters<typeof buildRunnerCoursePrompt>[0]);
 
     const sizes = Object.entries(blocks)
@@ -83,10 +104,28 @@ describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')('工作台提示词审�
     console.log(
       `\n[提示词审计] 全文 ${prompt.length} 字；分块（大 → 小）：\n` +
         sizes.map(([name, size]) => `  ${name}: ${size}`).join('\n') +
-        `\n  缺（未拼进来）：技能清单 / search / courseLibrary / browse / mcp / sessionMaterials / dslTools`,
+        // ★ 算出来的，不是手写的 —— 手写的那份一定会过时
+        //   （实测漏了 assessmentMode / courseAudit / scratch / practice / planFreeze 五个，
+        //    而"缺哪些"这句话本身也在骗人）。
+        `\n  这份 dump 未拼进来的块（= 下面那条断言钉住的集合）：${missing.join(' / ')}`,
     );
 
     expect(prompt.length).toBeGreaterThan(2000);
+
+    // ★ 把"缺哪些"**钉成断言**，不是只打印。
+    //   理由：这份 dump 是给人/agent 审"提示词有没有冲突"用的产物，**漏掉一个块 = 那份审计
+    //   看不见它**（实测漏过 5 个）。钉住之后，`PROMPT_BLOCK_ORDER` 里新增一个块就会红，
+    //   逼你二选一：要么在这份 dump 里真的把它拼出来，要么写进下面这个清单并说明为什么不能。
+    //   下面这 7 个都是**能力门控**的（没配那个能力就没有内容），这份审计不配它们。
+    expect(missing).toEqual([
+      'availableSkills',
+      'skillChoice',
+      'search',
+      'courseLibrary',
+      'browse',
+      'mcp',
+      'materials',
+    ]);
     mkdirSync(DUMP_DIR, { recursive: true });
     writeFileSync(DUMP_FILE, prompt, 'utf8');
     console.log(`[提示词审计] 已写到 ${DUMP_FILE}`);
