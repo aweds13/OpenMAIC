@@ -129,6 +129,36 @@ export function buildPlanFreezeTool(
 
       if (params.action === 'status') {
         const lines = [formatPlanFreezeStatus(state, entries.length)];
+        /**
+         * ★ 把「缺哪些号 / 哪些号重复」**直接报出来**（2026-10-07 加）。
+         *
+         * 实测：agent 只拿得到一个总数（"51 条"），于是把"补一条就挤掉一条"
+         * 理解成**工具容量上限**，还据此告诉学习者"要再拆页就得先重排计划" ——
+         * **对着我们的 bug 做规划**。缺号和重号都是**可算的**，不该让模型去猜。
+         */
+        const counts = new Map<number, number>();
+        for (const entry of entries) counts.set(entry.order, (counts.get(entry.order) ?? 0) + 1);
+        const duplicates = [...counts.entries()]
+          .filter(([, n]) => n > 1)
+          .map(([order]) => order)
+          .sort((a, b) => a - b);
+        const maxOrder = entries.reduce((max, entry) => Math.max(max, entry.order), 0);
+        const missing: number[] = [];
+        for (let order = 1; order <= maxOrder; order += 1) {
+          if (!counts.has(order)) missing.push(order);
+        }
+        if (duplicates.length > 0) {
+          lines.push(
+            `★ **order 重复**：${duplicates.join(', ')} —— 同一个页号有两份条目。` +
+              '写 `add` 时同 order 只保留最新那一份（已自动去重）。',
+          );
+        }
+        if (missing.length > 0) {
+          lines.push(
+            `★ **缺条目**：${missing.join(', ')} —— 这些页在计划里没有条目。` +
+              '往这些页号写 `add` 是**安全的**（不会覆盖任何东西）。',
+          );
+        }
         if (state.revisions.length) {
           lines.push('修订记录（新 → 旧）：');
           for (const revision of [...state.revisions].reverse().slice(0, 5)) {

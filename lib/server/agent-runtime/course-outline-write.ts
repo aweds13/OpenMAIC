@@ -82,14 +82,38 @@ export function upsertOutlineEntry(
   const byOrder = byId < 0 ? entries.findIndex((item) => item.order === entry.order) : -1;
   const index = byId >= 0 ? byId : byOrder;
 
-  if (index >= 0 && sameEntry(entries[index], entry)) {
+  /**
+   * ★ 提前返回也要**先确认那个 order 上只有一份**（2026-10-07 修）。
+   *
+   * 原来这里是 `if (index >= 0 && sameEntry(...)) return { changed: false }` ——
+   * 内容一样就什么都不做。但如果**同一页有两份条目**，这条路会把去重也一起绕过去
+   * （实测：去重写完还是两份，判据当场红）。所以"无需修改"的前提是**那个 order 上
+   * 只有一条**。
+   */
+  const duplicateAtOrder = entries.filter((item) => item.order === entry.order).length > 1;
+  if (index >= 0 && sameEntry(entries[index], entry) && !duplicateAtOrder) {
     return { outline, changed: false };
   }
 
   const next = [...entries];
   if (index >= 0) next[index] = entry;
   else next.push(entry);
-  next.sort((left, right) => left.order - right.order);
+  /**
+   * ★ **同一个 order 只留一条**（2026-10-07 修）。
+   *
+   * 上面是按 `findIndex` 找**第一条**同 order 的条目来替换 —— 如果计划里已经有
+   * **两条 order 相同的条目**（重排/插页的副作用），那第二条**永远碰不到**：
+   * 每次写都在换第一条，**总数永远不变**。
+   *
+   * 实测后果（`stage-GYvpbYB_aN`）：agent 报「**每补一条就挤掉一条，是等量交换**」，
+   * 于是它把计划当成"容量卡住了"、不再尝试补满（51 条 / 56 页，另有一条 order 15 重复）。
+   * **真凶是重复条目，不是容量。** 同一页有两份条目本身就是坏状态，写的时候顺手治好。
+   *
+   * 判据一眼可验：**只保留刚写进去的那一条**（`item === entry`），同 order 的其它全去掉。
+   */
+  const finalEntries = next
+    .filter((item) => item.order !== entry.order || item === entry)
+    .sort((left, right) => left.order - right.order);
 
-  return { outline: { ...outline, outlines: next }, changed: true };
+  return { outline: { ...outline, outlines: finalEntries }, changed: true };
 }
