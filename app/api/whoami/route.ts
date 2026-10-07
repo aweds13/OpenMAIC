@@ -59,6 +59,11 @@ export async function GET(req: NextRequest) {
       // 回显路径是为了"东西到底写到哪去了"永远能在第一站查到。
       scratchpadDir: scratchpadDir(),
       planFreezeDir: planFreezeDir(),
+      // ★ 同时能跑几场会话（本部署 `.env.local` 刻意设 1）。为什么回显它：
+      //   "为什么两门课在同时生成"只能从这里查 —— 原来**没有任何地方回显它**，
+      //   于是改了 `.env.local` 之后没有任何办法证实改动生效了（手册 §6.3 里
+      //   连这个机制的结构名都写错了，一并修正）。
+      maxConcurrent: agentRuntimeConfig.maxConcurrent,
     };
     return Response.json(
       { ownerId, stageCount: stages.length, stages, error, runtime },

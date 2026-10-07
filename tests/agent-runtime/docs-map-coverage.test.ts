@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -66,5 +66,62 @@ describe('★ AGENTS.md 文件地图与现实对账', () => {
 
     const missing = added.filter((path) => !AGENTS.includes(path.split('/').at(-1)!));
     expect(missing, `这些是本 fork 新增的文件，但没写进 §2 地图：\n${missing.join('\n')}`).toEqual([]);
+  });
+});
+
+/**
+ * ★ 文档里点名的**符号**必须真的还在。
+ *
+ * ── 来历（实测抓到过真的）──────────────────────────────────────
+ * 2026-10-07：手册 §6.3 写着 **`RUNNING_MAP`**，而那个符号**在代码里根本不存在**
+ * （真实的闸是 `ctx.running.size < config.maxConcurrent`）。照着它去搜会一无所获 ——
+ * 而这一节正是"坑"清单，**教错比不教更糟**。同一天 §1.1 也是同类（教人去手改一个
+ * 已经是派生的允许表）。
+ *
+ * 判据：`AGENTS.md` 里 `` `name()` `` 与 `` `UPPER_SNAKE` `` 形状的引用，
+ * 必须在**源码或测试**里找得到。带 `Xxx` 的是占位模式（`resolveXxxCapability()`），跳过。
+ */
+describe('★ AGENTS.md 里点名的符号还在', () => {
+  const CORPUS_DIRS = ['lib', 'app', 'components', 'tests', 'scripts'];
+
+  function sourceBlob(): string {
+    const out: string[] = [];
+    const walk = (dir: string): void => {
+      let entries: import('node:fs').Dirent[];
+      try {
+        entries = readdirSync(join(process.cwd(), dir), { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const rel = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+          walk(rel);
+        } else if (/\.(ts|tsx|mjs|js)$/.test(entry.name)) {
+          out.push(readFileSync(join(process.cwd(), rel), 'utf8'));
+        }
+      }
+    };
+    for (const dir of CORPUS_DIRS) walk(dir);
+    return out.join('\n');
+  }
+
+  it('每个被点名的函数与常量都还能在源码里找到', () => {
+    const blob = sourceBlob();
+    expect(blob.length, '语料是空的 —— 目录名写错了').toBeGreaterThan(100_000);
+
+    const calls = [...new Set([...AGENTS.matchAll(/`([a-zA-Z_][A-Za-z0-9_]*)\(\)`/g)].map((m) => m[1]!))];
+    const consts = [...new Set([...AGENTS.matchAll(/`([A-Z][A-Z0-9_]{3,})`/g)].map((m) => m[1]!))];
+    expect(calls.length, '一个函数都没解析到 —— 正则或文档格式变了').toBeGreaterThan(3);
+
+    // `resolveXxxCapability()` 是**占位模式**（告诉你要照着写一个），不是符号。
+    const missingCalls = calls.filter((name) => !name.includes('Xxx') && !blob.includes(name));
+    const missingConsts = consts.filter((name) => !blob.includes(name));
+
+    expect(
+      [...missingCalls.map((n) => `${n}()`), ...missingConsts],
+      `AGENTS.md 点了名但源码/测试里找不到（照着它去搜会一无所获）：`,
+    ).toEqual([]);
   });
 });
