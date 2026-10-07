@@ -28,7 +28,6 @@ import {
   formatPlanFreezeStatus,
   freezePlan,
   revisePlan,
-  type PlanFreezeState,
 } from './plan-freeze';
 import { readPlanFreeze, writePlanFreeze } from './plan-freeze-store';
 
@@ -225,13 +224,4 @@ export function planFreezePromptBlock(): string {
   ].join('\n');
 }
 
-/** 给别的工具用：把状态读成一句话（缺省不输出任何东西）。 */
-export async function planFreezeStatusLine(stageId: string, entryCount: number): Promise<string> {
-  const state = await readPlanFreeze(stageId);
-  return formatPlanFreezeStatus(state, entryCount);
-}
 
-/** 供 `generate_scene` 的门槛直接复用（避免两处各读一次文件）。 */
-export async function planFreezeStateFor(stageId: string): Promise<PlanFreezeState> {
-  return readPlanFreeze(stageId);
-}
