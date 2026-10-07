@@ -21,6 +21,8 @@ import type { NextRequest } from 'next/server';
 
 import { agentRuntimeConfig } from '@/lib/server/agent-runtime/config';
 import { planGateEnabled } from '@/lib/server/agent-runtime/plan-freeze';
+import { planFreezeDir } from '@/lib/server/agent-runtime/plan-freeze-store';
+import { scratchpadDir } from '@/lib/server/agent-runtime/scratch-tools';
 import { getOwnerScopedDocumentStore } from '@/lib/server/agent-runtime/owner-scoped-documents';
 import { withRequestOwnerId } from '@/lib/server/agent-runtime/with-owner';
 
@@ -53,6 +55,10 @@ export async function GET(req: NextRequest) {
       compactionContextBudgetTokens: agentRuntimeConfig.compaction.contextBudgetTokens,
       learnerProfilePath: agentRuntimeConfig.learnerProfilePath ?? null,
       materialsDir: agentRuntimeConfig.materialsDir ?? null,
+      // 草稿纸与阶段冻结落在应用数据目录（不是 个人数据\、也不是 harness 诊断）——
+      // 回显路径是为了"东西到底写到哪去了"永远能在第一站查到。
+      scratchpadDir: scratchpadDir(),
+      planFreezeDir: planFreezeDir(),
     };
     return Response.json(
       { ownerId, stageCount: stages.length, stages, error, runtime },
