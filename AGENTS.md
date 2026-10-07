@@ -110,7 +110,8 @@
 | `lib/quiz/attempt-fold.ts` | **答题状态折叠器**：把 `runtime_records` 里的 quiz 记录折叠成「这一页学成什么样」。纯函数，形状照 `lib/pbl/v2/runtime/fold.ts` | 见 §7「答题状态早就在库里了」 |
 | `lib/quiz/learner-state.ts` | **状态渲染器**：折叠结果 + 页面内容 → 一段能注入提示词的文本（把题号还原成题干） | 同上 |
 | `lib/server/agent-runtime/learner-state.ts` | 状态文件的**读 / 写 / 刷新**：`refreshLearnerStateFromRuntime()` 离线查库写文件；`resolveLearnerState()` 热路径只读文件 | 见 §7「学习状态文件」 |
-| `lib/quiz/coverage-gap.ts` | **覆盖缺口检查**：这一页题干/选项/解析里的内容块，在它之前所有页里出现过吗。纯函数、可算、不花模型 | 见 §7「覆盖缺口检查」 |
+| `lib/quiz/coverage-gap.ts` | **覆盖缺口检查**（查）：这一页题干/选项/解析里的内容块，在它之前所有页里出现过吗。纯函数、可算、不花模型 | 见 §7「覆盖缺口检查」 |
+| `lib/quiz/quiz-grounding.ts` | **出题前注入**（拦）：把「前面已讲过的词表 + 页码表 + 五条硬规矩」追加到 quiz 生成器的 system prompt 末尾 | 同上；与 `coverage-gap` **共用同一个单位** |
 
 **`/api/whoami` 是第一站。** 它回显 `runtime.selfStudyDefault` 等**模块加载时求值**的
 开关 —— "我改了 `.env.local` 怎么没反应"的答案通常是"没重启"，而它会直接告诉你进程
@@ -424,6 +425,33 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 4. 回归 pin：`tests/quiz/attempt-fold.test.ts`「keeps same-named pages in different courses apart」、
    `tests/quiz/learner-state.test.ts`「does not borrow another course's question text…」。
    **改这两个模块时先看这两条。**
+
+### 6.7 ★ `document_scenes` 里 slide 的 `content` **就是 HTML** —— 拿它当纯文本用会把 CSS 关键词喂给模型
+
+2026-10-07 实测。原文长这样（直接从库里取的）：
+
+```html
+<p style="font-size: 32px;"><strong>Java 条件语句：和 Python 有什么不同</strong></p>
+<p style="font-size: 16px;">• if (条件) { }</p>
+```
+
+后果不是"多几个字"，是**注入块变成垃圾**：`coverage-gap` / `quiz-grounding` 把
+`font` / `style` / `size` / `strong` / `16px` / `14px` / `monospace` / `Consolas` /
+`color` / `family` / `nbsp` 全当成"这门课讲过的词"。实测注入的词表**前 12 个全是它们** ——
+而那块注入的作用正是告诉出题器"只许用这些词"，于是**比不注入更糟**。
+
+**修法**：`stripMarkup()` 在**两个入口**各剥一次 —— `extractTaughtText()`（haystack
+必须是无标记纯文本）和 `contentChunks()`（它是共享单位，两侧都从这里过，在入口剥比
+要求每个调用点记得剥可靠）。剥完实测同一门课：
+
+| | 词表前 12 个 |
+|---|---|
+| 剥之前 | `font / style / size / strong / 16px / 14px / nbsp / monospace / Consolas / family / color / int` |
+| 剥之后 | `int / Java / for / Python / else / if / boolean / Maven / JDK / 素数 / 条件 / String` |
+
+**规矩**：任何把 `document_scenes.data->'content'` 当文本用的地方（生成、检索、计数、
+向量化），先过 `stripMarkup()` 或 `extractTaughtText()`。回归 pin：
+`tests/quiz/coverage-gap.test.ts`「strips tags so CSS keywords never become "taught terms"」。
 
 ---
 
