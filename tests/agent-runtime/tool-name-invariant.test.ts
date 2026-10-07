@@ -117,7 +117,10 @@ function ownTexts(materialsEnabled: boolean): { where: string; text: string }[] 
 
   const tools = [
     buildCourseAuditTool({ loadScenes: async () => null }),
-    buildScratchTool({ ownerId: 'anon:invariant', materialsEnabled }),
+    buildScratchTool({
+      ownerId: 'anon:invariant',
+      materialTopics: materialsEnabled ? ['java-basics'] : null,
+    }),
     buildPracticeScaffoldTool(),
     buildPracticeResultTool(),
     buildPlanFreezeTool({
