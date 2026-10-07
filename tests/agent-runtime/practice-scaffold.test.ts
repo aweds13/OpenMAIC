@@ -288,9 +288,17 @@ describe('practice_result（把结果读回来给 agent）', () => {
     expect(text).toContain('输出里没有：-1');
     // 失败时要说清下一步是"回去讲"，不是重发练习。
     expect(text).toContain('该讲的东西');
-    // ★ 并且**明说没有进错题本** —— 不许静默地假装回流了。
-    expect(text).toContain('没有进错题本');
-    expect((read as { details: { persistedToRuntimeRecords: boolean } }).details.persistedToRuntimeRecords).toBe(false);
+    // ★ 两个来源要分开说清楚：**没有**写 runtime_records，但**会**进 学习状态.md。
+    //   第一版这里断的是"没有进错题本" —— 那时确实没进；接上磁盘来源之后
+    //   那句话就成了假话，断言跟着改（否则测试会保护一句错的提示）。
+    expect(text).toContain('不是');
+    expect(text).toContain('会进');
+    // ★ 模型可见的文字里**不许出现我的表名** —— 它不需要知道，而且第 8 轮那条
+    //   不变式（tool-name-invariant）正是靠这个把表名当幽灵工具抓了出来。
+    expect(text).not.toContain('runtime_records');
+    const details = (read as { details: { persistedToRuntimeRecords: boolean; feedsLearnerState: boolean } }).details;
+    expect(details.persistedToRuntimeRecords).toBe(false);
+    expect(details.feedsLearnerState).toBe(true);
   });
 
   it('lists the exercises when a page has more than one, instead of guessing', async () => {

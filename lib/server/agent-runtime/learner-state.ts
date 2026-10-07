@@ -41,6 +41,8 @@ import type { RuntimeRecord } from '@openmaic/dsl';
 import { createLogger } from '@/lib/logger';
 import { foldQuizAttempts, type QuizFoldSession } from '@/lib/quiz/attempt-fold';
 import { renderLearnerState, type LearnerStateSceneContent } from '@/lib/quiz/learner-state';
+import { formatPracticeResultsForState, readPracticeResults } from '@/lib/practice/results';
+import { practiceRoot } from '@/lib/server/agent-runtime/practice-tools';
 import { getServerPersistenceProvider } from '@/lib/persistence/server-provider';
 import { agentRuntimeConfig } from './config';
 import { readPromptContextFile } from './prompt-context-file';
@@ -91,6 +93,13 @@ export interface RefreshLearnerStateResult {
   records: number;
   /** 实际折进去的 learnerKey —— 多于一个就说明混了设备（见模块头注释）。 */
   learnerKeys: string[];
+  /**
+   * 折进来的**练习结果**条数（来自磁盘上的 `result.json`，不是数据库）。
+   *
+   * ★ 与 `records` 分开计数是刻意的：这两个数字来源不同，
+   *   合并成一个就会让人以为练习结果也进了 `runtime_records`。
+   */
+  practiceResults: number;
 }
 
 export interface RefreshLearnerStateOptions {
@@ -100,6 +109,8 @@ export interface RefreshLearnerStateOptions {
   learnerKey?: string;
   /** 覆盖写入路径。测试用临时路径，免得往别人的数据目录里写东西。 */
   path?: string;
+  /** 覆盖练习根目录（测试用）。默认 `practiceRoot()` —— **复用同一处实现，不另写一份**。 */
+  practiceRoot?: string;
 }
 
 /**
@@ -113,6 +124,11 @@ export async function refreshLearnerStateFromRuntime(
 ): Promise<RefreshLearnerStateResult | null> {
   const path = options.path ?? learnerStatePath();
   if (!path) return null;
+
+  // 练习结果来自**磁盘**（练习根目录下、每个练习文件夹里的 result.json），
+  // 与自检页记录（数据库）是两个来源。读不动就退化成"没有练习记录"（`readPracticeResults` 不抛）。
+  const practiceEntries = await readPracticeResults(options.practiceRoot ?? practiceRoot());
+  const practiceSection = formatPracticeResultsForState(practiceEntries);
 
   const db =
     options.queryable ??
@@ -137,7 +153,22 @@ export async function refreshLearnerStateFromRuntime(
       ORDER BY s.created_at`,
     [options.ownerId, options.learnerKey ?? null],
   );
-  if (sessionRows.rows.length === 0) return null;
+  if (sessionRows.rows.length === 0) {
+    // 没有自检页记录，但有练习结果 —— 这不是"没什么可说的"。
+    // 练习过、代码跑过，那正是学习状态该记下来的东西。
+    if (!practiceSection) return null;
+    const practiceOnly = `${practiceSection}\n`;
+    const previous = await readFile(path, 'utf8').catch(() => null);
+    if (previous !== practiceOnly) await writeAtomically(path, practiceOnly);
+    return {
+      path,
+      text: practiceSection,
+      scenes: 0,
+      records: 0,
+      learnerKeys: [],
+      practiceResults: practiceEntries.length,
+    };
+  }
 
   const sessions: QuizFoldSession[] = sessionRows.rows.map((row) => ({
     id: row.id,
@@ -198,15 +229,29 @@ export async function refreshLearnerStateFromRuntime(
     .sort()
     .at(-1);
 
-  const text = renderLearnerState({
-    scenes: fold.scenes,
-    contents,
-    skipped: fold.skipped,
-    ...(asOf ? { asOf } : {}),
-  });
+  // 两个来源分开写、拼在一起 —— 读的人要能看出哪部分来自自检页、哪部分来自练习。
+  const text = [
+    renderLearnerState({
+      scenes: fold.scenes,
+      contents,
+      skipped: fold.skipped,
+      ...(asOf ? { asOf } : {}),
+    }),
+    practiceSection,
+  ]
+    .filter((part) => part.length > 0)
+    .join('\n\n');
 
   const learnerKeys = [...new Set(sessionRows.rows.map((row) => row.learner_key))];
-  if (!text) return { path, text: '', scenes: 0, records: recordRows.rows.length, learnerKeys };
+  if (!text)
+    return {
+      path,
+      text: '',
+      scenes: 0,
+      records: recordRows.rows.length,
+      learnerKeys,
+      practiceResults: practiceEntries.length,
+    };
 
   // 内容没变就不写。重复写同样的字节只会动 mtime，还会让"这次运行到底更新了
   // 什么"变得没法从文件看出来。
@@ -220,6 +265,7 @@ export async function refreshLearnerStateFromRuntime(
     scenes: fold.scenes.length,
     records: recordRows.rows.length,
     learnerKeys,
+    practiceResults: practiceEntries.length,
   };
 }
 

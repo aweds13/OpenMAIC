@@ -234,7 +234,10 @@ export interface PracticeResultToolDeps {
  *
  * ✅ 读 `result.json`，把哪几条过了、哪几条没过、**原样的失败原因**交回给 agent，
  *    让它据此调整（重讲那一页 / 换一道更小的练习 / 拆页）。
- * ❌ **它不写 `runtime_records`** —— 所以**不会**自动进错题本与 `学习状态.md`。
+ * ❌ **它不写 `runtime_records`**（服务端本来也没有写那条表的路径）。
+ * ✅ 但结果**会进 `学习状态.md`** —— 走的是磁盘：`lib/practice/results.ts` 扫练习根目录下的
+ *    `result.json`，`learner-state.ts` 把那一节渲染进状态文件。所以下一次运行时 agent
+ *    在状态里就看得到它。**两处说法必须一致**，否则这里就成了静默的假话。
  *    原因不是懒：测验记录是**浏览器端**写的（`lib/quiz/runtime.ts` 走
  *    `navigator.locks`），而 `result.json` 是学习者在 VS Code 里跑出来的**磁盘文件**，
  *    两者是跨端的一跳。硬接需要新端点（= 给 web 服务"接受任意脚本写入"的能力），
@@ -251,9 +254,9 @@ export function buildPracticeResultTool(
     description:
       'Read the `result.json` the learner produced by running the checks in an exercise folder. Tells you ' +
       'which checks passed, which failed, and the exact failure text — so you can adjust (re-explain that ' +
-      'page, split it, or set a smaller exercise). **It does not write to the error book**: the practice ' +
-      'result stays a file on disk and will not appear in `学习状态.md`. Read it after the learner says ' +
-      'they ran the checks.',
+      'page, split it, or set a smaller exercise). The result is **not** stored as a quiz attempt, but it ' +
+      '**does** reach `学习状态.md` (the state refresh reads these files from disk), so it is remembered ' +
+      'across sessions. Read it after the learner says they ran the checks.',
     parameters: RESULT_PARAMS,
     executionMode: 'sequential',
     async execute(_id: string, params: Static<typeof RESULT_PARAMS>) {
@@ -342,8 +345,9 @@ export function buildPracticeResultTool(
           '',
           '★ 没过的那几条就是**下一步该讲的东西** —— 回到对应的讲解页补讲或拆页，' +
             '不要只是把这条练习重发一遍。',
-          '★ 提醒：这份结果**没有进错题本**（`学习状态.md` 看不到它）。' +
-            '要让它进错题本，得先把"练习结果写库"这条设计定下来。',
+          '★ 注意来源：这条结果**不是**一次答题记录（它没有写数据库），' +
+            '但它**会进 `学习状态.md`** —— 状态刷新会从磁盘读这些结果文件，' +
+            '所以下一次运行时它还在。',
         );
       }
 
@@ -354,8 +358,9 @@ export function buildPracticeResultTool(
           total: parsed.total ?? 0,
           passed: parsed.passed ?? 0,
           failed: parsed.failed ?? 0,
-          // ★ 明写这一条，供 SQL / 后续接线判断：练习结果**没有**进 runtime_records。
+          // ★ 两个来源分开写清楚，避免把"进了学习状态"误读成"进了 runtime_records"。
           persistedToRuntimeRecords: false,
+          feedsLearnerState: true,
         },
       };
     },
@@ -385,6 +390,7 @@ export function practicePromptBlock(): string {
     '  the learner\'s step, on their own machine, where they can see it happen.',
     '- After they say they ran the checks, read it back with `practice_result { stageId, order }`.',
     '  A failing check tells you **what to go back and teach** — do not just re-issue the exercise.',
-    '  That reads a file on disk; it does **not** put the result in the error book (`学习状态.md`).',
+    '  That reads a file on disk. The result is not a quiz attempt, but the state refresh picks these',
+    '  files up, so it **does** show up in `学习状态.md` on the next run.',
   ].join('\n');
 }

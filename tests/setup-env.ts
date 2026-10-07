@@ -26,6 +26,7 @@ import { resolve } from 'path';
 //   破坏 hermetic（见 AGENTS.md §3.1）。指到临时目录，测试之间互不影响。
 process.env.OPENMAIC_PLAN_FREEZE_DIR ??= join(tmpdir(), 'openmaic-plan-freeze-tests');
 process.env.OPENMAIC_SCRATCHPAD_DIR ??= join(tmpdir(), 'openmaic-scratchpad-tests');
+process.env.OPENMAIC_PRACTICE_DIR ??= join(tmpdir(), 'openmaic-practice-tests');
 
 if (process.env.TEST_LOAD_LOCAL_ENV === '1') {
   const envPath = resolve(__dirname, '..', '.env.local');
