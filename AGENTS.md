@@ -141,6 +141,22 @@ npx eslint <改过的文件>                       # 必须 clean
   jsdom + `fake-indexeddb`。真 PPTX 是 CPU 密集的，所以它自己带 **30s** 超时；
   5s 默认值在整包并行下会误红（同类假红）。
 
+**一条既有的真红（不是本轮引入）**：`node scripts/check-i18n-keys.mjs`
+（`pnpm check:i18n-keys`）会报 **10 个语言各缺 2 个键**
+（`toolbar.selfStudyModeHint` / `toolbar.selfStudyModeLabel`）。实测：这两个键在
+**HEAD 里也只存在于 en-US / zh-CN / zh-TW**，是自学模式那一轮留下的缺口，
+与后来的改动无关。要么补 10 份翻译，要么先别把这个脚本加进 CI —— 别以为是自己弄坏的。
+
+**第二条既有的真红**：`tests/store/` 里有 3 条**一直**红（单跑也红，不是负载）——
+`settings-claude-web-search.test.ts`「falls back to the default provider when claude is
+disabled while selected」、`disable-switches-selection.test.ts`「web search: … falls back
+to tavily」、`kv-persist.test.ts`「says nothing to the user when a healthy backend simply
+had not hydrated yet」，实测报的都是 `expected 'metaso' to be 'tavily'`。
+根因是**本 fork 把默认搜索提供方换成了 metaso**（`lib/store/settings.ts` 的
+`webSearchProviderId: 'metaso'`），而上游那几条用例仍期望 tavily。
+已 A/B 实测：`git checkout -- lib/store/settings.ts` 之后**同样红**。改搜索相关的东西
+之前先知道这件事，别把它们算进自己的账。
+
 **测试是 hermetic 的**：`tests/setup-env.ts` **默认不加载 `.env.local`**。所以你的测试
 不依赖本机配置；要跑真端点才用 `TEST_LOAD_LOCAL_ENV=1`。
 
@@ -532,6 +548,28 @@ estimateSpeechDurationMs('') = max(2000, 0 × 240) = 2000ms
    还暴露了 `CanvasArea` 其实是**自己算**这个值（所以 `CanvasAreaProps` 用
    `Omit<CanvasToolbarProps, 'readingPage'>`）。
 
+### ★ 滚轮翻页必须能关掉，且不许抢页内的滚动
+
+用户的原话：「滚轮功能可以自己自由在看课时关掉才行，因为有时课件内部也要上下滑动，
+有冲突」。冲突是**真的**：`scene-renderers/quiz-renderer.tsx` 的根就是
+`overflow-y-auto`，`pbl/v2/*`、`CodeElement` 也各自有可滚容器 —— 长测验页会在翻页的
+同时被滚走。所以这条手势上有**两个闸**，判据都在 `lib/playback/reading-navigation.ts`：
+
+| 闸 | 判据 | 少了它会怎样 |
+|---|---|---|
+| 用户的开关 | `canTurnPageOnWheel(ctx)`，读 `settings.wheelPageTurn`（默认 `true`，**持久化**） | 开关**静默失效**：关掉后滚轮继续翻页，没有任何报错 |
+| 页内还能滚 | `innerScrollConsumesWheel(target, deltaY, currentTarget)` | 长测验页 / PBL 面板被抢走手势（滚到**头**再继续滚才翻页 —— 这是有意的滚链，别改成"只要可滚就永不翻页"，那会让长页变成死胡同） |
+
+**开关按钮**在 `components/canvas/canvas-toolbar.tsx`，渲染条件是
+`onToggleWheelPageTurn && readingPage` —— 两个条件都必要：有讲稿的页滚轮从来不翻页；
+**roundtable 布局渲染同一个工具栏但舞台上没有 `onWheel`**，在那里摆开关就是假控件
+（§1.1 的同一条原则）。`wheelPageTurn` / `onToggleWheelPageTurn` 由 `CanvasArea` 从
+store 读并自己拥有（`CanvasAreaProps` 把这两个 `Omit` 掉）—— 滚轮处理就在它里面，
+让调用方传就等于有两个接线点，必有一个会漂。
+
+**文案**：`stage.wheelPageTurn` / `…Off` / `…On`，12 个 locale 全都要有
+（`tests/i18n/wheel-page-turn-locales.test.ts` 钉住）。
+
 ### 怎么测
 
 仓库**没有 @testing-library**，但渲染测试是能写的 —— 照
@@ -540,5 +578,15 @@ estimateSpeechDurationMs('') = max(2000, 0 × 240) = 2000ms
 `vi.mock('@/lib/hooks/use-i18n', ...)`（组件要 `t`）。
 新加的 pin：`tests/playback/reading-page-park.test.ts`、
 `tests/playback/reading-navigation.test.ts`、
-`tests/components/canvas/canvas-toolbar-reading-page.test.ts`。
+`tests/components/canvas/canvas-toolbar-reading-page.test.ts`、
+`tests/playback/wheel-inner-scroll.test.ts`（jsdom，几何用 `Object.defineProperty`
+摆出来 —— jsdom 不做布局）、`tests/components/canvas/canvas-area-wheel-gate.test.ts`
+（**真的挂 `CanvasArea`、派发真的 `wheel` 事件**，锁住"开关真的被读了"）、
+`tests/i18n/wheel-page-turn-locales.test.ts`。
+
+**这两条必须做变异测试**（实测过，两次都会红）：把 `canvas-area.tsx` 里传给
+`canTurnPageOnWheel` 的 `wheelPageTurn` 改成 `true`、或删掉
+`innerScrollConsumesWheel` 那一行 —— 对应的用例立刻失败。纯函数测试抓不住
+"组件忘了读开关"这类错，所以这两条钉在组件上。
+
 
