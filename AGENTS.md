@@ -130,7 +130,7 @@ reading-page 那套与批量下载对话框；漏看它就会以为"改动只在
 | `lib/server/agent-runtime/course-search.ts` | `course_search` + `read_document` 接进工作台 | L4 = 本地文档层 |
 | `lib/server/agent-runtime/browse-url.ts` | `browse_url` 接进工作台（真浏览器） | 见 §5 |
 | `lib/server/agent-runtime/learner-profile.ts` | 注入 `学习画像.md`（**每次运行重读**） | 改画像不用重启 |
-| `lib/server/agent-runtime/materials-library.ts` | `read_materials` / `update_materials` | agent 自己维护的材料库 |
+| `lib/server/agent-runtime/materials-library.ts` | `read_materials` / `update_materials` + **`listMaterialText()`** | agent 自己维护的材料库；**它的 URL 会喂进会话的 URL 信任闸**（`store.ts` 的建会话钩子）—— 见 §3.1 那条假红与结论库 |
 | `lib/server/agent-runtime/mcp-tools.ts` + `mcp-client.ts` | 外部 MCP（GitHub）接进工作台 | 连不上只记 failed，不拖死会话 |
 | `lib/server/agent-runtime/compaction.ts` | 原生上下文压缩 | **默认关**，本部署开着 |
 | `lib/server/agent-runtime/session-commands.ts` | `/compact` 之类的会话命令 | |
@@ -227,6 +227,13 @@ had not hydrated yet」，实测报的都是 `expected 'metaso' to be 'tavily'`�
 `webSearchProviderId: 'metaso'`），而上游那几条用例仍期望 tavily。
 已 A/B 实测：`git checkout -- lib/store/settings.ts` 之后**同样红**。改搜索相关的东西
 之前先知道这件事，别把它们算进自己的账。
+
+**第五条负载假红**（2026-10-07 实测）：`tests/agent-runtime/session-url-materials.test.ts`
+的**第一条**在整包并行时 **5.6s** 撞 5s 默认超时，**伪装成断言失败**
+（`expected false to be true`）—— 单跑 0.1s。根因：`materialsDir` 是**模块加载时**求值的，
+那条要 `vi.resetModules()` + 动态 `import('.../store')` 付整条依赖链的代价。
+已给该文件 describe 级 30s 超时。同类还有 `tests/agent-runtime/agent-driver-model.test.ts`
+（一次并行跑里 13 条红了 2 条、单跑 13/13 —— 同属负载，未改）。
 
 **第三条既有的真红**：`tests/quiz/runtime.test.ts` 有 4 条**挂住**（不是慢）——
 `recovers when another tab wins the same session create race without Web Locks`、
