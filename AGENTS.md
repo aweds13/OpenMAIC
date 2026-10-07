@@ -129,6 +129,11 @@
 | `components/generation/self-study-button.tsx` | 首页那条链上的「自学」开关（经典路径，与工作台的 `study-mode.ts` 不同一条路） | 在工作台路径上搜不到 `selfStudy` |
 | `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
 
+**运行期可变目录**（都有默认值；三个都在 `/api/whoami` 的 `runtime` 里回显，所以"它到底写哪去了"随时可查）：
+`OPENMAIC_PLAN_FREEZE_DIR`（默认 `data/plan-freeze/`）· `OPENMAIC_SCRATCHPAD_DIR`（默认 `data/scratchpad/`）·
+`OPENMAIC_PRACTICE_DIR`（默认 `课程与学习\练习\`）· `OPENMAIC_MATERIALS_DIR` / `OPENMAIC_LEARNER_PROFILE_PATH`（见 §6.8）。
+测试用 `tests/setup-env.ts` 把它们指到临时目录（hermetic）。
+
 **`/api/whoami` 是第一站。** 它回显 `runtime.selfStudyDefault` 等**模块加载时求值**的
 开关 —— "我改了 `.env.local` 怎么没反应"的答案通常是"没重启"，而它会直接告诉你进程
 当前握着什么值。
