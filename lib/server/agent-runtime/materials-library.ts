@@ -78,6 +78,39 @@ function listTopics(dir: string): string[] {
 }
 
 /**
+ * 材料库里所有材料的**全文**（`INDEX.md` + 每个主题文件），拼成一段文本。
+ *
+ * ★ 为什么需要它（2026-10-07 实测）：会话的 **URL 信任闸**（`session-urls.ts`）
+ *   只被三处喂 —— `web_search` 的结果（`runner.ts`）、会话初始提示词、
+ *   每条用户消息（`store.ts` 的两个钩子）。**材料库不在其中。**
+ *
+ *   后果不是"少个方便"，是**自相矛盾**：agent 用 `read_materials` 读到材料文件里
+ *   写着的 URL，照着 `fetch_url` 去抓，**被自己的闸拒**（`url_not_in_session`）——
+ *   工具给了它一个自己会拒绝的链接。用户"登记资料"这个正确动作**没有生效**。
+ *
+ *   实测那次：用户的材料里写着 `runoob.com` / `start.spring.io` / 4 条 `github.com`，
+ *   而他让 agent 参考的 Oracle / Spring 文档**一条都抓不到**（域名谁都没见过）。
+ *
+ * 调用方（`store.ts` 的建会话钩子）**必须用同一个** `extractObservedUrls` 来解析 ——
+ * 闸是按那个函数归一化后的来源比对的，自己写一个正则就会差一个字符而全部落空。
+ *
+ * 读失败 ⇒ **返回空串**。这里绝不能抛：钩子跑在**建会话那个事务里**，
+ * 抛了就等于"材料读不到 ⇒ 课都建不了"。
+ */
+export function listMaterialText(): string {
+  const dir = materialsDir();
+  if (!dir) return '';
+  const parts: string[] = [];
+  const index = readPromptContextFile(join(dir, 'INDEX.md'));
+  if (index) parts.push(index);
+  for (const topic of listTopics(dir)) {
+    const body = readPromptContextFile(join(dir, `${topic}.md`));
+    if (body) parts.push(body);
+  }
+  return parts.join('\n\n');
+}
+
+/**
  * 注入用的索引内容：`INDEX.md` 的正文，外加一行**实际存在**的主题文件列表。
  *
  * 为什么要补这一行：`INDEX.md` 是智能体自己维护的，它可能忘了更新索引表。

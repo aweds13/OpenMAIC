@@ -5,10 +5,15 @@ import {
   type WithTransaction,
 } from '@openmaic/storage/agent-session/pg';
 import { extractObservedUrls } from '@openmaic/storage';
+import type {
+  AgentSessionMeta,
+  AgentSessionTransaction,
+} from '@openmaic/storage';
 import type { Pool } from 'pg';
 
 import { getServerPersistenceProvider } from '@/lib/persistence/server-provider';
 import { notifyDurableAgentEvent } from './event-notify-bus';
+import { listMaterialText } from './materials-library';
 
 interface AgentSessionStoreState {
   connectionString?: string;
@@ -20,6 +25,42 @@ const globalState = globalThis as typeof globalThis & {
   [AGENT_SESSION_STORE_STATE_KEY]?: AgentSessionStoreState;
 };
 const storeState = (globalState[AGENT_SESSION_STORE_STATE_KEY] ??= {});
+
+/**
+ * 建会话时要登记进 **URL 信任闸**的来源 —— 用户写的提示词 **+ 他登记的材料**。
+ *
+ * ★ 抽成具名函数是为了**能被测到**：钩子体本身在 `PgAgentSessionStore` 里，
+ *   测试只能整库拉起来；这个函数注入一个假 store 就能钉住行为。
+ *
+ * ★ 材料那一半是 2026-10-07 补的，理由是实测出来的一条自相矛盾：
+ *   闸原来只被「`web_search` 结果 / 会话提示词 / 用户消息」喂，**材料库不在其中**
+ *   ⇒ agent 在材料文件里读到 URL、照着 `fetch_url`，**被自己的闸拒**
+ *   （`url_not_in_session`）。用户"登记资料"这个正确动作没有生效。
+ *   实测那次：材料里写着 runoob / start.spring.io / 4 条 github，
+ *   而 Oracle / Spring 文档一条都抓不到。
+ */
+export async function registerBootstrapSessionUrls(
+  store: Pick<PgAgentSessionStore, 'registerSessionUrls'>,
+  transaction: AgentSessionTransaction,
+  meta: AgentSessionMeta,
+): Promise<void> {
+  await store.registerSessionUrls(meta.id, extractObservedUrls(meta.prompt), 'user', transaction);
+
+  /**
+   * 材料库**单独 try**：这一段跑在**建会话那个事务里**，抛出去就等于
+   * 「材料读不到 ⇒ 课都建不了」。少几个可信来源是"抓不到"，不是"建不起来" ——
+   * 所以这里降级放行。上面那一段（用户提示词）**仍然按原样会中止写入**：
+   * 那是用户当场说的话，静默丢掉它才是真问题。
+   */
+  try {
+    const urls = extractObservedUrls(listMaterialText());
+    if (urls.length > 0) {
+      await store.registerSessionUrls(meta.id, urls, 'user', transaction);
+    }
+  } catch {
+    // 故意吞掉：见上面的取舍。
+  }
+}
 
 /**
  * Adapt a node-postgres pool to the storage package's transaction contract.
@@ -53,12 +94,7 @@ async function createAgentSessionStore(connectionString: string): Promise<PgAgen
   const store: PgAgentSessionStore = new PgAgentSessionStore(pool, {
     withTransaction: nodePostgresTransaction(pool),
     onSessionCreated: async (transaction, meta): Promise<void> => {
-      await store.registerSessionUrls(
-        meta.id,
-        extractObservedUrls(meta.prompt),
-        'user',
-        transaction,
-      );
+      await registerBootstrapSessionUrls(store, transaction, meta);
     },
     onUserMessagePosted: async (transaction, input): Promise<void> => {
       await store.registerSessionUrls(
