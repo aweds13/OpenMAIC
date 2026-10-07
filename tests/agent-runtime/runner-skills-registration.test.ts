@@ -254,6 +254,7 @@ describe('skills runner registration', () => {
 
     expect(options.tools.map((tool) => tool.name)).toEqual([
       'ask_user',
+      'course_audit',
       'create_skill',
       'read_skill',
       'patch_skill',
@@ -293,6 +294,7 @@ describe('skills runner registration', () => {
     expect([...(options.allowedToolNames ?? [])].sort()).toEqual([
       'ask_user',
       'clip_audio',
+      'course_audit',
       'create_folder',
       'create_skill',
       'create_stage',

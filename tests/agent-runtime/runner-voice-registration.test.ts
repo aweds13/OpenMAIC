@@ -284,6 +284,7 @@ describe('voice tool runner registration', () => {
 
     expect(options.tools.map((tool) => tool.name)).toEqual([
       'ask_user',
+      'course_audit',
       'create_skill',
       'read_skill',
       'patch_skill',
@@ -324,6 +325,7 @@ describe('voice tool runner registration', () => {
       [
         'ask_user',
         'clip_audio',
+        'course_audit',
         'create_folder',
         'create_skill',
         'create_stage',
@@ -373,6 +375,7 @@ describe('voice tool runner registration', () => {
 
     expect(options.tools.map((tool) => tool.name)).toEqual([
       'ask_user',
+      'course_audit',
       'create_skill',
       'read_skill',
       'patch_skill',
@@ -412,6 +415,7 @@ describe('voice tool runner registration', () => {
       [
         'ask_user',
         'clip_audio',
+        'course_audit',
         'create_folder',
         'create_skill',
         'create_stage',

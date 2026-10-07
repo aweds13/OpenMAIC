@@ -113,6 +113,14 @@ export function sceneWriteDiagnostics(input: SceneWriteDiagnosticsInput): SceneW
 
   // 计划期依赖：计划是空的时候它**一句话都不说**（这是它的固有性质 ——
   // 它审的是"正在排的计划"，不是"已有的课"）。见 plan-check.ts 头部。
+  //
+  // ★ **这里刻意不传 `conceptsPerPage`**（那条"一页塞太多"的判据因此默认关着），
+  //   因为**它和 course-audit 的 `NOVEL_P90` 不是同一个测量**：
+  //     · plan-check 量的是**计划 brief** 里的新块（输入是 agent 写的计划文本）
+  //     · course-audit 量的是**已落盘页面**里的新块（输入是真实页面内容）
+  //   `NOVEL_P90 = 49` 是在 146 个真实**页面**上标定出来的，直接搬给"计划 brief"
+  //   就是错的。要开它，得先拿真实**计划**数据各自标定一次。
+  //   **别把这两个阈值合并成一个常量。**
   const planIssues = checkPlanDependencies(input.outline?.outlines ?? []);
 
   return {

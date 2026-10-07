@@ -20,6 +20,7 @@
 import type { NextRequest } from 'next/server';
 
 import { agentRuntimeConfig } from '@/lib/server/agent-runtime/config';
+import { planGateEnabled } from '@/lib/server/agent-runtime/plan-freeze';
 import { getOwnerScopedDocumentStore } from '@/lib/server/agent-runtime/owner-scoped-documents';
 import { withRequestOwnerId } from '@/lib/server/agent-runtime/with-owner';
 
@@ -43,6 +44,11 @@ export async function GET(req: NextRequest) {
     const runtime = {
       /** true = generate_scene writes no narration. Set by OPENMAIC_SELF_STUDY. */
       selfStudyDefault: agentRuntimeConfig.selfStudyDefault,
+      // ★ 阶段冻结的门槛是**可选**的（默认关）。关着就意味着 generate_scene 不拦 ——
+      //   那是"静默失效"最典型的形态，所以必须能从第一站诊断里看见它当前是什么值。
+      //   （`static` = 进程启动时读，中途改 .env.local 不生效 —— 与其它 runtime 开关一致。）
+      planGate: planGateEnabled(),
+      courseAuditTool: true,
       compactionEnabled: agentRuntimeConfig.compaction.enabled,
       compactionContextBudgetTokens: agentRuntimeConfig.compaction.contextBudgetTokens,
       learnerProfilePath: agentRuntimeConfig.learnerProfilePath ?? null,

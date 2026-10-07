@@ -257,6 +257,7 @@ describe('web_search runner registration', () => {
 
     expect(options.tools.map((tool) => tool.name)).toEqual([
       'ask_user',
+      'course_audit',
       'web_search',
       'create_skill',
       'read_skill',
@@ -296,6 +297,7 @@ describe('web_search runner registration', () => {
     expect([...(options.allowedToolNames ?? [])].sort()).toEqual([
       'ask_user',
       'clip_audio',
+      'course_audit',
       'create_folder',
       'create_skill',
       'create_stage',
@@ -349,6 +351,7 @@ describe('web_search runner registration', () => {
 
     expect(options.tools.map((tool) => tool.name)).toEqual([
       'ask_user',
+      'course_audit',
       'create_skill',
       'read_skill',
       'patch_skill',
@@ -387,6 +390,7 @@ describe('web_search runner registration', () => {
     expect([...(options.allowedToolNames ?? [])].sort()).toEqual([
       'ask_user',
       'clip_audio',
+      'course_audit',
       'create_folder',
       'create_skill',
       'create_stage',

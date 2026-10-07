@@ -79,6 +79,7 @@ import {
   planFreezePromptBlock,
 } from './plan-freeze-tools';
 import { planGateEnabled } from './plan-freeze';
+import { AUDIT_TOOL_NAMES, buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
 import { studyModePromptBlock } from './study-mode';
 import { courseDesignPromptBlock } from './course-design';
 import {
@@ -1590,8 +1591,16 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       }),
         ]
       : [];
+    // 课程审计：**无条件注册**。它只读、不依赖任何外部能力，而且是"修一门已有课程"
+    // 唯一的入口 —— 没有它，course-audit.ts 就只是死代码（实测过：生产代码零引用）。
+    const auditTools = [
+      buildCourseAuditTool({
+        loadScenes: async (stageId) => (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
+      }),
+    ];
     const tools = assembleRunnerTools(
       [askUserTool],
+      auditTools,
       planFreezeTools,
       webSearchTools,
       courseSearchTools,
@@ -1658,6 +1667,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         //   状态走工具结果与拒绝消息，不进系统提示词（§1.2 前缀缓存；
         //   也满足用户那句"避免提示词污染"）。开关由部署配置决定，进程内不翻转。
         ...(planGateEnabled() ? { planFreeze: planFreezePromptBlock() } : {}),
+        // 无参、恒定；读数走工具结果。
+        courseAudit: courseAuditPromptBlock(),
         curriculum: CURRICULUM_TOOLS_PROMPT,
         ...(search ? { search: searchPromptBlock() } : {}),
         ...(courseLibrary ? { courseLibrary: courseLibraryPromptBlock() } : {}),
@@ -1709,6 +1720,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         ...(materialsIndex ? MATERIALS_TOOL_NAMES : []),
         // 注册了就必须放行（§1.1），而它只在门槛开着时注册。
         ...(planGateEnabled() ? PLAN_FREEZE_TOOL_NAMES : []),
+        // 审计无条件放行（注册了就必须放行，§1.1）。
+        ...AUDIT_TOOL_NAMES,
         // MCP 工具的名单**由服务器自己声明**，所以在运行时才知道 —— 不能写死。
         ...mcp.names,
         'create_skill',

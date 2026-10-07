@@ -44,7 +44,13 @@
  */
 import { contentChunks, extractTaughtText } from '@/lib/quiz/coverage-gap';
 
-/** 讲解页一次引入新块的告警线 —— 146 个真实讲解页的 **p90**。 */
+/**
+ * 讲解页一次引入新块的告警线 —— 146 个真实讲解页的 **p90**。
+ *
+ * ★ **这个数字只适用于"已落盘页面内容"这个测量。** `plan-check.ts` 里那条
+ *   `conceptsPerPage`（"一页 brief 引入太多新概念"）看着像同一件事，其实输入不同
+ *   （计划 brief vs 页面内容），**不能共用这个常量**。见 scene-diagnostics.ts 的注释。
+ */
 export const NOVEL_P90 = 49;
 
 /** 审计看到的一页。只需内容和身份，不需要生成包的类型。 */
