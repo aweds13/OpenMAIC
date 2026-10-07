@@ -454,6 +454,26 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 向量化），先过 `stripMarkup()` 或 `extractTaughtText()`。回归 pin：
 `tests/quiz/coverage-gap.test.ts`「strips tags so CSS keywords never become "taught terms"」。
 
+### 6.8 ★ `个人数据\` 只放**学习成长**的东西 —— harness 的调试产物跟 harness 走
+
+用户的原话：「**个人数据里不要塞和我学习成长无关的东西，审计归审计**」。
+
+我往里写过一个提示词 dump 和一个会话轨迹导出，被当场纠正 —— 这是对的：
+`个人数据\` 里是**关于这个人**的东西（`学习画像.md` / `学习状态.md` / `材料清单\`），
+而"某个工具输出了什么"是**机器的调试垃圾**。混在一起之后，就没有人分得清哪些该保留、
+哪些可以随时删。
+
+| 东西 | 放哪 |
+|---|---|
+| 学习画像 / 学习状态 / 材料清单 | `个人数据\`（**只放这些**） |
+| 提示词 dump、会话轨迹、审计报告等 harness 产物 | `_tools\openmaic\diagnostics\` |
+| harness 运行日志 | `_tools\openmaic\logs\` |
+| 课程产物与练习 | `课程与学习\`（**不是** `个人数据\`） |
+
+写新 dump/报告时**默认值就往 `_tools\openmaic\diagnostics\` 写**，别让默认值落到
+`个人数据\`（`tests/agent-runtime/prompt-audit-live.test.ts` 的 `DUMP_DIR` 是可以照抄的
+样子，需要时用 `OPENMAIC_PROMPT_DUMP_DIR` 覆盖）。
+
 ---
 
 ## 7. 已经查清、**不要重新论证**的结论
@@ -483,7 +503,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 | **★ 计划从来没落盘过**（T1 修的就是这个）—— brief 生成完就扔 | 2026-10-07 实测**基线**：本部署 **7 门课、计划条目全是 0**（`document_outlines.data->'outlines'` 长度为 0，`producer` 全 `server-job`）。也就是说这个部署**从来没有一条 brief 落盘**。后果是静默的、而且不止一处：<br>· `read_stage_outline` 显示的 description 退化成**页面标题**（`mergeStageOutline` 配不到计划条目时用 `scene.title` 兜底）—— agent 自己都看不到当初的要求；<br>· `edit_deck` 的 `shiftCourseOrders` / `renumberCourseOrders` 在 `outlines.length === 0` 时**直接原样返回** ⇒ **这两条重排逻辑在 agent 路径上是死代码**；<br>· 「练习只能考教过的」那类依赖检查（T3）**没有可校验的计划**。<br>**修法**：`generate_scene` 写页之后，用 `upsertOutlineEntry()` 把同一条 `SceneOutline`（就是喂给内容生成器的那一条）按 **outlineId → order** upsert 进计划。三个刻意的决定：① **替换而不是追加**（重生成很常见，追加会堆出同 order 的僵尸条目，让 order 兜底匹配配到错的那条）；② 写 outline 只能走**全量** `saveDocument`（存储层没有增量 API），所以 `changed: false` 时**跳过整篇保存**；③ **不动 `generationComplete`** —— agent 造的课出生就是 `true`，而在该标志下 `mergeStageOutline` 只显示已落盘的页，这正是我们要的（否则课程列表会凭空多出不存在页）。<br>写 scene 与写 outline 是两次写，中间崩掉的结果就是**今天的行为**（brief 没落盘、页面还在）⇒ 纯改善，无新的坏状态。details 里有 `outlinePersisted` 供 SQL 读。<br>**验证要看**：真跑一次 `generate_scene`，然后 `SELECT jsonb_array_length(data->'outlines') FROM document_outlines` 应 > 0。回归 pin：`tests/agent-runtime/course-outline-write.test.ts` |
 | **计划期依赖校验**（`lib/quiz/plan-check.ts`，T3）：只给「补」和「挪」的诊断 | 在 `generate_scene` 写下计划那一刻跑（比 T2 更早、更便宜），两半共用同一把尺子（`contentChunks`）。三条判据：**超前引用**（某页要考的东西，讲它的页排在它后面）、**无归属**（没有任何讲解页讲过它）、**预算**（一页引入太多新概念 ⇒ 拆页）。★ **每条的输出只允许「补」和「挪」**，不许删题 / 砍概念 / 合并页 —— 门禁一旦允许删就会变成棘轮，讲解页越薄它把课程压得越薄（用户当面纠正过）。<br>**两道闸都是实测逼出来的**：① 自检页**只看 brief + keyPoints，不看标题** —— 标题是标签（「小测」），算进去会把它报成「没讲就考」；讲解页仍看标题（标题本身在教词）。② **新颖 + 重复 ≥2 页**（与 T2 同款判据）：`考封装：private 字段怎么读` 里的「怎么读」只出现在一页 ⇒ 是口气话不是概念。另外判据按**块包含**（「考封装」含已教的「封装」）。<br>⚠️ **精度还没被真实数据验证过**：`conceptsPerPage`（预算规则）**默认关闭**，因为**内容块 ≠ 概念**（实测「封装 private 字段 getter setter」切出 5 个块却只是 1 个概念），而标定只能拿真实计划数据 —— T1 之前这个部署的计划**永远是空的**。**第一次真跑之后回看 `planIssueCount`，再决定要不要收紧。** 回归 pin：`tests/quiz/plan-check.test.ts`（15 条） |
 | **★ 判据必须"先量再建"—— 课程级审计三条判据里两条当场被证伪** | 起因是用户那句「边做边想也挺好的，避免提示词污染，但是需要打通各页，与审计吧」。我原来提的"生成前冻结一版计划"**是错的**（实测：它生成第一页**之后**还 `web_search` 23 次、`fetch_url` 21 次，计划本来就在变 ⇒ 冻结只会污染上下文）。<br>**改做"事后审计"，而审计的判据拿 7 门真实课程（146 个讲解页）筛了一遍**：<br>· ✅ **承接率**（这页用的词有多少是前面建立过的）留 —— 各课 13–37%，逐页 0–67%，**能区分**。<br>· ❌ **断裂承诺**删 —— 全是噪声：把自检题干「下面哪种说法正确」当承诺；把给学习者的指令「实现完之后…」当承诺；**一句话里所有新词都成了承诺**（某页一句话报 8 个）。<br>· ❌ **一次性词**删 —— 564 个里是「3分钟内完成」（UI 文案）、「App」「Found」。而且"一次性"**本身就排除了频率闸** ⇒ 没有可用的校准方式。<br>**代价对比**：不量就建，会交付两个满屏误报的判据，而使用者以为"打通各页"被解决了。<br>★ **超载线是标定出来的**：146 个讲解页 novel 的实测分布 `min=1 p50=25 p75=35 p90=49 max=242` ⇒ 阈值取 **p90=49**。收敛后 Day 1 报出**恰好一页**：第 9 页《面向对象三概念：封装/继承/多态》(**64**) —— **正是用户复盘里点名的那页**（「OOP 只用 1 页讲解，却要撑 5 个概念 + 3 组关系」）。<br>两个自己的 bug 也修了：① 第一页承接率必然是 0，第一版把它当"孤岛"报出来（要跳过）；② 自检页低承接**不该由审计管**（T2 的覆盖缺口已校准过）。<br>复现：`TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/course-audit-live.test.ts` |
-| **★ 阶段冻结：冻结的不是"计划内容"，是"阶段的准入"；门槛放工具里，不放提示词里** | 用户先说「边做边想也挺好的，避免提示词污染」，后说「阶段冻结我觉得也要」——**不矛盾**。合起来：**内容**随时改（边做边想）＋ **结构**不许无纪变更；计划**不进**系统提示词（按需 `read_stage_outline` 读）＋ **每一页在计划里必须有条目**；计划**可以**改，但要**显式改、且留痕**（`plan_revise` 要求写理由）。<br>**门槛为什么在工具里**：手册 §4 的血泪 —— 自学模式当年只写在提示词里，agent 照样 79/79 页产出讲稿，最后是在代码里关掉的。所以 **计划没冻结 ⇒ `generate_scene` 直接拒绝**；拒绝本身就是通知，平时零成本，**不需要往提示词里塞任何东西**。<br>**状态存哪**：计划信封（`document_outlines.data`）技术上能加字段（存盘只做 `assertJsonValue`，**无 schema 校验**），但**不放那儿** —— 万一某条路径丢掉字段，门槛会**静默失效或永久卡死**，而我没有真实写入能验证它。改放**独立小文件**（照 `学习状态.md`）。<br>★ **拒绝冻结空计划**：生成完再"补冻"一次等于没有门槛。★ **修订次数就是"边做边想"的计量器**：0 = 一次想清楚，大 = 边做边想但每次都留了痕（可审计，不是坏事，但要看得见）。<br>回归 pin：`tests/agent-runtime/plan-freeze.test.ts`（13 条）。**注**：纯逻辑已完成，**文件存储 + 工具注册 + `generate_scene` 门槛还没接**。<br>另：提示词审计入口 `tests/agent-runtime/prompt-audit-live.test.ts` —— 把**真实拼出来的**工作台提示词（17,267 字）dump 到 `个人数据\工作台提示词.txt`。现有诊断只有哈希指纹，**看不到它说了什么**，而"新加一条规矩会不会跟旧规矩打架"只能靠读全文。已确认的两个**真冲突**：① `commit` 没有定义（提示词说"resolve the unknowns **before committing to a plan**"，而 profile 有 5 条待确认，**没有规则说没解决就不许 create_stage**）；② 材料库写着「只收**用户确认要用的**材料，搜到但没确认的**先问，不要直接写进来**」⇒ 草稿纸的 `promote` **必须过 ask_user**，不能自动写（我原设计违反了这条）。 |
+| **★ 阶段冻结：冻结的不是"计划内容"，是"阶段的准入"；门槛放工具里，不放提示词里** | 用户先说「边做边想也挺好的，避免提示词污染」，后说「阶段冻结我觉得也要」——**不矛盾**。合起来：**内容**随时改（边做边想）＋ **结构**不许无纪变更；计划**不进**系统提示词（按需 `read_stage_outline` 读）＋ **每一页在计划里必须有条目**；计划**可以**改，但要**显式改、且留痕**（`plan_revise` 要求写理由）。<br>**门槛为什么在工具里**：手册 §4 的血泪 —— 自学模式当年只写在提示词里，agent 照样 79/79 页产出讲稿，最后是在代码里关掉的。所以 **计划没冻结 ⇒ `generate_scene` 直接拒绝**；拒绝本身就是通知，平时零成本，**不需要往提示词里塞任何东西**。<br>**状态存哪**：计划信封（`document_outlines.data`）技术上能加字段（存盘只做 `assertJsonValue`，**无 schema 校验**），但**不放那儿** —— 万一某条路径丢掉字段，门槛会**静默失效或永久卡死**，而我没有真实写入能验证它。改放**独立小文件**（照 `学习状态.md`）。<br>★ **拒绝冻结空计划**：生成完再"补冻"一次等于没有门槛。★ **修订次数就是"边做边想"的计量器**：0 = 一次想清楚，大 = 边做边想但每次都留了痕（可审计，不是坏事，但要看得见）。<br>回归 pin：`tests/agent-runtime/plan-freeze.test.ts`（13 条）。**注**：纯逻辑已完成，**文件存储 + 工具注册 + `generate_scene` 门槛还没接**。<br>另：提示词审计入口 `tests/agent-runtime/prompt-audit-live.test.ts` —— 把**真实拼出来的**工作台提示词（17,267 字）dump 到 `_tools\openmaic\diagnostics\工作台提示词.txt`（**不放 `个人数据\`**，见 §6.8）。现有诊断只有哈希指纹，**看不到它说了什么**，而"新加一条规矩会不会跟旧规矩打架"只能靠读全文。已确认的两个**真冲突**：① `commit` 没有定义（提示词说"resolve the unknowns **before committing to a plan**"，而 profile 有 5 条待确认，**没有规则说没解决就不许 create_stage**）；② 材料库写着「只收**用户确认要用的**材料，搜到但没确认的**先问，不要直接写进来**」⇒ 草稿纸的 `promote` **必须过 ask_user**，不能自动写（我原设计违反了这条）。 |
 | **★ 门禁必须挂在两条写入路径上**：`generate_scene`（生成）**和** `patch_stage`（修改） | 用户问过一句很关键的话：「假如我让 AI 在**原来 Day 1** 上修复，它能按着已有规则来吗」。当时的答案是**不能** —— `coverage-gap` / `plan-check` 只挂在 `generate_scene` 上，而**修复走的是 `patch_stage`**（直接改 JSON，更便宜也更常见）。于是"修一页"这个最常见的动作，**所有检查静默通过**。<br>修法不是把检查复制一份（两份判据早晚会漂），而是抽成 `lib/server/agent-runtime/scene-diagnostics.ts` 的 `sceneWriteDiagnostics()`，**两个写入点都调它**。`details` 里两条路都带 `coverageGapCount` / `planIssueCount`，可被 SQL 读。<br>★ **两个必须记住的固有性质**（不是 bug，是范围）：<br>· **T3 审不了已有课程** —— 计划为空时 `checkPlanDependencies([])` 返回空数组，一句话都不说。它审的是"正在排的计划"。已有课程的计划是空的（T1 之前**永远**空），所以对旧课它等于不工作。<br>· **T8 的学习状态是提示不是门禁** —— agent 看得到错题，但重不重考全看它读不读；而且状态是 owner 级的跨课程内容，**某门课可能根本没有错题**（实测那道错题在 Java 课上，不在 Day 1）。<br>回归 pin：`tests/agent-runtime/scene-diagnostics.test.ts`（6 条，其中一条专门钉「计划为空时不说计划」这个性质） |
 
 ---

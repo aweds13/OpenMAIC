@@ -44,8 +44,15 @@ import { buildRunnerCoursePrompt } from '@/lib/server/agent-runtime/runner-contr
 import { studyModePromptBlock } from '@/lib/server/agent-runtime/study-mode';
 import { voiceCloneToolsPrompt } from '@/lib/server/agent-runtime/voice-clone-tools';
 
-/** dump 到哪儿 —— 放个人数据目录，跟 学习状态.md 同级，你能直接打开看。 */
-const DUMP_DIR = process.env.OPENMAIC_PROMPT_DUMP_DIR ?? 'D:\\文档\\jelly_ware\\个人数据';
+/**
+ * dump 到哪儿 —— **harness 的调试产物跟 harness 走**。
+ *
+ * ★ 不要写到 `个人数据\`：那里只放**学习成长**相关的东西（学习画像 / 学习状态 /
+ *   材料清单）。一次误写就会让"哪些是我的成长数据、哪些是机器的调试垃圾"分不清。
+ *   见 AGENTS.md §6.8。
+ */
+const DUMP_DIR =
+  process.env.OPENMAIC_PROMPT_DUMP_DIR ?? 'D:\\文档\\jelly_ware\\_tools\\openmaic\\diagnostics';
 const DUMP_FILE = join(DUMP_DIR, '工作台提示词.txt');
 
 describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')('工作台提示词审计', () => {
