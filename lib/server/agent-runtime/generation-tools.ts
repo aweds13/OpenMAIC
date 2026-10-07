@@ -16,7 +16,6 @@ import {
 
 import { putSceneBringingCurrent } from './document-writes';
 
-import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import type { SceneOutline } from '@/lib/types/generation';
 import type { Action } from '@/lib/types/action';
 import type { Scene } from '@/lib/types/stage';
@@ -36,6 +35,8 @@ import {
   type AssessedQuestion,
 } from '@/lib/quiz/coverage-gap';
 import { appendToSystemPrompt, buildQuizGrounding } from '@/lib/quiz/quiz-grounding';
+import { upsertOutlineEntry } from './course-outline-write';
+import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import { mayNameAPoolAsset } from '@/lib/media/media-placeholder';
 import { isMediaPlaceholder } from '@/lib/store/media-generation';
 import { createLogger } from '@/lib/logger';
@@ -707,6 +708,27 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
       );
       const skill = deps.getActiveSkill?.() ?? null;
       const afterWrite = await deps.store.loadDocument(params.stageId);
+      /**
+       * T1：把这一页的 brief **落盘**到课程计划里。
+       *
+       * 在此之前 brief 生成完就扔 —— 数据库里没有任何一行说"第 5 页本来要讲 X"，
+       * 于是 `read_stage_outline` 只显示标题、`edit_deck` 的重排在 agent 路径上
+       * 是**死代码**。见 `course-outline-write.ts` 头部。
+       *
+       * 只有全量 `saveDocument` 能写 outline（存储层没有增量 API），所以**内容没变
+       * 就不写** —— `changed: false` 时跳过整篇保存。放在 scene 落盘**之后**，
+       * 这样 `afterWrite` 里已经含这一页，整篇保存不会把它漏掉。
+       * （写 scene 与写 outline 是两次写，中间崩掉的结果就是今天的行为：brief 没落盘、
+       * 页面还在。方向是纯改善，没有新的坏状态。）
+       */
+      const outlineUpdate = afterWrite
+        ? upsertOutlineEntry(afterWrite.outline as AppDocumentOutline | undefined, outline)
+        : { outline: undefined, changed: false };
+      if (afterWrite && outlineUpdate.changed && outlineUpdate.outline) {
+        await runStageMutation(signal, () =>
+          deps.store.saveDocument({ ...afterWrite, outline: outlineUpdate.outline }),
+        );
+      }
       const skillViolations =
         skill && afterWrite ? checkScenesAgainstSkill(afterWrite.scenes, skill.constraints) : [];
       const persisted = afterWrite?.scenes.find((item) => item.id === scene.id) ?? scene;
@@ -776,6 +798,7 @@ ${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}` : ''}${
           ...(quizShortfall ? { quizShortfall: true } : {}),
           skill: skill?.id,
           ...(skillViolations.length ? { skillViolations } : {}),
+          outlinePersisted: outlineUpdate.changed,
           ...(coverageGaps.length
             ? {
                 coverageGapCount: coverageGaps.length,
