@@ -61,15 +61,23 @@
 没有的能力，**比不给指引更糟**。所以工作台版在 `browse-url.ts` 里**整体替换**了
 描述，只提确实无条件存在的 `fetch_url`。
 
-注册一个新工具要同时改**四处**（少一处就是"看得见、调不动"）：
+注册一个新工具要改**三处**；**允许表不用手改**（第 14 轮起它从工具表派生，见下）：
 
 1. `lib/server/agent-runtime/<能力>.ts` —— `resolveXxxCapability()` + 工具 + 提示词块
 2. `lib/server/agent-runtime/runner.ts` —— `const x = resolveXxxCapability()` → `xxxTools`
 3. `runner.ts` 的 `assembleRunnerTools(...)` —— 加一组
-4. `runner.ts` 的 `allowedToolNames` —— **必须同时放行**，否则调用被拒
-   （另有 `course-tools.ts` 的 `CoursePromptBlocks` 要加字段，否则提示词块推不进去）
+
+**提示词块**（要注入的话，两处，都有**编译期**检查兜着）：
+`course-tools.ts` 的 `CoursePromptBlocks` 加字段 + `PROMPT_BLOCK_ORDER` 加位置 ——
+漏了字段或漏了顺序**都编译不过**（第 13/15 轮：曾经有 6 个块因为"塞了键但没渲染"被静默丢弃）。
+
+**`allowedToolNames` 不要再手写一份**：它是 `new Set(tools.map((t) => t.name))`，
+工具表里有什么就放行什么。原来那份手写的名字镜像（~30 行）第 14 轮已删 ——
+两份清单靠人保持同步，对不上就是"看得见、调不动"，**而且不报错**。
 
 `runner-course-search-registration.test.ts` 是这套东西的 pin，照它写新能力的测试。
+★ **加新能力块时，把它加进那个文件里的"能力矩阵"轴** —— 判据只覆盖一个配置，
+就会漏掉只在那一个配置里不出现的 bug（第 11 轮实测栽过）。
 
 ### 1.2 提示词缓存：一句话成本
 
