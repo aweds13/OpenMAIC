@@ -36,7 +36,13 @@ export const PLAN_FREEZE_TOOL_NAMES = ['plan_freeze'] as const;
 const PLAN_FREEZE_PARAMS = Type.Object({
   stageId: Type.String({ description: 'The stage whose plan you are freezing or revising.' }),
   action: Type.Union(
-    [Type.Literal('status'), Type.Literal('add'), Type.Literal('freeze'), Type.Literal('revise')],
+    [
+      Type.Literal('status'),
+      Type.Literal('add'),
+      Type.Literal('backfill'),
+      Type.Literal('freeze'),
+      Type.Literal('revise'),
+    ],
     {
       description:
         'status = report; add = write page entries into the plan; freeze = lock the plan before ' +
@@ -79,6 +85,15 @@ const PLAN_FREEZE_PARAMS = Type.Object({
 export interface PlanFreezeToolDeps {
   loadOutline(stageId: string): Promise<AppDocumentOutline | undefined>;
   saveOutline(stageId: string, outline: AppDocumentOutline): Promise<boolean>;
+  /** `backfill` 用：这一门**已经落盘**的页面（老课没有计划，只能从页面反推）。 */
+  loadPages(stageId: string): Promise<readonly PlanFreezePage[] | null>;
+}
+
+/** `backfill` 只需要这三个字段。 */
+export interface PlanFreezePage {
+  order: number;
+  title: string;
+  type: string;
 }
 
 function text(message: string, isError = false) {
@@ -98,6 +113,8 @@ export function buildPlanFreezeTool(
     description:
       'The plan is the list of pages you intend to make (order + title + one-line brief). ' +
       '`add` writes entries into it — do this first, one entry per page. ' +
+      '`backfill` derives entries from the pages a course already has (for a course made before the ' +
+      'plan existed); it only fills gaps and never overwrites a brief you wrote. ' +
       '`freeze` locks it before you start generating — every page you generate must already have an ' +
       'entry in it. Freezing an empty plan is refused: freezing means "these are the pages I intend to make". ' +
       'You may still change a frozen plan with `revise` (state what changed and why), and you may keep ' +
@@ -166,6 +183,43 @@ export function buildPlanFreezeTool(
         );
       }
 
+      if (params.action === 'backfill') {
+        if (!outline) {
+          return text('这一门没有计划信封（document_outlines 缺行），没法补计划。', true);
+        }
+        const pages = await deps.loadPages(params.stageId);
+        if (!pages || pages.length === 0) {
+          return text('这一门没有任何已落盘的页面，没有东西可以反推。', true);
+        }
+        const existingOrders = new Set((outline.outlines ?? []).map((item) => item.order));
+        const missing = pages.filter((page) => !existingOrders.has(page.order));
+        if (missing.length === 0) {
+          return text(
+            `计划里已经有全部 ${pages.length} 页的条目，**没有补任何东西**。` +
+              '（backfill 只补缺的 —— 它绝不会覆盖你写过的 brief。）',
+          );
+        }
+        let next = outline;
+        for (const page of missing) {
+          const result = upsertOutlineEntry(next, {
+            id: `p${page.order}`,
+            order: page.order,
+            title: page.title,
+            type: page.type,
+            description: 'backfilled from the existing page (the original brief was never recorded)',
+          } as SceneOutline);
+          if (result.outline) next = result.outline;
+        }
+        const saved = await deps.saveOutline(params.stageId, next);
+        if (!saved) return text('计划没能写盘 —— 计划没有变。', true);
+        return text(
+          `补了 ${missing.length} 条（第 ${missing.map((page) => page.order).join(',')} 页），` +
+            `原有 ${existingOrders.size} 条**一个字没动**。` +
+            '这些条目的 brief 标了 backfilled —— 它们是从页面反推的，不是当初的意图；' +
+            '要改就用 `plan_freeze { action: "revise", reason }` 或 `add` 重写那一条。',
+        );
+      }
+
       if (params.action === 'freeze') {
         if (state.frozen) {
           return text(
@@ -221,6 +275,9 @@ export function planFreezePromptBlock(): string {
     '  to change it; state what changed. Drifting while building is normal; drifting silently is not.',
     '- The plan is **never pushed into your context** — read it with `read_stage_outline` when you',
     '  need it. Keeping it out of the prompt is deliberate.',
+    '- For a course that predates this, `plan_freeze { action: "backfill" }` derives entries from the',
+    '  pages it already has. It only fills gaps; it never overwrites a brief you wrote, and the',
+    '  entries it adds are marked as derived rather than original.',
   ].join('\n');
 }
 

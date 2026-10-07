@@ -1583,6 +1583,12 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
           (await ownerScopedStore.loadDocument(stageId))?.outline as
             | import('@/lib/document-store/persistence-types').AppDocumentOutline
             | undefined,
+        loadPages: async (stageId) =>
+          (await ownerScopedStore.loadDocument(stageId))?.scenes.map((scene) => ({
+            order: scene.order,
+            title: scene.title,
+            type: scene.type,
+          })) ?? null,
         saveOutline: async (stageId, outline) => {
           const current = await ownerScopedStore.loadDocument(stageId);
           if (!current) return false;
