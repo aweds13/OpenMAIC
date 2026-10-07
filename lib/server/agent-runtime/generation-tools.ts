@@ -29,6 +29,7 @@ import { synthesizeSceneNarration } from './scene-tts';
 import { toGenerationContent } from './generation-content';
 import { checkScenesAgainstSkill } from './skills';
 import { sceneWriteDiagnostics } from './scene-diagnostics';
+import { splitCoverageGaps } from '@/lib/quiz/coverage-gap';
 import { appendToSystemPrompt, buildQuizGrounding } from '@/lib/quiz/quiz-grounding';
 import { upsertOutlineEntry } from './course-outline-write';
 import { planGate, planGateEnabled } from './plan-freeze';
@@ -795,6 +796,16 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           //   （样本列表仍然按需：空数组没有信息量。）
           planIssueCount: diagnostics.planIssues.length,
           coverageGapCount: diagnostics.coverageGaps.length,
+          // ★ **含代码/英文的那一类全量发射**（2026-10-07 修）。
+          //   原来这里和 `coverageGaps` 一样是 `.slice(0, 12)` ⇒ 旁注列 12 条、
+          //   details 也只有 12 条 ⇒ **第 13 条以后没有任何出口**。
+          //   实测后果：agent 只看到 12 条，剩下 82 条只能**外推**，而它自己
+          //   也如实说了"那是外推"。**工具不给出口，就别指望模型结论可靠。**
+          //   中文片段只计数（低价值那一类：讲解页与自检页各自独立生成，措辞必然不同）。
+          coverageGapsCode: splitCoverageGaps(diagnostics.coverageGaps).code.map(
+            (gap) => gap.term,
+          ),
+          coverageGapProseCount: splitCoverageGaps(diagnostics.coverageGaps).prose.length,
           ...(diagnostics.planIssues.length
             ? { planIssues: diagnostics.planIssues.map((issue) => issue.kind) }
             : {}),

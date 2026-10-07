@@ -217,15 +217,46 @@ describe('formatCoverageGaps', () => {
     expect(text).toContain('干扰项');
   });
 
-  it('caps the list and says how many were left out', () => {
-    const gaps = Array.from({ length: 5 }, (_, index) => ({
-      term: `词条${index}`,
+  it('★ 把两类分开报：含代码/英文的逐条列，纯中文片段只举例', () => {
+    // 这一段行为的来历（2026-10-07 实测）：旁注原来只报一个总数
+    //（「94 段…还有 82 段」），agent 于是把它读成**待办清单**，来回问
+    //「你要我做哪些」。而实测那 94 条里含代码/英文的才是"可能真没讲"的，
+    // 其余是从句子中间切下来的中文碎片（讲解页与自检页各自独立生成，措辞必然不同）。
+    const gaps = [
+      { term: 'plugin', sources: ['解析'] },
+      { term: 'GROUP', sources: ['解析', '选项'] },
+      { term: '子类自动拥有父类成员', sources: ['解析'] },
+      { term: '时才重写部分方法', sources: ['解析'] },
+    ];
+    const text = formatCoverageGaps(gaps);
+    // 两类各自计数，而且数字要对得上。
+    expect(text).toContain('含代码/英文的 2 段');
+    expect(text).toContain('纯中文片段 2 段');
+    // 含代码/英文的逐条列出来（这是值得看的那一类）。
+    expect(text).toContain('「plugin」');
+    expect(text).toContain('「GROUP」');
+    // 中文片段只举例 —— 但**不能假装它们不存在**：计数在标题里。
+    expect(text).toContain('子类自动拥有父类成员');
+    // ★ 明说它不是验收指标（它随页序与措辞涨落）。
+    expect(text).toContain('不是验收指标');
+  });
+
+  it('★ 两类各自的截断都要说清剩多少（别留一个查不到的数）', () => {
+    const code = Array.from({ length: 5 }, (_, index) => ({
+      term: `term${index}`,
       sources: ['题干'],
     }));
-    const text = formatCoverageGaps(gaps, { maxTerms: 2 });
-    expect(text).toContain('「词条0」');
-    expect(text).toContain('「词条1」');
-    expect(text).not.toContain('「词条2」');
+    const prose = Array.from({ length: 5 }, (_, index) => ({
+      term: `中文片段${index}`,
+      sources: ['解析'],
+    }));
+    const text = formatCoverageGaps([...code, ...prose], { maxTerms: 2, maxProse: 1 });
+    expect(text).toContain('「term0」');
+    expect(text).toContain('「term1」');
+    expect(text).not.toContain('「term2」');
     expect(text).toContain('还有 3 段');
+    expect(text).toContain('中文片段0');
+    expect(text).not.toContain('中文片段1');
+    expect(text).toContain('另有 4 段同类片段');
   });
 });

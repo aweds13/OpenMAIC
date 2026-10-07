@@ -280,20 +280,71 @@ export function findUncoveredTerms(input: FindUncoveredTermsInput): CoverageGap[
   );
 }
 
+/**
+ * 把缺口分成两类 —— **这是给读者的第一层判断，不是语言学分类**。
+ *
+ * ── 为什么必须分（2026-10-07 实测）──────────────────────────────
+ * 这段旁注原来只报一个总数（「94 段…还有 82 段」），于是 agent 把它读成了
+ * **一份待办清单**，来回问「你要我做哪些」。而实测那 94 条里：
+ * · 含代码/英文术语的（`plugin` / `ALTER` / `GROUP` / `build` …）—— 讲课页用中文写时
+ *   最容易真的没讲，**这一类值得逐条看**；
+ * · 纯中文长片段（「子类自动拥有父类成员」这种从句子中间切下来的）——
+ *   讲解页与自检页是**各自独立生成**的，措辞必然不同，**按定义不算缺口**。
+ *
+ * 判据只一条：**含拉丁字母**。它是启发式，不是定理（见返回值里的 `kind` 命名），
+ * 但它把"值得看"和"通常不用动"分开了，而原来那个总数把它们混成一个数。
+ */
+export function splitCoverageGaps(gaps: readonly CoverageGap[]): {
+  code: CoverageGap[];
+  prose: CoverageGap[];
+} {
+  const code: CoverageGap[] = [];
+  const prose: CoverageGap[] = [];
+  for (const gap of gaps) {
+    (hasLatinLetter(gap.term) ? code : prose).push(gap);
+  }
+  return { code, prose };
+}
+
+/** 含拉丁字母 ⇒ 当成"代码/英文术语"那一类（见 `splitCoverageGaps` 的说明）。 */
+function hasLatinLetter(text: string): boolean {
+  return /[A-Za-z]/.test(text);
+}
+
 /** 把缺口渲染成给 agent 的一段诊断（可算的东西，不需要模型参与）。 */
 export function formatCoverageGaps(
   gaps: readonly CoverageGap[],
-  options: { maxTerms?: number } = {},
+  options: { maxTerms?: number; maxProse?: number } = {},
 ): string {
   if (gaps.length === 0) return '';
-  const maxTerms = options.maxTerms ?? 20;
-  const shown = gaps.slice(0, maxTerms);
+  const maxCode = options.maxTerms ?? 20;
+  const maxProse = options.maxProse ?? 3;
+  const { code, prose } = splitCoverageGaps(gaps);
+
   const lines = [
-    `Quiz coverage check — ${gaps.length} 段文字在这一页**之前**的任何页面里都没出现过：`,
-    ...shown.map((gap) => `- 「${gap.term}」 — 出现在${gap.sources.join('、')}`),
+    `Quiz coverage check — ${gaps.length} 段文字在这一页**之前**的任何页面里都没出现过。` +
+      `其中**含代码/英文的 ${code.length} 段**（最可能是真没讲），` +
+      `**纯中文片段 ${prose.length} 段**（多数只是措辞不同）。`,
   ];
-  if (gaps.length > maxTerms) lines.push(`- …还有 ${gaps.length - maxTerms} 段`);
+
+  if (code.length > 0) {
+    lines.push('', `含代码/英文的（这一类值得逐条看）：`);
+    lines.push(
+      ...code.slice(0, maxCode).map((gap) => `- 「${gap.term}」 — 出现在${gap.sources.join('、')}`),
+    );
+    if (code.length > maxCode) lines.push(`- …还有 ${code.length - maxCode} 段`);
+  }
+
+  if (prose.length > 0) {
+    lines.push('', `纯中文片段（举例，不必逐条改）：`);
+    lines.push(...prose.slice(0, maxProse).map((gap) => `- 「${gap.term}」`));
+    if (prose.length > maxProse) lines.push(`- …另有 ${prose.length - maxProse} 段同类片段`);
+  }
+
   lines.push(
+    '',
+    '★ **这个数不是验收指标**：它随页面**顺序**（只跟"这一页之前"比）和**措辞**涨落 ——',
+    '实测同一页改对一道题反而 92→94，重排页序后另一页 151→92。**别拿它的升降当改好了没。**',
     '',
     '这些**不一定是错**（可能本页正要讲它）。但按「练习只能考教过的」这条规矩，每一条都要二选一：',
     '① 相关概念在更早的页面讲过 → 用讲过的说法重写这道题；',

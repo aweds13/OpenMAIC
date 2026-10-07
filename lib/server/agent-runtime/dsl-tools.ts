@@ -7,6 +7,7 @@ import type { CourseDocument, CourseToolDeps } from './course-tools';
 import { putSceneBringingCurrent } from './document-writes';
 import { sceneWriteDiagnostics } from './scene-diagnostics';
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
+import { splitCoverageGaps } from '@/lib/quiz/coverage-gap';
 import { runStageMutation } from './mutation-fence';
 import {
   applyJsonPointerEdit,
@@ -972,6 +973,13 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
           // ★ 计数无条件、样本列表按需（同 generation-tools）。
           coverageGapCount: diagnostics.coverageGaps.length,
           planIssueCount: diagnostics.planIssues.length,
+          // ★ **含代码/英文的那一类全量发射**（2026-10-07 修，理由见 generation-tools 同处）：
+          //   原来 `coverageGaps` 在这里也是 `.slice(0, 12)`，旁注也列 12 条
+          //   ⇒ **第 13 条以后没有任何出口**，agent 只能外推。
+          coverageGapsCode: splitCoverageGaps(diagnostics.coverageGaps).code.map(
+            (gap) => gap.term,
+          ),
+          coverageGapProseCount: splitCoverageGaps(diagnostics.coverageGaps).prose.length,
           ...(diagnostics.coverageGaps.length
             ? {
                 coverageGaps: diagnostics.coverageGaps.slice(0, 12).map((gap) => gap.term),
