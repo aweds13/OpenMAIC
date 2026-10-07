@@ -80,6 +80,7 @@ import {
 } from './plan-freeze-tools';
 import { planGateEnabled } from './plan-freeze';
 import { AUDIT_TOOL_NAMES, buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
+import { SCRATCH_TOOL_NAMES, buildScratchTool, scratchPromptBlock } from './scratch-tools';
 import { studyModePromptBlock } from './study-mode';
 import { courseDesignPromptBlock } from './course-design';
 import {
@@ -1598,9 +1599,13 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         loadScenes: async (stageId) => (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
       }),
     ];
+    // 草稿纸：**无条件注册**。它是 agent 自己的工作记忆（本地文件），不依赖任何外部能力。
+    // 没有它，lib/scratch/scratchpad.ts 就只是死代码（实测过：生产代码零引用）。
+    const scratchTools = [buildScratchTool({ ownerId: meta.ownerId })];
     const tools = assembleRunnerTools(
       [askUserTool],
       auditTools,
+      scratchTools,
       planFreezeTools,
       webSearchTools,
       courseSearchTools,
@@ -1669,6 +1674,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         ...(planGateEnabled() ? { planFreeze: planFreezePromptBlock() } : {}),
         // 无参、恒定；读数走工具结果。
         courseAudit: courseAuditPromptBlock(),
+        // 无参、恒定；条目与状态走工具结果（§1.2）。
+        scratch: scratchPromptBlock(),
         curriculum: CURRICULUM_TOOLS_PROMPT,
         ...(search ? { search: searchPromptBlock() } : {}),
         ...(courseLibrary ? { courseLibrary: courseLibraryPromptBlock() } : {}),
@@ -1720,8 +1727,9 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         ...(materialsIndex ? MATERIALS_TOOL_NAMES : []),
         // 注册了就必须放行（§1.1），而它只在门槛开着时注册。
         ...(planGateEnabled() ? PLAN_FREEZE_TOOL_NAMES : []),
-        // 审计无条件放行（注册了就必须放行，§1.1）。
+        // 审计与草稿纸都无条件放行（注册了就必须放行，§1.1）。
         ...AUDIT_TOOL_NAMES,
+        ...SCRATCH_TOOL_NAMES,
         // MCP 工具的名单**由服务器自己声明**，所以在运行时才知道 —— 不能写死。
         ...mcp.names,
         'create_skill',
