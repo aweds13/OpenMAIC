@@ -44,10 +44,16 @@ export function practiceRoot(): string {
   return process.env.OPENMAIC_PRACTICE_DIR ?? 'D:\\文档\\jelly_ware\\课程与学习\\练习';
 }
 
-/** 一门课一个子目录。stageId 只用来拼路径，所以做白名单替换。 */
-export function practiceStageDir(stageId: string): string {
+/**
+ * 一门课一个子目录。stageId 只用来拼路径，所以做白名单替换。
+ *
+ * ★ 根目录参数是必须的：工具要用 `deps.root`（测试可覆盖），而默认值是部署配置。
+ *   前一版把这段逻辑在工具里**内联重写了一遍**，于是 `practiceStageDir` 变成 0 引用的
+ *   死代码，而且两份实现会漂。现在只有这一处实现。
+ */
+export function practiceStageDir(stageId: string, root: string = practiceRoot()): string {
   const safe = stageId.replace(/[^A-Za-z0-9_-]/g, '_') || 'unknown-stage';
-  return join(practiceRoot(), safe);
+  return join(root, safe);
 }
 
 const PRACTICE_PARAMS = Type.Object({
@@ -135,7 +141,7 @@ export function buildPracticeScaffoldTool(
     executionMode: 'sequential',
     async execute(_id: string, params: Static<typeof PRACTICE_PARAMS>) {
       const root = resolve(deps.root ?? practiceRoot());
-      const stageDir = join(root, params.stageId.replace(/[^A-Za-z0-9_-]/g, '_') || 'unknown-stage');
+      const stageDir = practiceStageDir(params.stageId, root);
 
       let scaffold;
       try {

@@ -14,7 +14,7 @@ import {
   practiceDirName,
   validateSpec,
 } from '@/lib/practice/scaffold';
-import { buildPracticeScaffoldTool } from '@/lib/server/agent-runtime/practice-tools';
+import { buildPracticeScaffoldTool, practiceStageDir } from '@/lib/server/agent-runtime/practice-tools';
 
 const SPEC = {
   title: '两数之和',
@@ -205,6 +205,12 @@ describe('practice_scaffold 工具', () => {
     expect(text).toContain('没有**替你打开 VS Code，也没有执行任何命令');
     // 直接用 deps.root 构造 —— `practiceStageDir()` 读的是 env/默认根，不是这里的 deps.root。
     expect(existsSync(join(root, 'stage-a', '03-两数之和', PRACTICE_RUNNER))).toBe(true);
+  });
+
+  it('★ derives the stage folder from one place (root override included)', () => {
+    // 这条同时钉住"唯一实现"：工具与测试都用 practiceStageDir，不许各写一份。
+    expect(practiceStageDir('stage-a', root)).toBe(join(root, 'stage-a'));
+    expect(practiceStageDir('../../evil', root)).toBe(join(root, '______evil'));
   });
 
   it('★ refuses to overwrite an exercise folder that already exists', async () => {
