@@ -21,6 +21,9 @@
 import { Type, type Static } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 
+import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
+import type { SceneOutline } from '@/lib/types/generation';
+import { upsertOutlineEntry } from './course-outline-write';
 import {
   formatPlanFreezeStatus,
   freezePlan,
@@ -33,9 +36,31 @@ export const PLAN_FREEZE_TOOL_NAMES = ['plan_freeze'] as const;
 
 const PLAN_FREEZE_PARAMS = Type.Object({
   stageId: Type.String({ description: 'The stage whose plan you are freezing or revising.' }),
-  action: Type.Union([Type.Literal('status'), Type.Literal('freeze'), Type.Literal('revise')], {
-    description: 'status = report; freeze = lock the plan before generating; revise = change a frozen plan.',
-  }),
+  action: Type.Union(
+    [Type.Literal('status'), Type.Literal('add'), Type.Literal('freeze'), Type.Literal('revise')],
+    {
+      description:
+        'status = report; add = write page entries into the plan; freeze = lock the plan before ' +
+        'generating; revise = change a frozen plan.',
+    },
+  ),
+  entries: Type.Optional(
+    Type.Array(
+      Type.Object({
+        order: Type.Integer({ minimum: 1 }),
+        title: Type.String(),
+        brief: Type.Optional(
+          Type.String({ description: 'One line: what this page teaches and what it builds on.' }),
+        ),
+        type: Type.Optional(Type.String({ description: 'slide | quiz | interactive | pbl' })),
+      }),
+      {
+        description:
+          'For `add`: the pages to write into the plan. Give brief for each — it is the only thing ' +
+          'that records why the page exists.',
+      },
+    ),
+  ),
   reason: Type.Optional(
     Type.String({
       description:
@@ -44,9 +69,17 @@ const PLAN_FREEZE_PARAMS = Type.Object({
   ),
 });
 
-/** 工具需要的最小依赖 —— 只要能读出这一门的计划条目。 */
+/**
+ * 工具需要的最小依赖 —— 读计划信封 + 写回。
+ *
+ * ★ 必须**能写**，不能只读。这是做门槛时发现的死锁：agent 路径上原本只有
+ *   `generate_scene` 会往计划里写条目（T1 那次落盘），而门槛会拒绝 `generate_scene`，
+ *   于是"计划空 → 生成被拒 → 计划还是空"。所以 `add` 是解开门槛的钥匙，
+ *   **它和门槛必须一起落地**。
+ */
 export interface PlanFreezeToolDeps {
-  loadOutlineEntries(stageId: string): Promise<unknown[]>;
+  loadOutline(stageId: string): Promise<AppDocumentOutline | undefined>;
+  saveOutline(stageId: string, outline: AppDocumentOutline): Promise<boolean>;
 }
 
 function text(message: string, isError = false) {
@@ -65,6 +98,7 @@ export function buildPlanFreezeTool(
     label: 'Freeze or revise the course plan',
     description:
       'The plan is the list of pages you intend to make (order + title + one-line brief). ' +
+      '`add` writes entries into it — do this first, one entry per page. ' +
       '`freeze` locks it before you start generating — every page you generate must already have an ' +
       'entry in it. Freezing an empty plan is refused: freezing means "these are the pages I intend to make". ' +
       'You may still change a frozen plan with `revise` (state what changed and why), and you may keep ' +
@@ -73,7 +107,8 @@ export function buildPlanFreezeTool(
     parameters: PLAN_FREEZE_PARAMS,
     executionMode: 'sequential',
     async execute(_id: string, params: Static<typeof PLAN_FREEZE_PARAMS>) {
-      const entries = await deps.loadOutlineEntries(params.stageId);
+      const outline = await deps.loadOutline(params.stageId);
+      const entries = outline?.outlines ?? [];
       const state = await readPlanFreeze(params.stageId);
 
       if (params.action === 'status') {
@@ -92,6 +127,44 @@ export function buildPlanFreezeTool(
           );
         }
         return text(lines.join('\n'));
+      }
+
+      if (params.action === 'add') {
+        const list = params.entries ?? [];
+        if (list.length === 0) {
+          return text(
+            'add needs at least one entry. Pass `entries: [{ order, title, brief }]` — ' +
+              'one entry per page you intend to make.',
+            true,
+          );
+        }
+        if (!outline) {
+          return text(
+            '这一门没有计划信封（document_outlines 缺行），写不了计划。' +
+              '先 `create_stage` 建课，再写计划。',
+            true,
+          );
+        }
+        let next = outline;
+        for (const entry of list) {
+          const result = upsertOutlineEntry(next, {
+            id: `p${entry.order}`,
+            order: entry.order,
+            title: entry.title,
+            type: entry.type ?? 'slide',
+            ...(entry.brief ? { description: entry.brief } : {}),
+          } as SceneOutline);
+          if (result.outline) next = result.outline;
+        }
+        const saved = await deps.saveOutline(params.stageId, next);
+        if (!saved) return text('计划没能写盘 —— 计划没有变。', true);
+        const after = next.outlines ?? [];
+        const listing = after.map((item) => `${item.order}. ${item.title}`).join(' | ');
+        return text(
+          `计划现在有 ${after.length} 条：${listing}\n\n` +
+            '确认这一版页数和顺序之后 `plan_freeze { action: "freeze" }`，' +
+            '然后才能 `generate_scene`。',
+        );
       }
 
       if (params.action === 'freeze') {

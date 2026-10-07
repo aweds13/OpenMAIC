@@ -17,8 +17,14 @@
  * Variables exported in the shell are untouched either way — this only governs
  * whether the file is read.
  */
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+
+// ★ 阶段冻结的状态文件必须**不能**落到真实 data/plan-freeze/ —— 否则测试会读写真实文件，
+//   破坏 hermetic（见 AGENTS.md §3.1）。指到临时目录，测试之间互不影响。
+process.env.OPENMAIC_PLAN_FREEZE_DIR ??= join(tmpdir(), 'openmaic-plan-freeze-tests');
 
 if (process.env.TEST_LOAD_LOCAL_ENV === '1') {
   const envPath = resolve(__dirname, '..', '.env.local');

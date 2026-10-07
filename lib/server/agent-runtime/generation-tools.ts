@@ -31,6 +31,8 @@ import { checkScenesAgainstSkill } from './skills';
 import { sceneWriteDiagnostics } from './scene-diagnostics';
 import { appendToSystemPrompt, buildQuizGrounding } from '@/lib/quiz/quiz-grounding';
 import { upsertOutlineEntry } from './course-outline-write';
+import { planGate, planGateEnabled } from './plan-freeze';
+import { readPlanFreeze } from './plan-freeze-store';
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import { mayNameAPoolAsset } from '@/lib/media/media-placeholder';
 import { isMediaPlaceholder } from '@/lib/store/media-generation';
@@ -387,6 +389,35 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
         );
       }
       const doc = await deps.store.loadDocument(params.stageId);
+      /**
+       * ★ 阶段冻结的门槛。
+       *
+       * 判据（见 plan-freeze.ts 的 planGate）：计划不是空的、已冻结、且**这一页在计划里
+       * 有条目**。不满足就**拒绝生成**，并把该怎么做原样告诉 agent —— **拒绝本身就是通知**，
+       * 所以系统提示词里一个字都不用加（也就不用担心前缀缓存）。
+       *
+       * 这是手册 §4 那条教训的应用：提示词约束不住的东西，在代码里给默认值。
+       */
+      if (planGateEnabled()) {
+        const planEntries = ((doc?.outline as AppDocumentOutline | undefined)?.outlines ??
+          []) as SceneOutline[];
+        const gate = planGate(
+          {
+            state: await readPlanFreeze(params.stageId),
+            entries: planEntries,
+            order: params.order,
+          },
+          // 分阶段：先强制"计划非空 + 已冻结"，"这一页必须在计划里"那条等测试夹具跟上。
+          { requirePlannedPage: false },
+        );
+        if (!gate.ok) {
+          return result(
+            gate.message,
+            { blocked: 'plan-not-frozen', order: params.order, planEntries: planEntries.length },
+            true,
+          );
+        }
+      }
       if (!doc) return result('No course document yet. Call create_stage first.', {}, true);
       const existing = doc.scenes.find((scene) => scene.order === params.order);
       const title = params.title.trim();

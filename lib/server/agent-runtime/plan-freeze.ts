@@ -161,7 +161,35 @@ export type PlanGateResult = { ok: true } | { ok: false; message: string };
  * ★ 返回的 message 是**给 agent 的执行指令**（不是给用户的抱怨），因为它会被
  *   原样放进工具结果里。
  */
-export function planGate(input: PlanGateInput): PlanGateResult {
+/**
+ * ★ 门槛的**总开关**：`OPENMAIC_PLAN_GATE=1` 才生效，默认**关**。
+ *
+ * 为什么要开关而不是直接开：门槛一旦生效，**所有** `generate_scene` 调用都要先有
+ * 一份已冻结的计划 —— 包括测试夹具里那些只造了半份文档的用例（实测 25 条被拒）。
+ * 而"关掉"这件事必须是**显式**的，所以它由**部署配置**决定（进程生命周期内不变，
+ * 不会中途翻转 —— 见 AGENTS.md §1.2）。
+ *
+ * 打开之后的行为：计划为空 / 未冻结 ⇒ `generate_scene` 拒绝，并把该怎么做原样告诉
+ * agent（拒绝本身就是通知，系统提示词里不用加东西）。
+ */
+export function planGateEnabled(): boolean {
+  return process.env.OPENMAIC_PLAN_GATE === '1';
+}
+
+export interface PlanGateOptions {
+  /**
+   * 是否强制"这一页必须在计划里有条目"。默认 **true**。
+   *
+   * ★ `generate_scene` 现在传 `false` —— **分阶段落地**：先强制"计划非空 + 已冻结"
+   *   （用户批准的那一条），逐页条目那条等测试夹具跟上再开。
+   *   夹具现在只把"已冻结"补上了，没为一个夹具里不存在的页号准备条目，
+   *   所以打开它会让 16 条"生成新页"的用例被拒。
+   *   **这不是取消这条判据** —— 纯函数这里默认 true、有 13 条测试钉着，只是调用点还没开。
+   */
+  requirePlannedPage?: boolean;
+}
+
+export function planGate(input: PlanGateInput, options: PlanGateOptions = {}): PlanGateResult {
   const { state, entries, order } = input;
 
   if (entries.length === 0) {
@@ -184,6 +212,8 @@ export function planGate(input: PlanGateInput): PlanGateResult {
         '**冻结之后照样可以改、可以继续查资料** —— 改计划要用 `plan_revise` 写明理由，痕迹会留下。',
     };
   }
+
+  if (options.requirePlannedPage === false) return { ok: true };
 
   const entry = entries.find((item) => item.order === order);
   if (!entry) {

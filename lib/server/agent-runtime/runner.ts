@@ -73,6 +73,12 @@ import {
   resolveLearnerState,
 } from './learner-state';
 import { buildMcpTools, mcpPromptBlock } from './mcp-tools';
+import {
+  PLAN_FREEZE_TOOL_NAMES,
+  buildPlanFreezeTool,
+  planFreezePromptBlock,
+} from './plan-freeze-tools';
+import { planGateEnabled } from './plan-freeze';
 import { studyModePromptBlock } from './study-mode';
 import { courseDesignPromptBlock } from './course-design';
 import {
@@ -1563,8 +1569,30 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       }),
       id,
     );
+    // 计划冻结：无条件注册（它不依赖任何外部能力 —— 门槛必须永远有解锁路径，
+    // 否则一门课会被永久卡死）。
+    // ★ 工具**跟着门槛一起出现**：它存在的唯一用途就是解开门槛（add 写条目 /
+    //   freeze 冻结 / revise 留痕）。门槛关着的时候注册它，就是给 agent 一个
+    //   没有对应约束的写入口 —— 而且会让注册面的 pin 无谓地变。
+    const planFreezeTools = planGateEnabled()
+      ? [
+      buildPlanFreezeTool({
+        loadOutline: async (stageId) =>
+          (await ownerScopedStore.loadDocument(stageId))?.outline as
+            | import('@/lib/document-store/persistence-types').AppDocumentOutline
+            | undefined,
+        saveOutline: async (stageId, outline) => {
+          const current = await ownerScopedStore.loadDocument(stageId);
+          if (!current) return false;
+          await ownerScopedStore.saveDocument({ ...current, outline });
+          return true;
+        },
+      }),
+        ]
+      : [];
     const tools = assembleRunnerTools(
       [askUserTool],
+      planFreezeTools,
       webSearchTools,
       courseSearchTools,
       browseTools,
@@ -1626,6 +1654,10 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         studyMode: studyModePromptBlock(),
         // 审计那几条 SDK 层建议的应用层版本：拆解、贯通、密度、术语、去水话。
         courseDesign: courseDesignPromptBlock(),
+        // ★ 门槛开着才提它（§1.1：不许提一个不存在的能力）。块本身无参、恒定，
+        //   状态走工具结果与拒绝消息，不进系统提示词（§1.2 前缀缓存；
+        //   也满足用户那句"避免提示词污染"）。开关由部署配置决定，进程内不翻转。
+        ...(planGateEnabled() ? { planFreeze: planFreezePromptBlock() } : {}),
         curriculum: CURRICULUM_TOOLS_PROMPT,
         ...(search ? { search: searchPromptBlock() } : {}),
         ...(courseLibrary ? { courseLibrary: courseLibraryPromptBlock() } : {}),
@@ -1675,6 +1707,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         ...(browse ? ['browse_url'] : []),
         // 材料库的读写工具跟着索引一起走：没有索引就没有这一层。
         ...(materialsIndex ? MATERIALS_TOOL_NAMES : []),
+        // 注册了就必须放行（§1.1），而它只在门槛开着时注册。
+        ...(planGateEnabled() ? PLAN_FREEZE_TOOL_NAMES : []),
         // MCP 工具的名单**由服务器自己声明**，所以在运行时才知道 —— 不能写死。
         ...mcp.names,
         'create_skill',

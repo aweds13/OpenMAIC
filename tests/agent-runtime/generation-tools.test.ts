@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { Value } from 'typebox/value';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
@@ -38,21 +40,35 @@ function slide(id: string, order: number, title = id): Scene {
 }
 
 function document(scenes: Scene[]): CourseDocument {
+  const outlines = scenes.map((scene) => ({
+    id: scene.outlineId ?? scene.id,
+    order: scene.order,
+    title: scene.title,
+    type: scene.type,
+    description: `${scene.title} brief`,
+    keyPoints: [],
+  }));
+  // ★ generate_scene 现在有**阶段冻结**的门槛（计划非空 + 已冻结 + 这一页在计划里）。
+  //   夹具的计划条目本来就有，缺的只是"已冻结" —— 这里把它补上。
+  //   这不是松弛判据，是把真实前置条件补进夹具；判据本身另有 plan-freeze.test.ts 钉住。
+  const freezeDir = process.env.OPENMAIC_PLAN_FREEZE_DIR ?? join(process.cwd(), 'data', 'plan-freeze');
+  mkdirSync(freezeDir, { recursive: true });
+  writeFileSync(
+    join(freezeDir, 'stage-test.json'),
+    JSON.stringify({
+      stageId: 'stage-test',
+      frozen: true,
+      frozenAt: 1,
+      frozenEntryCount: outlines.length,
+      revision: 0,
+      revisions: [],
+    }),
+    'utf8',
+  );
   return {
     stage: { id: 'stage-test', name: 'Test', createdAt: 1, updatedAt: 1 },
     scenes,
-    outline: {
-      outlines: scenes.map((scene) => ({
-        id: scene.outlineId ?? scene.id,
-        order: scene.order,
-        title: scene.title,
-        type: scene.type,
-        description: `${scene.title} brief`,
-        keyPoints: [],
-      })),
-      createdAt: 1,
-      updatedAt: 1,
-    },
+    outline: { outlines, createdAt: 1, updatedAt: 1 },
   } as CourseDocument;
 }
 
