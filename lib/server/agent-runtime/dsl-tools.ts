@@ -5,6 +5,8 @@ import type { Scene, SlideContent } from '@/lib/types/stage';
 import { validateAppScene } from '@/lib/document-store/validators';
 import type { CourseDocument, CourseToolDeps } from './course-tools';
 import { putSceneBringingCurrent } from './document-writes';
+import { sceneWriteDiagnostics } from './scene-diagnostics';
+import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import { runStageMutation } from './mutation-fence';
 import {
   applyJsonPointerEdit,
@@ -843,6 +845,26 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
           true,
         );
       }
+      /**
+       * ★ 写入后诊断 —— 与 `generate_scene` **共用同一段代码**。
+       *
+       * 用户问过：「假如我让 AI 在原来 Day 1 上修复，它能按着已有规则来吗」。
+       * 当时的答案是**不能**：覆盖缺口 / 计划依赖当初只挂在 `generate_scene` 上，
+       * 而**修复走的是这条路**（`patch_stage` 直接改 JSON）——
+       * 于是"修一页"这个最常见的动作，所有检查静默通过。
+       *
+       * 判据、方向、修法限制全部见 `scene-diagnostics.ts` 与它引的两个模块。
+       * 同样**不回滚**：patched 的内容已经落盘，这里只把证据交给 agent。
+       */
+      const afterPatch = await deps.store.loadDocument(loaded.stageId);
+      const diagnostics = afterPatch
+        ? sceneWriteDiagnostics({
+            scenes: afterPatch.scenes,
+            scene: afterPatch.scenes.find((item) => item.id === next.id) ?? next,
+            outline: afterPatch.outline as AppDocumentOutline | undefined,
+          })
+        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '' };
+
       deps.onCheckpoint({
         tool: 'patch_stage',
         stageId: loaded.stageId,
@@ -851,13 +873,35 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
         title: next.title,
         sceneType: next.type,
         detail: params.intent,
+        ...(diagnostics.coverageGaps.length || diagnostics.planIssues.length
+          ? {
+              coverageGapCount: diagnostics.coverageGaps.length,
+              planIssueCount: diagnostics.planIssues.length,
+            }
+          : {}),
       });
-      return toolResult(`Updated scene "${next.title}": ${params.intent}`, {
-        intent: params.intent,
-        updated: { sceneId: next.id, order: next.order, type: next.type, ops: params.ops.length },
-        ops: opDetails,
-        tree: sceneTree(next),
-      });
+      return toolResult(
+        `Updated scene "${next.title}": ${params.intent}` +
+          `${diagnostics.coverageText}${diagnostics.planText}`,
+        {
+          intent: params.intent,
+          updated: { sceneId: next.id, order: next.order, type: next.type, ops: params.ops.length },
+          ops: opDetails,
+          tree: sceneTree(next),
+          ...(diagnostics.coverageGaps.length
+            ? {
+                coverageGapCount: diagnostics.coverageGaps.length,
+                coverageGaps: diagnostics.coverageGaps.slice(0, 12).map((gap) => gap.term),
+              }
+            : {}),
+          ...(diagnostics.planIssues.length
+            ? {
+                planIssueCount: diagnostics.planIssues.length,
+                planIssues: diagnostics.planIssues.map((issue) => issue.kind),
+              }
+            : {}),
+        },
+      );
     },
   };
 

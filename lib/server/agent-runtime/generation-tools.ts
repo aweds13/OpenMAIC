@@ -28,15 +28,9 @@ import { createGenerationAiCallFactory, sceneContentStage } from './generation-a
 import { synthesizeSceneNarration } from './scene-tts';
 import { toGenerationContent } from './generation-content';
 import { checkScenesAgainstSkill } from './skills';
-import {
-  findUncoveredTerms,
-  formatCoverageGaps,
-  taughtTextBefore,
-  type AssessedQuestion,
-} from '@/lib/quiz/coverage-gap';
+import { sceneWriteDiagnostics } from './scene-diagnostics';
 import { appendToSystemPrompt, buildQuizGrounding } from '@/lib/quiz/quiz-grounding';
 import { upsertOutlineEntry } from './course-outline-write';
-import { checkPlanDependencies, formatPlanIssues } from '@/lib/quiz/plan-check';
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import { mayNameAPoolAsset } from '@/lib/media/media-placeholder';
 import { isMediaPlaceholder } from '@/lib/store/media-generation';
@@ -371,40 +365,6 @@ export function filterKnownActions(actions: readonly Action[]): Action[] {
   return actions.filter((action) => isActionType(action.type));
 }
 
-/**
- * 从一页已落盘的自检里取出待查文本。
- *
- * 只挑有题号的题（生成层偶尔会漏字段，缺了就不查它，而不是整页放弃）。
- */
-function quizQuestionsOf(scene: Scene): AssessedQuestion[] {
-  const content = scene.content as { questions?: unknown };
-  if (!Array.isArray(content.questions)) return [];
-  const questions: AssessedQuestion[] = [];
-  for (const entry of content.questions) {
-    if (typeof entry !== 'object' || entry === null) continue;
-    const question = entry as { id?: unknown; question?: unknown; options?: unknown; analysis?: unknown };
-    if (typeof question.id !== 'string' || typeof question.question !== 'string') continue;
-    const options = Array.isArray(question.options)
-      ? question.options
-          .map((option) =>
-            typeof option === 'string'
-              ? option
-              : typeof (option as { label?: unknown })?.label === 'string'
-                ? (option as { label: string }).label
-                : undefined,
-          )
-          .filter((label): label is string => typeof label === 'string')
-      : [];
-    questions.push({
-      id: question.id,
-      question: question.question,
-      options,
-      ...(typeof question.analysis === 'string' ? { analysis: question.analysis } : {}),
-    });
-  }
-  return questions;
-}
-
 export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never, never>[] {
   const routed = createGenerationAiCallFactory({ abortSignal: deps.abortSignal });
   const aiCallFor = (stage: Parameters<typeof routed>[0]) => deps.aiCall ?? routed(stage);
@@ -730,40 +690,28 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           deps.store.saveDocument({ ...afterWrite, outline: outlineUpdate.outline }),
         );
       }
-      /**
-       * T3：**计划期**依赖校验（在页面还没有被任何人读到之前）。
-       *
-       * 看的是计划（每页的 brief / keyPoints），判据是"这一页要考的东西，有没有
-       * 一页讲解排在它前面"。与写入后的 `coverageGaps` 是同一把尺子（`contentChunks`），
-       * 但更早、更便宜。修法**只允许"补"和"挪"** —— 见 `plan-check.ts` 头部。
-       */
-      const planIssues = checkPlanDependencies(
-        ((outlineUpdate.outline ?? afterWrite?.outline) as AppDocumentOutline | undefined)?.outlines ??
-          [],
-      );
       const skillViolations =
         skill && afterWrite ? checkScenesAgainstSkill(afterWrite.scenes, skill.constraints) : [];
       const persisted = afterWrite?.scenes.find((item) => item.id === scene.id) ?? scene;
       /**
-       * 覆盖缺口检查（自检页才做）。
+       * 写入后的两条诊断：自检页的**覆盖缺口** + **计划期依赖**。
        *
-       * 判据是**可算的**：这一页题干/选项/解析里的内容块，在**它之前所有页**
-       * （含讲解页）里出现过吗。见 lib/quiz/coverage-gap.ts 头部 —— 为什么换掉
-       * "让 AI 再看一遍"、为什么按内容块而不是按字符、为什么加频率闸。
+       * ★ 与 `patch_stage` **共用同一段代码**（`scene-diagnostics.ts`）—— 用户问
+       * 「让 AI 在原来 Day 1 上修复，它能按着已有规则来吗」，那时的答案是"不能"，
+       * 因为检查只挂在这条路上。抽出来之后，**生成和修改两条路判据一致**。
        *
-       * 方向是**宁可误报不可漏报**，所以它是诊断不是拒绝：不回滚、不删题，
-       * 让 agent 去决定补讲、改写、还是标成「本课不展开」。
+       * 两条都是**诊断不是拒绝**：不回滚、不删题，修法只允许"补"和"挪"。
        */
-      const coverageGaps =
-        params.type === 'quiz' && afterWrite
-          ? findUncoveredTerms({
-              questions: quizQuestionsOf(persisted),
-              taughtText: taughtTextBefore(
-                afterWrite.scenes.map((item) => ({ order: item.order, content: item.content })),
-                scene.order,
-              ),
+      const diagnostics =
+        afterWrite !== null
+          ? sceneWriteDiagnostics({
+              scenes: afterWrite.scenes,
+              scene: persisted,
+              outline: (outlineUpdate.outline ?? afterWrite.outline) as
+                | AppDocumentOutline
+                | undefined,
             })
-          : [];
+          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '' };
       const mediaPlaceholders = collectUnresolvedMediaPlaceholders(persisted);
       deps.onCheckpoint({
         tool: 'generate_scene',
@@ -792,13 +740,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           skillViolations.length
             ? ` SKILL CONSTRAINT CHECK against "${skill?.id}": ${skillViolations.join('; ')}.`
             : ''
-        }${coverageGaps.length ? `
-
-${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}` : ''}${
-          planIssues.length ? `
-
-${formatPlanIssues(planIssues)}` : ''
-        }${
+        }${diagnostics.coverageText}${diagnostics.planText}${
           mediaPlaceholders.length
             ? ` ${mediaPlaceholders.length} media placeholder(s) still render as skeletons.`
             : ''
@@ -815,13 +757,16 @@ ${formatPlanIssues(planIssues)}` : ''
           skill: skill?.id,
           ...(skillViolations.length ? { skillViolations } : {}),
           outlinePersisted: outlineUpdate.changed,
-          ...(planIssues.length
-            ? { planIssueCount: planIssues.length, planIssues: planIssues.map((issue) => issue.kind) }
-            : {}),
-          ...(coverageGaps.length
+          ...(diagnostics.planIssues.length
             ? {
-                coverageGapCount: coverageGaps.length,
-                coverageGaps: coverageGaps.slice(0, 12).map((gap) => gap.term),
+                planIssueCount: diagnostics.planIssues.length,
+                planIssues: diagnostics.planIssues.map((issue) => issue.kind),
+              }
+            : {}),
+          ...(diagnostics.coverageGaps.length
+            ? {
+                coverageGapCount: diagnostics.coverageGaps.length,
+                coverageGaps: diagnostics.coverageGaps.slice(0, 12).map((gap) => gap.term),
               }
             : {}),
           ...(mediaPlaceholders.length ? { mediaPlaceholders } : {}),
