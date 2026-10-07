@@ -139,6 +139,7 @@ reading-page 那套与批量下载对话框；漏看它就会以为"改动只在
 | `lib/quiz/plan-check.ts` | **计划期**依赖校验：超前引用 / 无归属 / 预算（三条只输出「补」和「挪」） | `conceptsPerPage` 默认关；见 结论库 |
 | `components/generation/self-study-button.tsx` | 首页那条链上的「自学」开关（经典路径，与工作台的 `study-mode.ts` 不同一条路） | 在工作台路径上搜不到 `selfStudy` |
 | `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
+| `lib/playback/reading-navigation.ts` | **阅读页滚轮翻页的判据**（阈值 12 / 去抖 450ms / 两道闸：用户开关 + 页内还能滚） | 实现在 `二开说明.md` §八；`readingPage` 是**必填**布尔量，漏传只是静默还回播放键 |
 
 **运行期可变目录**（都有默认值；三个都在 `/api/whoami` 的 `runtime` 里回显，所以"它到底写哪去了"随时可查）：
 `OPENMAIC_PLAN_FREEZE_DIR`（默认 `data/plan-freeze/`）· `OPENMAIC_SCRATCHPAD_DIR`（默认 `data/scratchpad/`）·
@@ -392,54 +393,12 @@ HTML 能加载、页面看起来正常，但 JS 分块全被 403 拦掉
 - **`DELETE /api/stages/<id>` 是软删**（`stage_meta.deleted_at`），不是真删。
 - **`psql` 中文 SQL 字面量** ⇒ 见 §3.3。
 
-### 6.4 ★ 代码注释里的数字，可能是**上游作者自己账号**的快照
+### 6.4 ★ 两条已结案的环境事实 → 结论库（**原 6.5 也并进这一条**，编号保持不重排，免得打断 §6.6–6.8 的互引）
 
-这条是真花掉过时间的，所以单列。
+· **代码注释里的数字可能是上游作者账号的快照**（`WorkspaceRail.tsx` 的 "139 courses"）；
+· **`@openmaic/dsl` 没有 `require` 条件** —— 想"读真数据"就写成 vitest 用例，别写独立脚本。
 
-`components/workbench/workspace/WorkspaceRail.tsx:33` 与 `:504` 都写着
-**"this account has 139 courses"** —— 拿它去查数据库会一无所获：本部署
-`stage_meta` 只有 **7 行**（1 个 owner、0 公开、0 删除），课程库那边也没有任何
-计数是 139（`/health` 报 60072；30 个抓取源里恰好 139 的只有
-`courseleaf:utexas-math` = UT Austin 数学系，**与这个注释毫无关系**）。
-
-那 139 是**上游作者自己的账号**，写在这里是为了论证一个设计：课程列表**一页一页
-reveal**，因为"reveal everything 不是一种导航"。文件本身我们一行没改
-（`git log 57fbcc4..HEAD -- <该文件>` 为空）。
-
-**所以：注释里的具体数字只能当"这段代码在防什么"来读，不能当本部署的数据来用。**
-要本部署的数字，只有三个来源：`/api/whoami`（owner 与课程）、`/api/...` 实际响应、
-以及 §3.3 的 SQL。**注释不算证据。**
-
-顺带一个容易误判的读数：`RAIL_INITIAL_ROWS = 10` / `RAIL_PAGE_SIZE = 20`
-（`lib/workbench/workspace-paging.ts`）—— 本部署 7 门课**根本触发不了分页**，
-所以"课程列表要点开下一页"这类抱怨在当前数据量下不成立，别照注释去查分页逻辑。
-
-### 6.5 ★ 想"写个脚本读真数据"时：`@openmaic/dsl` 没有 `require` 条件
-
-2026-10-07 实测（想给 `attempt-fold` 写个读 PG 的小脚本，浪费了两次尝试）：
-
-`node_modules/@openmaic/dsl/package.json` 的 `exports` 只有
-`{".": {"types": "...", "import": "./dist/index.js"}}` —— **没有 `require` 条件**。
-而本仓库的 `package.json` 没有 `"type": "module"`，所以：
-
-- `npx tsx scripts/xxx.ts`（tsx 把它当 **CJS**）→ `require('@openmaic/dsl')`
-  → **`ERR_PACKAGE_PATH_NOT_EXPORTED: No "exports" main defined`**；
-- 改名 `.mts` 让入口变 ESM 也不行：它 `import` 的那个 `.ts` 仍被当 CJS 加载
-  → **`does not provide an export named 'foldQuizAttempts'`**。
-
-`lib/runtime/payload-validators.ts` 里那种「从 `@openmaic/dsl` 取运行时值」的写法
-**只在 Next/Turbopack 和 vitest 下成立**，不要在裸 node 里复刻。
-
-**规矩：要给"读真数据"的代码留可复现入口，别写独立脚本 —— 写成 vitest 用例。**
-
-```bash
-TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/attempt-fold-live.test.ts
-```
-
-模式是仓库自己的（`tests/setup-env.ts` 的注释就是这么写的）：用例用
-`describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')` 守卫 —— **默认 hermetic
-（CI 无网无库也绿），要真库时一行环境变量**；断言写成"任何部署都成立的不变式"，
-具体读数用 `console.log` 打出来看。`tests/quiz/attempt-fold-live.test.ts` 是范本。
+两条的实测读数与复现命令在 `复盘/已结案结论.md` 的「详细结论」一节。
 
 ### 6.6 ★ `document_scenes.id` **只在 stage 内唯一** —— 任何按 sceneId 做键的地方都要带上 stage_id
 
@@ -468,7 +427,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 1. 页面身份一律是 `(stageId, sceneId)`；`lib/quiz/attempt-fold.ts` 的 `sceneKey()` 是这个键
    的唯一实现，别在别处再拼一个。
 2. 折叠器的 `sceneStateOf(fold, stageId, sceneId)` **两个参数都要** —— 让"取错课的那一页"
-   在编译期就不可能（同 §12 的 `readingPage` 必填那条思路）。
+   在编译期就不可能（同 `二开说明.md` §八 的 `readingPage` 必填那条思路）。
 3. 查 `document_scenes` 永远带 `stage_id`；`runtime_sessions` 的 `stage_id` 就是它的来源。
 4. 回归 pin：`tests/quiz/attempt-fold.test.ts`「keeps same-named pages in different courses apart」、
    `tests/quiz/learner-state.test.ts`「does not borrow another course's question text…」。
@@ -666,93 +625,3 @@ React 渲染器（`components/scene-renderers/quiz-renderer.tsx`、`pbl-renderer
    先 `git log --oneline <记的>..HEAD` 查是谁推进的，**别当成数据损坏**。
 
 ---
-
-## 12. 「课程是播放器，不是阅读器」—— 阅读页怎么走
-
-### 判据只有一条
-
-```
-readingPage = (scene.actions?.length ?? 0) === 0
-```
-
-自学模式（现在的默认）下**每页 actions 都是空的**。这样一页**没有讲稿可放**，
-所以它是一张**要读的纸**，不是一段要播的东西。
-
-### 旧行为（用户的原话：「就像放视频，我不需要这种东西」）
-
-`resolvePlaybackCursor` 会给空动作的页合成一个 `EMPTY_SCENE_DWELL`（空文本
-speech），空 speech 走朗读计时器，而空文本落到 `MIN_READING_MS = 2000`：
-
-```
-estimateSpeechDurationMs('') = max(2000, 0 × 240) = 2000ms
-```
-
-**每页停 2 秒**，然后 `onComplete`。`PlaybackChromeRoot` 的 onComplete 在
-**自动播放**（工具栏那个 ⟳，`autoPlayLecture`，默认关但**会记住**）打开时
-`setCurrentSceneId(下一页)` —— 于是整门课以 2 秒/页播完。
-自学页正文 350–400 字 ≈ 1–2 分钟阅读量，**差了 30–60 倍**。
-
-### 新行为
-
-| 文件 | 干什么 |
-|---|---|
-| `lib/playback/engine.ts` | 空动作的页**停住等人**（`parkedOnReadOnlyScene`）。不再计时、不再 `onComplete`；此时 `resume()` = "这页看完了，往下走" |
-| `components/canvas/canvas-area.tsx` | 不显示中间那个大播放键；**点页面 = 下一页**；**滚轮 = 翻页** |
-| `lib/playback/reading-navigation.ts` | 滚轮判据（阈值 12 / 去抖 450ms）抽成纯函数 —— 少了去抖，一次轻甩翻十几页 |
-| `components/canvas/canvas-toolbar.tsx` | 藏播放/暂停与自动播放开关（在阅读页上它们都是**假控件**）；翻页键留着 |
-| `components/edit/PlaybackChromeRoot.tsx` | `←`/`→` 以前只在**全屏演示**里翻页；现在阅读页也能翻 |
-
-### ★ 两个会让人改错的坑
-
-1. **引擎是拿 `[currentScene]`（一个场景）建的**，不是整门课。
-   跨页前进靠 `onComplete` → `setCurrentSceneId` → **重建引擎**，
-   **不是引擎自己走场景**。不知道这条会写错测试（我第一版按多场景写，全红）。
-   所以 `onSceneChange` 在这里基本是空的 —— 别指望它。
-2. **`readingPage` 是"传了才生效"的布尔量**：漏传不报错，只会**静默地把播放键
-   还回来**，正好退回被修掉的那个 bug。所以 `CanvasToolbarProps.readingPage`
-   是**必填**的，靠编译器兜 —— 设成必填的当下它就抓出了 3 个我漏掉的调用点，
-   还暴露了 `CanvasArea` 其实是**自己算**这个值（所以 `CanvasAreaProps` 用
-   `Omit<CanvasToolbarProps, 'readingPage'>`）。
-
-### ★ 滚轮翻页必须能关掉，且不许抢页内的滚动
-
-用户的原话：「滚轮功能可以自己自由在看课时关掉才行，因为有时课件内部也要上下滑动，
-有冲突」。冲突是**真的**：`scene-renderers/quiz-renderer.tsx` 的根就是
-`overflow-y-auto`，`pbl/v2/*`、`CodeElement` 也各自有可滚容器 —— 长测验页会在翻页的
-同时被滚走。所以这条手势上有**两个闸**，判据都在 `lib/playback/reading-navigation.ts`：
-
-| 闸 | 判据 | 少了它会怎样 |
-|---|---|---|
-| 用户的开关 | `canTurnPageOnWheel(ctx)`，读 `settings.wheelPageTurn`（默认 `true`，**持久化**） | 开关**静默失效**：关掉后滚轮继续翻页，没有任何报错 |
-| 页内还能滚 | `innerScrollConsumesWheel(target, deltaY, currentTarget)` | 长测验页 / PBL 面板被抢走手势（滚到**头**再继续滚才翻页 —— 这是有意的滚链，别改成"只要可滚就永不翻页"，那会让长页变成死胡同） |
-
-**开关按钮**在 `components/canvas/canvas-toolbar.tsx`，渲染条件是
-`onToggleWheelPageTurn && readingPage` —— 两个条件都必要：有讲稿的页滚轮从来不翻页；
-**roundtable 布局渲染同一个工具栏但舞台上没有 `onWheel`**，在那里摆开关就是假控件
-（§1.1 的同一条原则）。`wheelPageTurn` / `onToggleWheelPageTurn` 由 `CanvasArea` 从
-store 读并自己拥有（`CanvasAreaProps` 把这两个 `Omit` 掉）—— 滚轮处理就在它里面，
-让调用方传就等于有两个接线点，必有一个会漂。
-
-**文案**：`stage.wheelPageTurn` / `…Off` / `…On`，12 个 locale 全都要有
-（`tests/i18n/wheel-page-turn-locales.test.ts` 钉住）。
-
-### 怎么测
-
-仓库**没有 @testing-library**，但渲染测试是能写的 —— 照
-`tests/components/roundtable-reference-send.test.ts`：文件头 `// @vitest-environment jsdom`、
-`createRoot` + `act`、`vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)`、
-`vi.mock('@/lib/hooks/use-i18n', ...)`（组件要 `t`）。
-新加的 pin：`tests/playback/reading-page-park.test.ts`、
-`tests/playback/reading-navigation.test.ts`、
-`tests/components/canvas/canvas-toolbar-reading-page.test.ts`、
-`tests/playback/wheel-inner-scroll.test.ts`（jsdom，几何用 `Object.defineProperty`
-摆出来 —— jsdom 不做布局）、`tests/components/canvas/canvas-area-wheel-gate.test.ts`
-（**真的挂 `CanvasArea`、派发真的 `wheel` 事件**，锁住"开关真的被读了"）、
-`tests/i18n/wheel-page-turn-locales.test.ts`。
-
-**这两条必须做变异测试**（实测过，两次都会红）：把 `canvas-area.tsx` 里传给
-`canTurnPageOnWheel` 的 `wheelPageTurn` 改成 `true`、或删掉
-`innerScrollConsumesWheel` 那一行 —— 对应的用例立刻失败。纯函数测试抓不住
-"组件忘了读开关"这类错，所以这两条钉在组件上。
-
-
