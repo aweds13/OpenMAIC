@@ -35,3 +35,45 @@ export function toolLikeTokens(text: string): string[] {
 export function phantomToolNames(text: string, allowed: ReadonlySet<string>): string[] {
   return toolLikeTokens(text).filter((token) => !allowed.has(token));
 }
+
+/**
+ * 反引号里、**camelCase** 的标识符（例如 `` `materialId` ``、`` `nextOffset` ``）。
+ *
+ * 用途与 `toolLikeTokens` 互补：工具名是 snake_case，**参数名是 camelCase**。
+ * 所以这两个形状可以分开判：snake_case 的必须是已注册的**工具**，
+ * camelCase 的必须是某个已注册工具的**参数**。
+ *
+ * ★ 为什么需要它（实测来历）：第 10 轮我把 `scratch` 的 `materialId` 参数改成了 `topic`。
+ *   工具名那半边有判据（`toolLikeTokens`），而**参数名这半边没有** ——
+ *   残留的 `materialId` 会让模型传一个不存在的参数，且**没有任何东西会报错**。
+ */
+export function paramLikeTokens(text: string): string[] {
+  const found = new Set<string>();
+  for (const match of text.matchAll(/`([a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*)(?=[\s`(])/g)) {
+    found.add(match[1]!);
+  }
+  return [...found];
+}
+
+/** 收集一组工具的**参数名**（顶层 + 数组元素那一层）。 */
+export function declaredParamNames(
+  tools: readonly { parameters?: unknown }[],
+): Set<string> {
+  const names = new Set<string>();
+  const walk = (schema: unknown, depth: number): void => {
+    if (!schema || typeof schema !== 'object' || depth > 2) return;
+    const record = schema as Record<string, unknown>;
+    const props = record.properties;
+    if (props && typeof props === 'object') {
+      for (const [key, value] of Object.entries(props as Record<string, unknown>)) {
+        names.add(key);
+        walk(value, depth + 1);
+      }
+    }
+    if (record.items) walk(record.items, depth + 1);
+    for (const branch of (record.anyOf as unknown[] | undefined) ?? []) walk(branch, depth + 1);
+    for (const branch of (record.oneOf as unknown[] | undefined) ?? []) walk(branch, depth + 1);
+  };
+  for (const tool of tools) walk(tool.parameters, 0);
+  return names;
+}

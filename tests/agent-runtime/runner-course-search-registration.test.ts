@@ -112,7 +112,7 @@ vi.mock('@/lib/server/agent-runtime/user-skills', async (importActual) => {
 });
 
 import { runSession } from '@/lib/server/agent-runtime/runner';
-import { phantomToolNames } from './_tool-name-tokens';
+import { declaredParamNames, paramLikeTokens, phantomToolNames } from './_tool-name-tokens';
 
 const SESSION_ID = 'session-1';
 const WORKER_ID = `runner-t:${process.pid}`;
@@ -428,6 +428,44 @@ describe('★ assembled prompt: every capability combination', () => {
           `web=${combo.web} course=${combo.course} browse=${combo.browse} → 提示词点名了：${offenders.join(', ')}`,
         );
       }
+
+      // ★ 参数名那一半：提示词/描述里 `反引号 camelCase` 的标识符必须是**某个已注册工具的
+      //   参数**。工具名是 snake_case、参数名是 camelCase，所以两个形状可以分开判。
+      //   实测来历：第 10 轮把 scratch 的 `materialId` 改成 `topic` —— 工具名那半边有判据，
+      //   参数名这半边没有；残留会让模型传一个不存在的参数而不报错。
+      // 本文件顶上那个本地接口只声明了 `name`，而运行时的工具对象**确实**带
+      // `description` / `parameters`（它们是真正交给模型的 schema）。所以这里窄化一次，
+      // 而不是去改那个接口（那会让别的用例的期望值失去意义）。
+      const toolsWithSchema = options.tools as unknown as {
+        name: string;
+        description?: string;
+        parameters?: unknown;
+      }[];
+      const params = declaredParamNames(toolsWithSchema);
+      const badParams = [
+        ...new Set(
+          toolsWithSchema.flatMap((tool) =>
+            paramLikeTokens(`${tool.description ?? ''}\n${JSON.stringify(tool.parameters)}`),
+          ),
+        ),
+      ].filter((token) => !params.has(token));
+      if (badParams.length > 0) {
+        problems.push(
+          `web=${combo.web} course=${combo.course} browse=${combo.browse} → 点名了不存在的参数：${badParams.join(', ')}`,
+        );
+      }
+
+      // ★ 阳性 + 阴性对照：这条判据目前 0 命中，所以必须证明**尺子量得到**，
+      //   否则"没有幽灵参数"和"尺子坏了"分不清（本会话已经栽过一次：第 8 轮那把尺子
+      //   只抓裸写法、漏了调用形状，却照样全绿）。
+      expect(
+        paramLikeTokens('传 `notARealParam` 给它').some((token) => !params.has(token)),
+        '阳性对照失败：尺子抓不到编造的参数名',
+      ).toBe(true);
+      expect(
+        paramLikeTokens('传 `materialId` 给它').every((token) => params.has(token)),
+        '阴性对照失败：真实参数名被误报（read_material 的参数就叫 materialId）',
+      ).toBe(true);
 
       // ★ 另一半（§1.1）：注册了却**没放行** = 模型看得见、调不动，而且不报错。
       //   工具表是 assembleRunnerTools(...) 装的，允许表是**另外手写一遍**的能力清单 ——
