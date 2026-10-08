@@ -117,3 +117,57 @@ export function upsertOutlineEntry(
 
   return { outline: { ...outline, outlines: finalEntries }, changed: true };
 }
+
+export interface ShiftOutlineOrdersResult {
+  outline?: AppDocumentOutline;
+  /** 被移动了几条。0 表示没有条目落在 `fromOrder` 之后。 */
+  moved: number;
+  /** 有值 ⇒ **什么都没改**，把这个给 agent 看。 */
+  error?: string;
+}
+
+/**
+ * 把计划里 `order >= fromOrder` 的条目整体平移 `delta` 位。
+ *
+ * ── 为什么必须有这个原语（2026-10-07 实测）──────────────────────
+ * 「拆页 ⇒ 后面所有页号顺延」是**最常见**的计划改动，而 `plan_freeze` 原来
+ * **没有任何办法表达它**：`add` 按 order 覆盖（所以写一条就吃掉一条），
+ * 而 `revise` 只记一次修订理由、**根本不改计划**。
+ *
+ * 实测后果（`stage-GYvpbYB_aN`）：agent 一边拆页一边补条目，条目**静默消失** 4 条
+ * （37/40/46/47），最后它把计划当成"容量只有 47 条"，并据此给学习者做了规划。
+ *
+ * ── 判据 ────────────────────────────────────────────────────
+ * · `delta === 0` ⇒ 拒绝（没意义，且容易掩盖调用方的错）。
+ * · 平移后**若出现重复 order ⇒ 整批拒绝、什么都不改** —— 宁可让 agent 看见冲突，
+ *   也不要制造又一份"同一页两条目"（那正是"补一条挤掉一条"的温床）。
+ */
+export function shiftOutlineOrders(
+  outline: AppDocumentOutline | undefined,
+  fromOrder: number,
+  delta: number,
+): ShiftOutlineOrdersResult {
+  if (!outline) return { moved: 0, error: '这一门没有计划信封，改不了计划。' };
+  const entries = outline.outlines ?? [];
+  if (delta === 0) return { moved: 0, error: 'shift.delta 是 0 —— 没有任何条目会动。' };
+
+  const shifted = entries.map((entry) =>
+    entry.order >= fromOrder ? { ...entry, order: entry.order + delta } : entry,
+  );
+  const orders = new Set<number>();
+  for (const entry of shifted) {
+    if (orders.has(entry.order)) {
+      return {
+        moved: 0,
+        error:
+          `这次平移会让第 ${entry.order} 页出现两份条目（delta=${delta}、fromOrder=${fromOrder}）` +
+          '—— 所以**一个字都没改**。换一个不会撞上既有页号的 delta，或者分两步做。',
+      };
+    }
+    orders.add(entry.order);
+  }
+
+  const moved = entries.filter((entry) => entry.order >= fromOrder).length;
+  shifted.sort((left, right) => left.order - right.order);
+  return { outline: { ...outline, outlines: shifted }, moved };
+}

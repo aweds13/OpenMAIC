@@ -23,7 +23,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import type { SceneOutline } from '@/lib/types/generation';
-import { upsertOutlineEntry } from './course-outline-write';
+import { shiftOutlineOrders, upsertOutlineEntry } from './course-outline-write';
 import {
   formatPlanFreezeStatus,
   freezePlan,
@@ -71,6 +71,28 @@ const PLAN_FREEZE_PARAMS = Type.Object({
       description:
         'Required for `revise`: what changed and why. Drifting is fine; drifting silently is not.',
     }),
+  ),
+  removeOrders: Type.Optional(
+    Type.Array(Type.Integer({ minimum: 1 }), {
+      description:
+        'For `revise`: page numbers whose plan entries should be REMOVED (use when a page is gone).',
+    }),
+  ),
+  shift: Type.Optional(
+    Type.Object(
+      {
+        fromOrder: Type.Integer({ minimum: 1, description: 'The first page number to move.' }),
+        delta: Type.Integer({
+          description: '+1 to make room for a page you split; -1 to close a gap.',
+        }),
+      },
+      {
+        description:
+          'For `revise`: move **every** entry with `order >= fromOrder` by `delta`. This is the ' +
+          'primitive for "I split a page in two, so everything after it shifts" — `add` alone ' +
+          'cannot express it (it replaces whatever already sits at that order).',
+      },
+    ),
   ),
 });
 
@@ -305,14 +327,72 @@ export function buildPlanFreezeTool(
         );
       }
 
-      // revise
+      /**
+       * ★ revise **现在真的改计划**（2026-10-07 修）。
+       *
+       * 原来这一支只调 `revisePlan()` —— 它**只记一次修订理由**，一个条目都不动。
+       * 而提示词、门槛的拒绝信息、`freeze` 的回复**三处都在教模型**
+       * 「改计划要用 `revise` 写明理由」 —— **那是我们写的一句假话**：
+       * 唯一能写条目的是 `add`，而它按 order 覆盖。
+       *
+       * 实测代价（`stage-GYvpbYB_aN`）：agent 一边拆页一边补条目，条目静默消失 4 条
+       * （37/40/46/47），最后把计划当成"容量只有 47 条"，并据此给学习者做了规划。
+       *
+       * 现在这一支能表达它真正需要的三件事：
+       *   `shift`（拆页 ⇒ 后面页号顺延）· `removeOrders`（页面没了）· `entries`（写/改条目）。
+       */
+      const changes: string[] = [];
+      let next = outline;
+
+      if (params.shift) {
+        const shifted = shiftOutlineOrders(next, params.shift.fromOrder, params.shift.delta);
+        if (shifted.error) return text(shifted.error, true);
+        if (shifted.outline) next = shifted.outline;
+        const sign = params.shift.delta > 0 ? '+' : '';
+        changes.push(
+          `order ≥ ${params.shift.fromOrder} 的 ${shifted.moved} 条平移 ${sign}${params.shift.delta}`,
+        );
+      }
+
+      if (params.removeOrders?.length) {
+        const drop = new Set(params.removeOrders);
+        const before = next?.outlines ?? [];
+        const kept = before.filter((entry) => !drop.has(entry.order));
+        if (next) next = { ...next, outlines: kept };
+        changes.push(`删掉 ${before.length - kept.length} 条条目（order ${params.removeOrders.join('、')}）`);
+      }
+
+      if (params.entries?.length) {
+        let working = next;
+        for (const entry of params.entries) {
+          const written = upsertOutlineEntry(working, {
+            id: `p${entry.order}`,
+            order: entry.order,
+            title: entry.title,
+            type: entry.type ?? 'slide',
+            ...(entry.brief ? { description: entry.brief } : {}),
+          } as SceneOutline);
+          if (written.outline) working = written.outline;
+        }
+        next = working;
+        changes.push(`写入/更新 ${params.entries.length} 条条目`);
+      }
+
+      if (changes.length > 0 && next !== undefined && next !== outline) {
+        const saved = await deps.saveOutline(params.stageId, next);
+        if (!saved) return text('计划没能写盘 —— 计划没有变。', true);
+      }
+
       const result = revisePlan(state, { at: Date.now(), reason: params.reason ?? '' });
       if (result.error) return text(result.error, true);
       const written = await writePlanFreeze(result.state);
       if (!written) return text('修订没能写盘 —— 计划没有变。', true);
       return text(
         `已记下第 ${result.state.revision} 次修订：「${(params.reason ?? '').trim()}」。` +
-          '计划本身照你说的改，改完页面结构要跟着对齐（`edit_deck` 会同步计划条目）。',
+          (changes.length > 0
+            ? `\n**实际改动**：${changes.join('；')}。`
+            : '\n**没有改任何条目** —— 你只传了 `reason`。要改条目请带 `entries` / `shift` / `removeOrders`。') +
+          '\n改完页面结构要跟着对齐（`edit_deck` 会同步计划条目）。',
       );
     },
   };
