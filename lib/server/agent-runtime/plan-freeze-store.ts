@@ -126,6 +126,50 @@ export async function writeReviewReceipt(receipt: ReviewReceipt): Promise<boolea
   }
 }
 
+/**
+ * 已接受的读数 —— **无状态审计的唯一解药**。
+ *
+ * `course_audit` 是无状态的：一门课有几页超线，它每次都报同样的数字。而"拆页"这条修法
+ * 有时**不可用**（学习者明确不再插页）或**不该用**（读数是"要照抄的字符串"而不是"要学的知识"
+ * —— 同 PBL 脚手架那条）。
+ *
+ * 没有这张凭据，后果不是"多看一眼"，而是：**每个新窗口都会为同一批页再吵一次**，
+ * 或者有人为了消掉一条读数去动页面。所以"接受"必须能被机器记住。
+ */
+export const ACCEPTED_READINGS_SUFFIX = '.accepted.json';
+
+export interface AcceptedReadings {
+  stageId: string;
+  /** 页码 → 接受时的读数（novel）与理由。 */
+  pages: Record<string, { novel?: number; reason: string }>;
+  updatedAt: string;
+}
+
+function acceptedReadingsFile(stageId: string): string {
+  return join(planFreezeDir(), `${stageId}${ACCEPTED_READINGS_SUFFIX}`);
+}
+
+export async function readAcceptedReadings(stageId: string): Promise<AcceptedReadings | null> {
+  try {
+    const parsed = JSON.parse(await readFile(acceptedReadingsFile(stageId), 'utf8')) as AcceptedReadings;
+    return parsed && typeof parsed.pages === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeAcceptedReadings(readings: AcceptedReadings): Promise<boolean> {
+  try {
+    const file = acceptedReadingsFile(readings.stageId);
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(`${file}.tmp`, JSON.stringify(readings, null, 2), 'utf8');
+    await rename(`${file}.tmp`, file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface PlanFreezeSnapshot {
   state: PlanFreezeState;
   entryCount: number;

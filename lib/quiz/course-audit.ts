@@ -305,9 +305,10 @@ export function auditCourse(
 /** 渲染成一段给 agent / 人看的报告。 */
 export function formatCourseAudit(
   audit: CourseAudit,
-  options: { maxItems?: number; novelThreshold?: number } = {},
+  options: { maxItems?: number; novelThreshold?: number; acceptedPages?: ReadonlySet<number> } = {},
 ): string {
   const maxItems = options.maxItems ?? 8;
+  const accepted = options.acceptedPages ?? new Set<number>();
   const threshold = options.novelThreshold ?? NOVEL_P90;
   const pct = (value: number): string => `${Math.round(value * 100)}%`;
   const list = (pages: PageLinkage[]): string =>
@@ -320,6 +321,20 @@ export function formatCourseAudit(
     `课程审计：${audit.pages.length} 页，**slide 页**平均承接率 **${pct(audit.averageCarryRatio)}**` +
       `（这一页用的词里有多少是前面建立过的），slide 页引入新块的中位数 ${audit.medianNovel}。`,
   ];
+
+  // ★ 已接受的超载页单独说 —— 否则它每次审计都再报一次，而"拆页"有时不可用（用户已明确
+  //   不再插页）、有时不该用（读数是"要照抄的字符串"而不是"要学的知识"）。凭据落盘，
+  //   见 `plan-freeze-store.ts` 的 `AcceptedReadings`。
+  const acceptedOverload = audit.overloadedPages.filter((page) => accepted.has(page.order));
+  const pendingOverload = audit.overloadedPages.filter((page) => !accepted.has(page.order));
+  if (acceptedOverload.length > 0) {
+    lines.push(
+      `· ${acceptedOverload.length} 页超载**你已经接受过**（第 ` +
+        acceptedOverload.map((page) => page.order).join('、') +
+        ' 页）—— 不再列进待修。要重新评估就把凭据删掉。',
+    );
+  }
+  audit = { ...audit, overloadedPages: pendingOverload };
 
   if (audit.overloadedPages.length) {
     lines.push(

@@ -21,6 +21,7 @@ import { Type, type Static } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 import { auditCourse, formatCourseAudit } from '@/lib/quiz/course-audit';
+import { readAcceptedReadings, writeAcceptedReadings } from './plan-freeze-store';
 import type { Scene } from '@/lib/types/stage';
 
 export const AUDIT_TOOL_NAMES = ['course_audit'] as const;
@@ -30,10 +31,32 @@ const AUDIT_PARAMS = Type.Object({
   maxItems: Type.Optional(
     Type.Integer({ minimum: 1, maximum: 20, description: 'How many pages to list per finding.' }),
   ),
+  accept: Type.Optional(
+    Type.Object({
+      pages: Type.Array(Type.Integer({ minimum: 1 }), {
+        minItems: 1,
+        description: 'Page orders whose over-threshold reading the learner has accepted for now.',
+      }),
+      reason: Type.String({
+        description:
+          'Why those pages stay as they are — the real reason, e.g. the counted blocks are strings to ' +
+          'copy verbatim (menu paths, config keys) rather than concepts to learn, or the learner said ' +
+          'no more pages may be inserted.',
+      }),
+    }),
+  ),
 });
 
 export interface AuditToolDeps {
   loadScenes(stageId: string): Promise<readonly Scene[] | null>;
+  /** 读「已接受的读数」凭据；默认读 `OPENMAIC_PLAN_FREEZE_DIR` 下的小文件。 */
+  readAccepted?: (stageId: string) => Promise<{ pages: Record<string, unknown> } | null>;
+  /** 写凭据（`accept` 那一支）；默认落盘。 */
+  writeAccepted?: (readings: {
+    stageId: string;
+    pages: Record<string, { novel?: number; reason: string }>;
+    updatedAt: string;
+  }) => Promise<boolean>;
 }
 
 export function buildCourseAuditTool(deps: AuditToolDeps): AgentTool<typeof AUDIT_PARAMS, unknown> {
@@ -41,7 +64,7 @@ export function buildCourseAuditTool(deps: AuditToolDeps): AgentTool<typeof AUDI
     name: 'course_audit',
     label: 'Audit a course as a whole',
     description:
-      'Read-only audit of a whole course: which teaching pages carry no vocabulary over from earlier ' +
+      'Read-only audit of a whole course (its only write is `accept`, a small per-course receipt): which teaching pages carry no vocabulary over from earlier ' +
       'pages, and which pages introduce far more new material than a page should (the threshold is ' +
       'measured, not guessed). Run this **before repairing an existing course** — it is how you find ' +
       'out which page to split, connect, or leave alone. It changes nothing; the repairs it implies ' +
@@ -50,6 +73,31 @@ export function buildCourseAuditTool(deps: AuditToolDeps): AgentTool<typeof AUDI
     parameters: AUDIT_PARAMS,
     executionMode: 'sequential',
     async execute(_id: string, params: Static<typeof AUDIT_PARAMS>) {
+      // ★ 唯一的写：`accept` —— 它写的是 per-stage 的**小凭据**（不是课程数据），
+      //   目的是让"这门课这几页的超线我们知道了、暂时不修"能被机器记住。
+      //   没有它，无状态审计每次都会再报同样的页，而"拆页"有时不可用（用户已明确不再插页）、
+      //   有时不该用（读数是"要照抄的字符串"而不是"要学的知识"）。
+      if (params.accept) {
+        const read = deps.readAccepted ?? readAcceptedReadings;
+        const write = deps.writeAccepted ?? writeAcceptedReadings;
+        const previous = (await read(params.stageId))?.pages ?? {};
+        const pages: Record<string, { novel?: number; reason: string }> = { ...previous } as never;
+        for (const order of params.accept.pages) pages[String(order)] = { reason: params.accept.reason };
+        const ok = await write({ stageId: params.stageId, pages, updatedAt: new Date().toISOString() });
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: ok
+                ? `course_audit: 已把第 ${params.accept.pages.join('、')} 页记成**已接受**（理由：${params.accept.reason}）。以后审计不再把它们当待修报出来；要重新评估就把凭据删掉。`
+                : 'course_audit: 凭据**没写进去**（磁盘或权限问题）。这次接受没有生效 —— 别以为记下了。',
+            },
+          ],
+          details: { accepted: params.accept.pages, wrote: ok },
+          ...(ok ? {} : { isError: true }),
+        };
+      }
+
       const scenes = await deps.loadScenes(params.stageId);
       if (!scenes || scenes.length === 0) {
         return {
@@ -79,7 +127,14 @@ export function buildCourseAuditTool(deps: AuditToolDeps): AgentTool<typeof AUDI
         content: [
           {
             type: 'text' as const,
-            text: formatCourseAudit(audit, { maxItems: params.maxItems ?? 8 }),
+            text: formatCourseAudit(audit, {
+            maxItems: params.maxItems ?? 8,
+            acceptedPages: new Set(
+              Object.keys((await (deps.readAccepted ?? readAcceptedReadings)(params.stageId))?.pages ?? {}).map(
+                (order) => Number(order),
+              ),
+            ),
+          }),
           },
         ],
         details: {

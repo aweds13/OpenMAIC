@@ -173,3 +173,53 @@ describe('★ 机械层：结构空页与页码引用', () => {
     expect(formatCourseAudit(audit)).toContain('处写死的页码引用');
   });
 });
+
+/**
+ * ★ 「已接受的读数」—— 无状态审计的唯一解药（2026-10-08）。
+ *
+ * 由来：agent 报「就地改写压不下超载读数（第 4 页 58→59、第 8 页 62→63、第 9 页 53→57、
+ * 第 20 页 51→52）」，而我把那四页翻出来核过：第 8/9 页被数进去的**大半是菜单路径与 pom 键**
+ * （`File → Settings → Editor → File Encodings`、`modelVersion/groupId/artifactId`）——
+ * 那是"要照抄的字符串"，不是"要学的知识"（与 PBL 脚手架那条同源）；第 20 页被数进去的是
+ * **真概念**（一页 5 种循环）。
+ *
+ * 两种情况的处置不同（一个不该拆、一个该拆但用户已明确不再插页），但**共同点是：
+ * 结论必须能被机器记住**。否则 `course_audit` 无状态，每个新窗口都会为同一批页再吵一次，
+ * 或者有人为了消掉一条读数去动页面 —— 那才是真损失。
+ */
+describe('★ 已接受的读数：不再重复报成待修', () => {
+  const heavy = (order: number, type = 'slide'): AuditedPage => ({
+    stageId: 's',
+    sceneId: `scene-${order}`,
+    order,
+    title: `第 ${order} 页`,
+    type,
+    content: { type, canvas: { elements: [{ type: 'text', content: heavyBody(order) }] } },
+  });
+
+  it('★ 全部超线页都已接受 ⇒ 只报「你已经接受过」，不出现待修', () => {
+    const audit = auditCourse([page(1, 'slide', '短'), heavy(2)]);
+    expect(audit.overloadedPages.map((item) => item.order)).toEqual([2]);
+    const text = formatCourseAudit(audit, { acceptedPages: new Set([2]) });
+    expect(text).toContain('你已经接受过');
+    expect(text).not.toContain('一次引入超过');
+  });
+
+  it('★ 混合 ⇒ 待修只列没接受的，已接受单独提一句', () => {
+    const audit = auditCourse([page(1, 'slide', '短'), heavy(2), heavy(3)]);
+    expect(audit.overloadedPages.map((item) => item.order)).toEqual([2, 3]);
+    const text = formatCourseAudit(audit, { acceptedPages: new Set([2]) });
+    expect(text).toContain('你已经接受过');
+    expect(text).toContain('第 3 页');
+    const overloadLine = text.split('\n').find((line) => line.includes('承接过载')) ?? '';
+    expect(overloadLine).not.toContain('第 2 页');
+  });
+
+  it('★ 没有凭据 ⇒ 一行不少地照报（别把闸放成空的）', () => {
+    const audit = auditCourse([page(1, 'slide', '短'), heavy(2)]).overloadedPages;
+    const text = formatCourseAudit(auditCourse([page(1, 'slide', '短'), heavy(2)]));
+    expect(text).toContain('一次引入超过');
+    expect(text).not.toContain('你已经接受过');
+    expect(audit.length).toBe(1);
+  });
+});
