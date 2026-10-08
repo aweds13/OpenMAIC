@@ -3,6 +3,7 @@ import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
+import type { SceneOutline } from '@/lib/types/generation';
 import type { Scene } from '@/lib/types/stage';
 import { matchOutlineEntries } from '../course-outline-union';
 import { putSceneBringingCurrent } from '../document-writes';
@@ -80,19 +81,43 @@ export function shiftCourseOrders(
 export function renumberCourseOrders(
   scenes: readonly Scene[],
   outline: AppDocumentOutline | undefined,
+  /**
+   * ★ **`dropUnmatched` 必须由调用方显式表态**（2026-10-07 修，实测数据丢失）。
+   *
+   * 这个函数被**两个语义完全不同的 op** 调用：
+   * · `delete`（删掉一页）—— 对不上页面的计划条目**本来就该消失** ⇒ `true`；
+   * · `reorder`（重排 / 插入之后的顺延）—— 对不上的条目**绝不能丢**，
+   *   它代表"计划里有、页面还没做"，是合法的可见状态 ⇒ `false`。
+   *
+   * 原来没有这个参数、两条路都丢 ⇒ 实测：agent 补进 9 条、**同时丢掉 9 条**
+   * （`stage-GYvpbYB_aN` 始终 50 条），并把这理解成"**计划容量只有 50 条**"。
+   * ★ 我第一次"修"这里时没区分调用方、直接保留全部，被 delete 那条既有判据挡下，
+   *   于是**整个撤回**了 —— 撤回是错的：该修的是**让调用方表态**，不是不动。
+   *
+   * 默认 `true` = 保持 delete 的既有语义（那条判据钉着它）。
+   */
+  options: { dropUnmatched?: boolean } = {},
 ) {
+  const dropUnmatched = options.dropUnmatched ?? true;
   const numbered = scenes.map((scene, index) => ({ ...scene, order: index + 1 }));
   if (!outline?.outlines?.length) return { scenes: numbered, outline };
   const matches = matchOutlineEntries(
     [...scenes].sort((a, b) => a.order - b.order),
     outline.outlines,
   );
-  const outlines = outline.outlines.flatMap((entry, index) => {
+  const kept: SceneOutline[] = [];
+  const unmatched: SceneOutline[] = [];
+  outline.outlines.forEach((entry, index) => {
     const scene = numbered.find((candidate) => matches.get(candidate.id) === index);
-    return scene ? [{ ...entry, order: scene.order }] : [];
+    if (scene) kept.push({ ...entry, order: scene.order });
+    else if (!dropUnmatched) unmatched.push(entry);
   });
-  outlines.sort((a, b) => a.order - b.order);
-  return { scenes: numbered, outline: { ...outline, outlines } };
+  if (unmatched.length > 0) {
+    const last = kept.reduce((max, entry) => Math.max(max, entry.order), 0);
+    unmatched.forEach((entry, index) => kept.push({ ...entry, order: last + index + 1 }));
+  }
+  kept.sort((a, b) => a.order - b.order);
+  return { scenes: numbered, outline: { ...outline, outlines: kept } };
 }
 
 export function buildCourseAudioAndDeckTools(deps: CourseToolDeps): AgentTool<never, never>[] {
@@ -235,7 +260,8 @@ export function buildCourseAudioAndDeckTools(deps: CourseToolDeps): AgentTool<ne
         return [scene];
       });
       ordered.push(...scenes.filter((scene) => byId.has(scene.id)));
-      const next = renumberCourseOrders(ordered, outline);
+      // ★ reorder / 插入后的顺延：**不许丢对不上的条目**（它们代表'计划里有、页面还没做'）。
+      const next = renumberCourseOrders(ordered, outline, { dropUnmatched: false });
       await runStageMutation(signal, () =>
         deps.store.saveDocument({ ...doc, scenes: next.scenes, outline: next.outline }),
       );
