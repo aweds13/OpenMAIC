@@ -570,7 +570,15 @@ const TableElementInput = fullElementSchema(ElementTypes.TABLE, TableElementPatc
   ...BASE_REQUIRED,
   'outline',
   'colWidths',
-  'cellMinHeight',
+  // ★ `cellMinHeight` **故意不在这里**（2026-10-08 实测）：
+  //   本仓旧生成器写出来的表**没有这个字段**（第 21 页的表键是
+  //   `colWidths/data/height/id/left/outline/rotate/top/type/width`），
+  //   而它曾经是**必需**字段 ⇒ 校验失败 ⇒ `patch rejected at op 1` ⇒
+  //   **整页一个字都改不了**（连改旁边一个 text 的 `str_replace` 也一起被拒），
+  //   因为校验的是**改完之后整份 scene**，不是被改的那个元素。
+  //   代价实测：第 21 页那三条说明补不进去，只能挪到第 22 页。
+  //   它与 `colWidths`/`data` 不同：后两个是结构（没有就画不出表），
+  //   `cellMinHeight` 只是行高下限，缺了走默认值即可 —— **没有理由为它锁死整页**。
   'data',
 ]);
 const LatexElementInput = fullElementSchema(ElementTypes.LATEX, LatexElementPatch, [

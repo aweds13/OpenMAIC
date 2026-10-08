@@ -289,6 +289,60 @@ describe('★ patch_stage：超载页必须先给学习者看数字（② 新增
  * 两道闸的规矩与超载闸一致：**先拒一次、把数字摆出来、问过之后带凭据再来**；
  * 而且都在**任何写入之前**拒（页面没被动过）。
  */
+/**
+ * ★ 含**旧生成器写的表**的页必须能改（2026-10-08 实测根因）。
+ *
+ * 报错原文（真库 seq 21121）：`patch_stage rejected at op 1: patch rejected:
+ * canvas/elements/12: must have required properties ...` —— 而第 21 页 index 12 就是那张表，
+ * 它的键里**没有 `cellMinHeight`**（旧生成器不写这个字段），而它当时是**必需**字段。
+ *
+ * 关键在"**整页连坐**"：校验的是**改完之后整份 scene**，所以一个元素不合格 ⇒
+ * 这一页任何改动都进不去（连改旁边一个 `text` 的 `str_replace` 也一样）。
+ * 实测后果：第 21 页那三条说明补不进去，只能挪到第 22 页。
+ */
+function sceneWithLegacyTable(): Scene {
+  // 拿现成的合法 slide 当底座，再挂一张**旧生成器形状**的表（没有 cellMinHeight），
+  // 这样 canvas 的必需字段都由底座保证 —— 上一版我自己手写 canvas，报的是 canvas 缺字段，
+  // 把真正的表问题盖住了。
+  const scene = structuredClone(slide(1, '短内容')) as unknown as {
+    content: { canvas: { elements: unknown[] } };
+  };
+  scene.content.canvas.elements.push({
+    id: 'table-legacy',
+    type: 'table',
+    left: 60,
+    top: 260,
+    width: 800,
+    height: 120,
+    rotate: 0,
+    outline: { color: '#e5e7eb', style: 'solid', width: 1 },
+    colWidths: [0.5, 0.5],
+    data: [
+      [
+        { id: 'c1', colspan: 1, rowspan: 1, text: '代码', style: { bold: true } },
+        { id: 'c2', colspan: 1, rowspan: 1, text: '结果', style: { bold: true } },
+      ],
+    ],
+  });
+  return scene as unknown as Scene;
+}
+
+describe('★ patch_stage：含旧生成器写的表（无 cellMinHeight）也能改', () => {
+  it('★ 改旁边那个 text ⇒ 必须成功（不许因为表少一个可选字段锁死整页）', async () => {
+    delete process.env.OPENMAIC_PLAN_GATE;
+    const current = harness(documentOf([sceneWithLegacyTable()], false));
+    const response = await patchTool(current.store, new Set(['stage-test'])).execute('c', {
+      stageId: 'stage-test',
+      target: '/scenes/1',
+      intent: '给这一页补一句说明',
+      ops: setOp('el-1', '补上的说明'),
+    });
+    const text = response.content?.[0]?.text ?? '';
+    expect(response.isError).toBeFalsy();
+    expect(text).not.toContain('rejected at op');
+  });
+});
+
 describe('★ patch_stage：结构洞闸（空页 / 坏引用）', () => {
   const emptySlide = (order: number): Scene =>
     ({
