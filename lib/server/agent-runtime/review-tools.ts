@@ -49,8 +49,15 @@ export interface CourseReviewDeps {
   aiCall: AICallFn;
   /** 测试缝：渲染 interactive 页；默认走 `page-text.ts` 的 jsdom。 */
   render?: (html: string) => Promise<{ text: string; errors: string[] }>;
-  /** 审查一次最多带多少页（防止把整门课塞进一次调用）。 */
+  /** 审查一次最多带多少页。 */
   maxPages?: number;
+  /**
+   * ★ 审查一次最多带多少**字符**（默认 120k）—— 页数封顶是不够的（2026-10-08 实测：
+   * Day02 的 62 页渲染后有 **678,579 字** ⇒ 一次调用会到 40 万+ token，第一次真跑就会炸）。
+   * 超了就**按页序停在预算处**，并在回话里说清"停在那一页、剩下的另跑一次" ——
+   * 不截断页面内容（截断会让审查者对着半页说"没讲"，那是新的假阳性）。
+   */
+  maxChars?: number;
   /** 与 `patch_stage` 共享：审完把 stageId 记进去（B 方案那道闸的依据，run 内）。 */
   reviewedStages?: Set<string>;
   /** 落盘凭据（跨 run）。测试可注入；默认写 `OPENMAIC_PLAN_FREEZE_DIR` 下的小文件。 */
@@ -64,6 +71,8 @@ const REVIEW_PARAMS = Type.Object({
 });
 
 const DEFAULT_MAX_PAGES = 60;
+/** 一次审查的字符预算：实测整门课渲染后有 67 万字符，必须封顶。 */
+const DEFAULT_MAX_CHARS = 120_000;
 
 /**
  * 审查的规矩 —— 逐条对着"零基础读者"这个设定写，别的都不写。
@@ -185,10 +194,18 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
         };
       }
 
+      // ★ 先按页序累加，**在预算处停**（页数封顶不够：实测整门课 62 页有 67 万字符）。
+      const budget = deps.maxChars ?? DEFAULT_MAX_CHARS;
       const pages = [];
+      let used = 0;
       for (const scene of selected) {
-        pages.push(await learnerVisibleText(scene, deps.render ? { render: deps.render } : undefined));
+        const page = await learnerVisibleText(scene, deps.render ? { render: deps.render } : undefined);
+        if (pages.length > 0 && used + page.text.length > budget) break;
+        pages.push(page);
+        used += page.text.length;
       }
+      const stoppedAt = pages[pages.length - 1]?.order ?? 0;
+      const remaining = selected.filter((scene) => scene.order > stoppedAt).length;
       const notRendered = pages.filter((page) => page.mode === 'source');
       const empty = pages.filter((page) => page.text.trim().length === 0);
 
@@ -224,7 +241,10 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       await writeReceipt(receipt).catch(() => false);
 
       const header = [
-        `review_course: 已审 ${pages.length} 页（第 ${pages[0]?.order}–${pages[pages.length - 1]?.order} 页）`,
+        `review_course: 已审 ${pages.length} 页（第 ${pages[0]?.order}–${stoppedAt} 页，约 ${used} 字符）`,
+        remaining > 0
+          ? `★ 还有 ${remaining} 页没进这次调用（字符预算 ${budget}）—— **另跑一次**，用 \`fromOrder: ${stoppedAt + 1}\` 接着审。别把没审的页当成"审过了"。`
+          : '',
         notRendered.length > 0 ? `★ ${notRendered.length} 页没能渲染（第 ${notRendered.map((page) => page.order).join(', ')} 页）—— 那几页读的是源码，结论要按提示词里的注明降级` : '',
         empty.length > 0 ? `★ ${empty.length} 页一个字都没有（第 ${empty.map((page) => page.order).join(', ')} 页）` : '',
       ]
@@ -241,6 +261,9 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
           emptyPages: empty.map((page) => page.order),
           /** 全量出口：逐页的取文方式，正文只给样本时用得上。 */
           pageModes: pages.map((page) => ({ order: page.order, mode: page.mode, chars: page.text.length })),
+          charsUsed: used,
+          charsBudget: budget,
+          remainingPages: remaining,
         },
       };
     },

@@ -69,6 +69,49 @@ describe('review_course 的隔离性', () => {
   });
 });
 
+/**
+ * ★ 一次审查必须封顶（2026-10-08 实测逼出来的）。
+ *
+ * Day02 的 62 页渲染后有 **678,579 字符** —— 页数封顶（60）拦不住它，一次调用会到
+ * 40 万+ token。所以按**字符预算**在页序上停，并**说清停在哪、剩下多少、怎么接着审**
+ * —— 不截断页面内容（截断会让审查者对着半页说"没讲"，那是新的假阳性）。
+ */
+describe('★ 字符预算：一次审查不许把整门课塞进去', () => {
+  it('★ 超预算就停在预算处，并告诉调用方用 fromOrder 接着审', async () => {
+    const big = (order: number): VisibleTextPage => SLIDE(order, '字'.repeat(900));
+    const { built, aiCall } = tool({
+      scenes: [big(1), big(2), big(3)],
+      reply: '第 2 页用了前面没讲的东西。',
+    });
+    const result = (await built.execute('call-1', { stageId: 'stage-x' })) as {
+      details: { charsBudget: number; charsUsed: number; remainingPages: number; pageCount: number };
+      content: { text: string }[];
+    };
+    // 默认预算 120k，而这里每页只有 900 字 —— 先确认没被误伤（三页全进）
+    expect(result.details.pageCount).toBeGreaterThan(0);
+    const [system] = aiCall.mock.calls[0]!;
+    expect(String(system)).toContain('第 1 页');
+  });
+
+  it('★ 预算调小 ⇒ 停在预算处、说清还剩几页、怎么接着审', async () => {
+    const big = (order: number): VisibleTextPage => SLIDE(order, '字'.repeat(400));
+    const aiCall = vi.fn(async () => '第 1 页的问题。');
+    const built = buildCourseReviewTool({
+      loadScenes: async () => [big(1), big(2), big(3)],
+      aiCall: aiCall as never,
+      maxChars: 500,
+    });
+    const result = (await built.execute('call-1', { stageId: 'stage-x' })) as {
+      details: { pageCount: number; remainingPages: number; charsUsed: number };
+      content: { text: string }[];
+    };
+    expect(result.details.pageCount).toBe(1);
+    expect(result.details.remainingPages).toBe(2);
+    expect(result.content[0]?.text).toContain('还有 2 页没进这次调用');
+    expect(result.content[0]?.text).toContain('fromOrder: 2');
+  });
+});
+
 describe('review_course 的诚实性', () => {
   it('渲染失败的页在提示词里带 [NOT RENDERED]，并警告结论要降级', async () => {
     const { built, aiCall } = tool({
