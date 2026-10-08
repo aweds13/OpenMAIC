@@ -28,7 +28,8 @@
 ## 0. 一句话现状
 
 这是 THU-MAIC **OpenMAIC** 的二开分支（`my-extensions`，基线 `57fbcc4`）。
-改动落在 `lib/` `app/` **`components/`** `tests/` `skills/`，外加 `next.config.ts`。
+改动落在 `lib/` `app/` **`components/`** `tests/` `skills/`，外加 `next.config.ts` 与
+`package.json` / `pnpm-lock.yaml`（`jsdom` 进了 `dependencies`，见 §2 的 `page-text.ts`）。
 **以 `git diff --name-only 57fbcc4..HEAD` 为准**（`components/` 里有 7 个文件 ——
 reading-page 那套与批量下载对话框；漏看它就会以为"改动只在服务端"）。
 唯一**一行没动**的是 `packages/@openmaic/**` —— 那是上游，当只读用
@@ -159,6 +160,8 @@ reading-page 那套与批量下载对话框；漏看它就会以为"改动只在
 | `lib/quiz/course-audit.ts` | 课程级**审计判据**（承接率 + 超载线 `NOVEL_P90=49`），纯函数。★ **超载线只对 `slide` 有效**（`pbl` p50=95、`interactive` p50=11 是别的量纲；项目页进 `scaffoldPages`，**不叫超载**） | 超载线是 146 个真实讲解页的 p90 标定的 |
 | `lib/quiz/plan-check.ts` | **计划期**依赖校验：超前引用 / 无归属 / 预算（三条只输出「补」和「挪」） | `conceptsPerPage` 默认关；见 结论库 |
 | `components/generation/self-study-button.tsx` | 首页那条链上的「自学」开关（经典路径，与工作台的 `study-mode.ts` 不同一条路） | 在工作台路径上搜不到 `selfStudy` |
+| `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页的正文只在 `<script>` 里**（第 17/28/36/38/42/44/52/57 页）；实测第 28 页 48,080 字符 html → **34,952 字**正文。★ 与 `extractTaughtText` **方向相反**（那个故意少收、偏误报），只能共用 `stripMarkup`，别合并 |
+| `lib/server/agent-runtime/review-tools.ts` | **`review_course`**：对抗性内容审查 —— **一次隔离的模型调用**（system 里只有页面文本 + 规矩），**没有会话历史 / 画像 / 工具**；结论必须带页码引用，否则 `isError` | 用户原话「审查 agent 要**完全没有任何基础**，不能想『噢原来是这个』」。判据 `tests/agent-runtime/review-tools.test.ts`（8 条 + 两变异） |
 | `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
 | `lib/playback/reading-navigation.ts` | **阅读页滚轮翻页的判据**（阈值 12 / 去抖 450ms / 两道闸：用户开关 + 页内还能滚） | 实现在 `二开说明.md` §八；`readingPage` 是**必填**布尔量，漏传只是静默还回播放键 |
 
