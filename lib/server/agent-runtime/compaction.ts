@@ -71,8 +71,12 @@
  * {@link estimateAgentContextTokens} prefers the usage the provider reported on
  * the last assistant message, so the number it compares against the budget is
  * the WHOLE request: transcript + system prompt + tool definitions, i.e. the
- * same `in=` the usage log records. Only when a provider reports no usage does
- * it degrade to estimating the messages alone.
+ * same `in=` the usage log records. It degrades to estimating the messages
+ * alone — which does NOT include that fixed overhead — in two cases: the
+ * provider reported no usage, or the newest compaction is newer than that
+ * message (see {@link usageAnchorIsStale}; after a compaction the anchor
+ * describes a request that has already been replaced, so trusting it makes the
+ * budget unmeasurable in both directions).
  *
  * The consequence is a trap worth stating plainly: a budget BELOW the fixed
  * overhead (the system prompt plus tools, ~23k tokens here) fires on every turn
@@ -91,6 +95,7 @@ import {
   shouldCompact,
   type AgentMessage,
   type CompactionSettings,
+  type CompactionSummaryMessage,
   type Session,
   type StreamFn,
 } from '@earendil-works/pi-agent-core';
@@ -98,6 +103,7 @@ import {
   registerApiProvider,
   unregisterApiProviders,
   type Api,
+  type AssistantMessage,
   type AssistantMessageEventStream,
   type Context,
   type Model,
@@ -190,19 +196,93 @@ export function resolveCompactionSettings(
 }
 
 /**
+ * Is this message a usage anchor as pi's estimator counts them?
+ *
+ * Mirrors `getAssistantUsage` in `@earendil-works/pi-agent-core`: a successful
+ * assistant message (not aborted, not errored) that carries a usage block.
+ */
+function isUsageAnchor(message: AgentMessage): boolean {
+  if (message.role !== 'assistant') return false;
+  const assistant = message as AssistantMessage;
+  if (assistant.stopReason === 'aborted' || assistant.stopReason === 'error') return false;
+  return Boolean(assistant.usage);
+}
+
+/**
+ * Whether the newest compaction is NEWER than the usage anchor — i.e. whether
+ * the anchor describes a request that no longer exists.
+ *
+ * ## Why this check has to exist
+ *
+ * pi's `estimateContextTokens` reads the LAST assistant usage block and adds
+ * whatever follows it. That is exact while the transcript is untouched, and it
+ * is silently wrong the moment a compaction lands: compaction only replaces the
+ * history BEFORE the anchor, so the anchor stays in the kept tail and brings
+ * its own usage number with it — the size of the request that produced it, i.e.
+ * the size BEFORE the compaction. The "before" and the "after" measurement then
+ * resolve to that same number, and the reported pair is `N -> N` forever.
+ *
+ * Measured on this deployment (session `54e10af4`, 2026-10-08): the forced
+ * `/compact` at seq 9784 reported `351463 -> 351463` and the next line read
+ * `353121 -> 353121`, while the next run's real request — the provider's own
+ * usage block at seq 9971 — was **57,142** tokens. So the display could never
+ * show a saving, and worse, `shouldCompact` was fed the same stale number: the
+ * automatic gear fired again on the first run after EVERY compaction (13 of the
+ * 24 automatic compactions in this database belonged to a run that was already
+ * under half the threshold). Verified against the recorded events: every trace
+ * number equals the `totalTokens` of the last assistant message before it.
+ *
+ * ## How it is detected, and why off the messages
+ *
+ * `buildSessionContext` puts the surviving compaction's summary FIRST in the
+ * list it returns, dated with that compaction entry's timestamp, while the
+ * anchor carries the timestamp of the request that produced it. The anchor is
+ * therefore stale exactly when it is not younger than that summary. Reading the
+ * verdict off the same message list the estimate is computed from — rather than
+ * off the entry tree — keeps the two from coming from different reads, which is
+ * precisely the "hand-written mirror" failure this repository keeps hitting.
+ *
+ * An anchor we cannot date counts as stale: doubting a fresh anchor costs a
+ * bounded under-count (the per-message estimator omits the system prompt and
+ * the tool definitions), whereas trusting a stale one costs the 6x over-count
+ * measured above.
+ */
+export function usageAnchorIsStale(messages: readonly AgentMessage[]): boolean {
+  const summary = messages.find((message) => message.role === 'compactionSummary');
+  if (!summary) return false;
+  const compactedAt = (summary as CompactionSummaryMessage).timestamp;
+  if (!Number.isFinite(compactedAt)) return true;
+  const anchor = [...messages].reverse().find(isUsageAnchor);
+  if (!anchor) return false;
+  const anchoredAt = (anchor as AssistantMessage).timestamp;
+  if (!Number.isFinite(anchoredAt)) return true;
+  return anchoredAt <= compactedAt;
+}
+
+/**
  * Context tokens for a message list.
  *
- * Providers that omit streamed usage produce a successful assistant message
- * with an all-zero usage block. Pi treats any such block as an authoritative
- * anchor and would then ignore every message before it, which makes a long
- * session look tiny. Fall back to the per-message estimator when that happens.
+ * Two ways the provider-usage anchor is unusable, both degrading to the
+ * per-message estimator:
+ *
+ *  - providers that omit streamed usage produce a successful assistant message
+ *    with an all-zero usage block. Pi treats any such block as authoritative
+ *    and would then ignore every message before it, which makes a long session
+ *    look tiny and the threshold unreachable;
+ *  - the newest compaction is newer than the anchor, so the anchor reports the
+ *    size of a request that has already been replaced — see
+ *    {@link usageAnchorIsStale}, and pass `trustUsageAnchor: false` there.
  */
-export function estimateAgentContextTokens(messages: AgentMessage[]): number {
+export function estimateAgentContextTokens(
+  messages: AgentMessage[],
+  options?: { trustUsageAnchor?: boolean },
+): number {
   const estimate = estimateContextTokens(messages);
-  if (estimate.lastUsageIndex !== null && estimate.usageTokens <= 0) {
-    return messages.reduce((total, message) => total + estimateTokens(message), 0);
-  }
-  return estimate.tokens;
+  const anchorUsable =
+    options?.trustUsageAnchor !== false &&
+    !(estimate.lastUsageIndex !== null && estimate.usageTokens <= 0);
+  if (anchorUsable) return estimate.tokens;
+  return messages.reduce((total, message) => total + estimateTokens(message), 0);
 }
 
 /**
@@ -245,7 +325,9 @@ export async function maybeCompactAgentSession(opts: {
 
   try {
     const before = await opts.session.buildContext();
-    const tokensBefore = estimateAgentContextTokens(before.messages);
+    const tokensBefore = estimateAgentContextTokens(before.messages, {
+      trustUsageAnchor: !usageAnchorIsStale(before.messages),
+    });
     trace.checkCount += 1;
     if (!opts.force && !shouldCompact(tokensBefore, opts.contextBudget, settings)) return trace;
 
@@ -290,7 +372,12 @@ export async function maybeCompactAgentSession(opts: {
     );
 
     const after = await opts.session.buildContext();
-    const tokensAfter = estimateAgentContextTokens(after.messages);
+    // The entry just written is now the newest compaction, so the anchor is
+    // stale by construction here: this is the measurement that has to show the
+    // saving, and the one that previously could not.
+    const tokensAfter = estimateAgentContextTokens(after.messages, {
+      trustUsageAnchor: !usageAnchorIsStale(after.messages),
+    });
     trace.triggerCount += 1;
     trace.events.push({
       tokensBefore,
