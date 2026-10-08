@@ -151,6 +151,8 @@ export const LLM_STAGES = [
   'maic-agent',
   'maic-agent-driver',
   'conversation-title',
+  // 对抗性内容审查（`review_course`）：一次隔离的调用，上下文里只有页面文本 + 规矩。
+  'course-review',
 ] as const;
 
 export type LlmStage = (typeof LLM_STAGES)[number];

@@ -78,6 +78,8 @@ import {
 } from './plan-freeze-tools';
 import { planGateEnabled } from './plan-freeze';
 import { buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
+import { buildCourseReviewTool } from './review-tools';
+import { createGenerationAiCallFactory } from './generation-ai-call';
 import { buildScratchTool, scratchPromptBlock } from './scratch-tools';
 import {
   buildPracticeScaffoldTool,
@@ -1609,6 +1611,17 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         loadScenes: async (stageId) => (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
       }),
     ];
+    // 对抗性内容审查：**无条件注册**（只读 + 一次隔离的模型调用，不依赖任何外部能力）。
+    // 用户的原话是「审查 agent 必须完全没有基础」—— 所以它走的不是本次会话的流，
+    // 而是 `AICallFn(system, user)` 那一次独立调用：system 里只有页面文本 + 规矩，
+    // 没有会话历史、没有学习画像、没有工具。interactive 页会**真渲染**（见 page-text.ts），
+    // 渲染失败的那几页在提示词里标成 NOT RENDERED，结论按降级处理。
+    const reviewTools = [
+      buildCourseReviewTool({
+        loadScenes: async (stageId) => (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
+        aiCall: createGenerationAiCallFactory()('course-review'),
+      }),
+    ];
     // 草稿纸：**无条件注册**。它是 agent 自己的工作记忆（本地文件），不依赖任何外部能力。
     // 没有它，lib/scratch/scratchpad.ts 就只是死代码（实测过：生产代码零引用）。
     // materialsEnabled 必须跟着**注册**走，否则没配材料库的部署里 scratch 会让 agent
@@ -1622,6 +1635,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     const tools = assembleRunnerTools(
       [askUserTool],
       auditTools,
+      reviewTools,
       scratchTools,
       practiceTools,
       planFreezeTools,
