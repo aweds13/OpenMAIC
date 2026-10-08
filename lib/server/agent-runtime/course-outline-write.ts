@@ -74,13 +74,35 @@ export interface UpsertOutlineEntryResult {
 export function upsertOutlineEntry(
   outline: AppDocumentOutline | undefined,
   entry: SceneOutline,
+  options: {
+    /**
+     * 认身份用哪个键。默认 `'id'`（`generate_scene` 的 id 是真身份）。
+     * 传 `'order'` = **只认页号**（`plan_freeze` / `backfill`，它们的 id 从 order 推出来）。
+     */
+    matchBy?: 'id' | 'order';
+  } = {},
 ): UpsertOutlineEntryResult {
   if (!outline) return { outline: undefined, changed: false };
 
   const entries = outline.outlines ?? [];
   const byId = entries.findIndex((item) => item.id === entry.id);
-  const byOrder = byId < 0 ? entries.findIndex((item) => item.order === entry.order) : -1;
-  const index = byId >= 0 ? byId : byOrder;
+  const byOrder = entries.findIndex((item) => item.order === entry.order);
+  /**
+   * ★ **按哪个键认身份，由调用方决定**（2026-10-07 修，实测"每次写入都在搬家"）。
+   *
+   * 两个调用方的 id 语义**完全不同**：
+   * · `generate_scene` 的 `id` 是**真身份**（生成流程给的稳定 outlineId）
+   *   ⇒ 按 id 匹配是**对的**（默认）；
+   * · `plan_freeze` / `backfill` 的 `id` 是**从 order 推出来的**（`p${order}`）——
+   *   而页号被平移过 ⇒ **id 与 order 脱钩**，按 id 匹配就成了**偷别的页的条目**：
+   *   实测给 order 21 写 `id: p21`，而那条 `p21` 正坐在 order 28 上 ⇒ 被搬到 21
+   *   ⇒ **order 28 空掉**。`backfill` 自称"补了 9 条、原有 50 条一个字没动"，
+   *   实际 **50 → 53**：进来 9 条、**被偷走 6 条**（21,26,29,31,37,41）。
+   *
+   *   ⇒ 这两个调用方传 `{ matchBy: 'order' }`：**只认页号**，id 不再参与判定。
+   *     存量那些错位的 id 因此**无害**（不用做数据迁移）。
+   */
+  const index = options.matchBy === 'order' ? byOrder : byId >= 0 ? byId : byOrder;
 
   /**
    * ★ 提前返回也要**先确认那个 order 上只有一份**（2026-10-07 修）。

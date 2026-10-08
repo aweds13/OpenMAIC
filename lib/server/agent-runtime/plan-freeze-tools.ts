@@ -256,7 +256,7 @@ export function buildPlanFreezeTool(
             title: entry.title,
             type: entry.type ?? 'slide',
             ...(entry.brief ? { description: entry.brief } : {}),
-          } as SceneOutline);
+          } as SceneOutline, { matchBy: 'order' });
           if (result.outline) next = result.outline;
         }
         const saved = await deps.saveOutline(params.stageId, next);
@@ -294,7 +294,7 @@ export function buildPlanFreezeTool(
             title: page.title,
             type: page.type,
             description: 'backfilled from the existing page (the original brief was never recorded)',
-          } as SceneOutline);
+          } as SceneOutline, { matchBy: 'order' });
           if (result.outline) next = result.outline;
         }
         const saved = await deps.saveOutline(params.stageId, next);
@@ -371,7 +371,7 @@ export function buildPlanFreezeTool(
             title: entry.title,
             type: entry.type ?? 'slide',
             ...(entry.brief ? { description: entry.brief } : {}),
-          } as SceneOutline);
+          } as SceneOutline, { matchBy: 'order' });
           if (written.outline) working = written.outline;
         }
         next = working;
