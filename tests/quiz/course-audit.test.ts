@@ -84,3 +84,92 @@ describe('★ 超载线只对 slide 有效', () => {
     expect(text).toContain('slide 页');
   });
 });
+
+/**
+ * ★ 机械层：**结构空页** 与 **页码引用**（2026-10-08 新增）。
+ *
+ * 由来：Day02 第 19 页《嵌套循环：双层 for 怎么跑》的 `canvas.elements` 是 **0 个**，
+ * 而第 18 页正文写着「双层 for 见第 19 页」—— 学习者照指引翻过去，什么都没有。
+ * 这是"找不到答案"最硬的一种，而且**不需要模型**就能下结论。
+ *
+ * ★ 两条判据的边界都是量出来的，不是拍的：
+ * · 空页**按类型判结构，不按字数** —— 实测 20 个 interactive 页里有 8 页的正文只在
+ *   `<script>` 里，静态看就是 0 字，按字数判会一次误报 8 页；
+ * · 页码引用**只认「第 N 页」「（p N）」「见 pN」** —— 我第一版正则 `p(\d+)` 把
+ *   `p1 = new Person()`、`p2.sayHi()` 里的 `p1`/`p2` 全当成页码，一次报出 14 条假引用。
+ */
+describe('★ 机械层：结构空页与页码引用', () => {
+  const slideWith = (order: number, body: string): AuditedPage => ({
+    stageId: 's',
+    sceneId: `scene-${order}`,
+    order,
+    title: `第 ${order} 页`,
+    type: 'slide',
+    content: { type: 'slide', canvas: { elements: [{ type: 'text', content: body }] } },
+  });
+  const emptySlide = (order: number): AuditedPage => ({
+    stageId: 's',
+    sceneId: `scene-${order}`,
+    order,
+    title: '嵌套循环：双层 for 怎么跑',
+    type: 'slide',
+    content: { type: 'slide', canvas: { elements: [] } },
+  });
+
+  it('★ 0 个元素的 slide ⇒ emptyPages（这就是 2026-10-08 实测的第 19 页）', () => {
+    const audit = auditCourse([slideWith(1, '有正文'), emptySlide(2)]);
+    expect(audit.emptyPages.map((page) => page.order)).toEqual([2]);
+    expect(formatCourseAudit(audit)).toContain('1 页是空的');
+  });
+
+  it('★ 对照：正文只在 <script> 里的 interactive 页**不算**空页（别按字数判）', () => {
+    // 静态看它是 0 字（正文由 init() 建出来），但结构上它有 html。
+    const interactive: AuditedPage = {
+      stageId: 's',
+      sceneId: 'scene-2',
+      order: 2,
+      title: '动手：写正负判断',
+      type: 'interactive',
+      content: { type: 'interactive', html: '<!DOCTYPE html><html><body><div id="r"></div><script>init()</script></body></html>' },
+    };
+    const audit = auditCourse([slideWith(1, '有正文'), interactive]);
+    expect(audit.emptyPages).toEqual([]);
+  });
+
+  it('★ 引用指向空页 ⇒ danglingReferences（problem = empty）', () => {
+    const audit = auditCourse([slideWith(1, '双层 for 见第 2 页'), emptySlide(2)]);
+    expect(audit.danglingReferences).toHaveLength(1);
+    expect(audit.danglingReferences[0]).toMatchObject({ fromOrder: 1, targetOrder: 2, problem: 'empty' });
+    expect(formatCourseAudit(audit)).toContain('指向不存在或空的页');
+  });
+
+  it('★ 引用越界 ⇒ problem = missing', () => {
+    const audit = auditCourse([slideWith(1, '回看第 99 页的 else if 链')]);
+    expect(audit.danglingReferences[0]).toMatchObject({ targetOrder: 99, problem: 'missing' });
+  });
+
+  it('★ 不把 p1 / p2 这种变量名当页码（第一版正则一次误报 14 条）', () => {
+    const audit = auditCourse([
+      slideWith(1, 'Person p1 = new Person(); p1.sayHi(); p2.name = "张三";'),
+      slideWith(2, '正常一页'),
+    ]);
+    expect(audit.pageReferences).toEqual([]);
+  });
+
+  it('★ 三类写法都认：第 N 页 / （p N） / 见 pN', () => {
+    const audit = auditCourse([
+      slideWith(1, '第 2 页讲了 / （p3）也讲了 / 见 p3'),
+      slideWith(2, 'x'),
+      slideWith(3, 'y'),
+    ]);
+    expect(audit.pageReferences.map((reference) => reference.targetOrder)).toEqual([2, 3, 3]);
+    expect(audit.danglingReferences).toEqual([]);
+  });
+
+  it('★ 引用总清单与"可判定的错"分开报 —— 前者不做内容判定', () => {
+    const audit = auditCourse([slideWith(1, '见第 2 页'), slideWith(2, '内容不对也可能，但这一层不管')]);
+    expect(audit.pageReferences).toHaveLength(1);
+    expect(audit.danglingReferences).toEqual([]);
+    expect(formatCourseAudit(audit)).toContain('处写死的页码引用');
+  });
+});

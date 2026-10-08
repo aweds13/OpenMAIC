@@ -78,7 +78,7 @@ import {
 } from './plan-freeze-tools';
 import { planGateEnabled } from './plan-freeze';
 import { buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
-import { buildCourseReviewTool } from './review-tools';
+import { buildCourseReviewTool, courseReviewPromptBlock } from './review-tools';
 import { createGenerationAiCallFactory } from './generation-ai-call';
 import { buildScratchTool, scratchPromptBlock } from './scratch-tools';
 import {
@@ -1716,6 +1716,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         planFreeze: planGateEnabled() ? planFreezePromptBlock() : undefined,
         // 无参、恒定；读数走工具结果。
         courseAudit: courseAuditPromptBlock(),
+        review: courseReviewPromptBlock(),
         // 无参、恒定；条目与状态走工具结果（§1.2）。
         scratch: scratchPromptBlock(Boolean(materialsIndex)),
         practice: practicePromptBlock(),

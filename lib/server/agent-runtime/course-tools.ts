@@ -336,6 +336,13 @@ export interface CoursePromptBlocks {
    */
   mcp?: string;
   /**
+   * Always present on the runner path: when to run the adversarial content review
+   * (`review_course`) — whether a course actually explains what it uses. Sits next to
+   * `courseAudit` because both are read-only lenses on a course you already made.
+   * See `courseReviewPromptBlock()` in review-tools.ts.
+   */
+  review?: string;
+  /**
    * The materials library index (OPENMAIC_MATERIALS_DIR/INDEX.md) plus the
    * topics found on disk. Present only when that folder is configured AND
    * readable — an unreadable library is omitted rather than injected empty.
@@ -420,6 +427,8 @@ export const PROMPT_BLOCK_ORDER = [
   'courseDesign',
   // 修**已有**课程：紧接着"怎么写页"，因为它讲的是"改哪一页"
   'courseAudit',
+  // 同一族的第二个镜头：审计算结构，审查算"读不读得懂"
+  'review',
   'practice',
   'curriculum',
   'search',

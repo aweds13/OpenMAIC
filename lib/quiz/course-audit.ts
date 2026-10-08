@@ -43,6 +43,7 @@
  *   修法是"补 / 挪 / 拆 / 改写"。
  */
 import { contentChunks, extractTaughtText } from '@/lib/quiz/coverage-gap';
+import { staticPageText } from '@/lib/quiz/page-text';
 
 /**
  * 讲解页一次引入新块的告警线 —— 146 个真实讲解页的 **p90**。
@@ -79,6 +80,81 @@ export interface PageLinkage {
   carryRatio: number;
 }
 
+/**
+ * 正文里**写死的页码引用** —— 每一条都报出来，但**不做内容判定**。
+ *
+ * ★ 为什么不判"内容对不对"：试过。用「目标页里有没有引用附近的实词」当判据，
+ *   36 条引用里报出 9 条候选，逐条核对后**误报率 80%**（例：第 15 页写「位运算见第 15 页」，
+ *   目标页就是位运算，判据却因为窗口取错而报错）。所以这一层只做**两条可判定的**：
+ *   目标页不存在，或者目标页是**结构空页**。其余交给带引用的审查 agent。
+ */
+export interface PageReference {
+  /** 出处页 order。 */
+  fromOrder: number;
+  fromTitle: string;
+  /** 它写的是第几页。 */
+  targetOrder: number;
+  /** 引用附近的原文，给人和模型核对用。 */
+  context: string;
+  /** 只在 `danglingReferences` 里有值。 */
+  problem?: 'missing' | 'empty';
+  /** 一句话说明为什么算错。 */
+  problemText?: string;
+}
+
+/**
+ * 一页在**结构上**是不是空的 —— ★ **按类型判，不按字数**。
+ *
+ * 2026-10-08 实测：Day02 第 19 页《嵌套循环：双层 for 怎么跑》的 `canvas.elements` 是
+ * **0 个**，而第 18 页正文写着「双层 for 见第 19 页」—— 学习者照指引翻过去，什么都没有。
+ * 这是"找不到答案"最硬的一种。按字数判会误报（渲染型页面静态看就是 0 字，实测 20 个
+ * interactive 页里有 8 页的正文只在 `<script>` 里），所以这里只看结构。
+ */
+export function isStructurallyEmpty(page: AuditedPage): boolean {
+  const content = page.content as Record<string, unknown> | undefined;
+  if (!content || typeof content !== 'object') return true;
+  switch (page.type) {
+    case 'slide': {
+      const canvas = content.canvas as { elements?: unknown[] } | undefined;
+      return (canvas?.elements ?? []).length === 0;
+    }
+    case 'interactive':
+      return !content.html && !content.widgetConfig;
+    case 'quiz':
+      return ((content.questions as unknown[] | undefined) ?? []).length === 0;
+    case 'pbl':
+      return !content.projectV2;
+    default:
+      return false;
+  }
+}
+
+/** 只认「第 N 页」「（p N）」「见 pN」—— **不认 `p1`/`p2` 这种变量名**。 */
+const PAGE_REFERENCE = /第\s*(\d+)\s*页|（\s*p\s*(\d+)\s*）|\(\s*p\s*(\d+)\s*\)|见\s*p\s*(\d+)/g;
+
+/** 从一页的静态正文里抽出全部页码引用（interactive 的渲染内容看不到，见 AGENTS.md §2）。 */
+export function pageReferencesOf(page: AuditedPage): PageReference[] {
+  if (page.type === 'interactive') return [];
+  const text = staticPageText({
+    order: page.order,
+    type: page.type,
+    title: page.title,
+    content: page.content,
+  });
+  const out: PageReference[] = [];
+  for (const match of text.matchAll(PAGE_REFERENCE)) {
+    const target = Number(match[1] ?? match[2] ?? match[3] ?? match[4]);
+    if (!Number.isFinite(target) || target <= 0) continue;
+    out.push({
+      fromOrder: page.order,
+      fromTitle: page.title,
+      targetOrder: target,
+      context: text.slice(Math.max(0, (match.index ?? 0) - 30), (match.index ?? 0) + match[0].length + 16).trim(),
+    });
+  }
+  return out;
+}
+
 export interface CourseAudit {
   pages: PageLinkage[];
   /** 承接率为 0 的讲解页（独立小作文）。**第一页不算** —— 它前面本来就没东西。 */
@@ -105,6 +181,16 @@ export interface CourseAudit {
   averageCarryRatio: number;
   /** **slide 页** novel 的中位数 —— 跟阈值一起看才知道这门课整体紧不紧。 */
   medianNovel: number;
+  /**
+   * **结构上空的页**（按类型判，见 `isStructurallyEmpty`）。
+   *
+   * 这一类**不需要模型就能下结论**：它没有内容，不是"讲得浅"。修法只有「补」。
+   */
+  emptyPages: AuditedPage[];
+  /** 正文里**全部**写死的页码引用（不判内容，只列出来）。 */
+  pageReferences: PageReference[];
+  /** 其中**可判定的错**：目标页不存在，或目标页是结构空页。 */
+  danglingReferences: PageReference[];
 }
 
 function median(values: number[]): number {
@@ -185,6 +271,24 @@ export function auditCourse(
       ? 0
       : graded.reduce((sum, page) => sum + page.carryRatio, 0) / graded.length;
 
+  // 结构空页与页码引用：两条都不花模型，也不需要阈值。
+  const byOrder = new Map(pages.map((page) => [page.order, page]));
+  const emptyPages = pages.filter(isStructurallyEmpty);
+  const pageReferences = pages.flatMap((page) => pageReferencesOf(page));
+  const danglingReferences = pageReferences.flatMap<PageReference>((reference) => {
+    if (!byOrder.has(reference.targetOrder)) {
+      return [
+        { ...reference, problem: 'missing' as const, problemText: `第 ${reference.targetOrder} 页不存在（这门课只有 ${pages.length} 页）` },
+      ];
+    }
+    if (isStructurallyEmpty(byOrder.get(reference.targetOrder)!)) {
+      return [
+        { ...reference, problem: 'empty' as const, problemText: `第 ${reference.targetOrder} 页是空的（没有任何内容）` },
+      ];
+    }
+    return [];
+  });
+
   return {
     pages: linkages,
     unattachedPages,
@@ -192,6 +296,9 @@ export function auditCourse(
     scaffoldPages,
     averageCarryRatio,
     medianNovel: median(graded.map((page) => page.novel)),
+    emptyPages,
+    pageReferences,
+    danglingReferences,
   };
 }
 
@@ -234,6 +341,43 @@ export function formatCourseAudit(
           .join('、') +
         ' —— 这些页的"新块"大半是**任务说明与脚手架**（角色 / 学习目标 / 微任务 / 逐条提示），' +
         '不是新教的知识。**它们不是超载，别照着这个数字拆。**）',
+    );
+  }
+
+  // ★ 结构空页与"引用指向空页"：**不需要模型就能下结论**，所以排在超载之前 ——
+  //   它们不是"讲得浅"，是"这一页没有内容"。
+  if (audit.emptyPages.length) {
+    lines.push(
+      `· ★ **${audit.emptyPages.length} 页是空的**（没有任何内容，不是"讲得浅"）：` +
+        audit.emptyPages
+          .slice(0, maxItems)
+          .map((page) => `第 ${page.order} 页《${page.title}》`)
+          .join('、') +
+        (audit.emptyPages.length > maxItems ? ' …' : ''),
+    );
+  }
+
+  if (audit.danglingReferences.length) {
+    lines.push(
+      `· ★ **${audit.danglingReferences.length} 处页码引用指向不存在或空的页**：` +
+        audit.danglingReferences
+          .slice(0, maxItems)
+          .map((reference) => `第 ${reference.fromOrder} 页 → 第 ${reference.targetOrder} 页（${reference.problemText}）`)
+          .join('、') +
+        (audit.danglingReferences.length > maxItems ? ' …' : ''),
+    );
+  }
+
+  // 全部引用都列出来（一行一条，供逐条核对）—— **这一项不做内容判定**，见 PageReference 的注释。
+  if (audit.pageReferences.length) {
+    lines.push(
+      `· 正文里有 **${audit.pageReferences.length} 处写死的页码引用**（插页/拆页会让它们失效；` +
+        `这里只列出来，内容对不对要逐条看）：` +
+        audit.pageReferences
+          .slice(0, maxItems)
+          .map((reference) => `第 ${reference.fromOrder} 页 → 第 ${reference.targetOrder} 页`)
+          .join('、') +
+        (audit.pageReferences.length > maxItems ? ' …' : ''),
     );
   }
 

@@ -107,6 +107,32 @@ function formatPages(pages: readonly { order: number; title: string; type: strin
     .join('\n\n');
 }
 
+/**
+ * 系统提示词里的那一句 —— **无参、恒定**（§1.2 前缀缓存）。
+ *
+ * 它只说"什么时候用它"，不塞任何会变的东西（那门课的读数走工具结果）。
+ * 与 `courseAuditPromptBlock` 的分工：审计量的是**结构**（承接率 / 超载），
+ * 这一条量的是**能不能读懂** —— 两条都不改页，修法都只允许「补 / 挪 / 拆 / 改写」。
+ */
+export function courseReviewPromptBlock(): string {
+  return [
+    '## Does this course actually explain it?',
+    '',
+    'After `course_audit`, run `review_course { stageId }` when the learner asks whether a course',
+    'really explains things — or before you call a course finished. It reads the pages as a',
+    'beginner with NO prior knowledge and reports what cannot be derived from the earlier pages.',
+    '',
+    '- It is **read-only** and spends **one separate model call** whose context holds nothing but',
+    '  the page text and the rules — no conversation, no profile. That isolation is the point: an',
+    '  agent that just wrote the page will always think "I explained that".',
+    '- Interactive pages are **rendered**; the few that cannot be rendered are marked',
+    '  `[NOT RENDERED]`, and for those the report may only say "not found in the source".',
+    '- Treat its findings as **evidence to act on**, never as a list to trim: the repairs are',
+    '  add / move / split / rewrite. Never delete a concept to make a finding go away.',
+    '- A finding without a page number is not a finding — the tool refuses to return one.',
+  ].join(String.fromCharCode(10));
+}
+
 export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof REVIEW_PARAMS, unknown> {
   return {
     name: 'review_course',
