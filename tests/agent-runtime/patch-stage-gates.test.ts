@@ -106,12 +106,19 @@ function harness(initial: CourseDocument) {
   return { store: { loadDocument, putScene } as unknown as CourseStore, get: () => doc };
 }
 
-function patchTool(store: CourseStore, reviewedStages?: Set<string>) {
+function patchTool(
+  store: CourseStore,
+  reviewedStages?: Set<string>,
+  readReviewReceipt?: (stageId: string) => Promise<unknown | null>,
+) {
   const tools = buildDslCourseTools({
     store,
     stageAccess: async () => OWNED,
     onCheckpoint: () => undefined,
     ...(reviewedStages ? { reviewedStages } : {}),
+    // ★ 必须显式注入：不注入时闸会去真读 `OPENMAIC_PLAN_FREEZE_DIR` 下的凭据，
+    //   而那是**跨用例共享的磁盘状态** —— 一条用例写的凭据会让后一条用例静默放行。
+    readReviewReceipt: readReviewReceipt ?? (async () => null),
   });
   const found = tools.find((item) => item.name === 'patch_stage');
   if (!found) throw new Error('patch_stage missing');
@@ -399,5 +406,43 @@ describe('★ patch_stage：审查闸（B 方案）', () => {
       reviewAcknowledged: true,
     });
     expect(response.isError).toBeFalsy();
+  });
+});
+
+/**
+ * ★ 审查凭据**落盘**（2026-10-08：用户定了「收尾时审一次」）。
+ *
+ * 既然审查发生在**课程收尾**，那"以后再来修这门课"就是**另一次运行** ——
+ * 凭据只在 run 内有效的话，每次修老课都会被迫重审整门课（一次长上下文调用）。
+ * 所以盘上的凭据必须被认。
+ */
+describe('★ patch_stage：审查凭据落盘（跨 run）', () => {
+  const eightPages = (): Scene[] =>
+    Array.from({ length: 8 }, (_, index) => slide(index + 1, '短内容'));
+
+  it('★ 盘上有凭据 ⇒ 放行（这次运行没审过也算）', async () => {
+    delete process.env.OPENMAIC_PLAN_GATE;
+    const current = harness(documentOf(eightPages(), false));
+    const receipt = { stageId: 'stage-test', reviewedAt: '2026-10-08T00:00:00.000Z', pageCount: 8, reportChars: 900 };
+    const response = await patchTool(current.store, undefined, async () => receipt).execute('c', {
+      stageId: 'stage-test',
+      target: '/scenes/2',
+      intent: '收尾时审过了，这次只改一页',
+      ops: setOp('el-1', '改过的内容'),
+    });
+    expect(response.isError).toBeFalsy();
+    expect(response.details?.blocked).toBeUndefined();
+  });
+
+  it('★ 盘上**没有**凭据 ⇒ 照旧拒（别把闸放成空的）', async () => {
+    delete process.env.OPENMAIC_PLAN_GATE;
+    const current = harness(documentOf(eightPages(), false));
+    const response = await patchTool(current.store, undefined, async () => null).execute('c', {
+      stageId: 'stage-test',
+      target: '/scenes/2',
+      intent: '改一下',
+      ops: setOp('el-1', '改过的内容'),
+    });
+    expect(response.details?.blocked).toBe('course-not-reviewed');
   });
 });

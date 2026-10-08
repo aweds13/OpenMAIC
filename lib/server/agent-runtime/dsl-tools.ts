@@ -25,6 +25,7 @@ import { COURSE_STAGE_ID_DESCRIPTION } from './course-stage';
 import { planGate, planGateEnabled } from './plan-freeze';
 import { readPlanFreeze } from './plan-freeze-store';
 import { auditCourse, NOVEL_P90 } from '@/lib/quiz/course-audit';
+import { readReviewReceipt } from './plan-freeze-store';
 import type { SceneOutline } from '@/lib/types/generation';
 
 const READ_PAGE_CHARS = 12_000;
@@ -937,10 +938,17 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
       //     所以门槛设在「页数够多才值得审」。`REVIEW_WORTH_ORDER = 8` **不是标定出来的**，
       //     是一个下限：小于 8 页的课，审查的成本比收益大。**别把它当"这门课该有多少页"。**
       const REVIEW_WORTH_ORDER = 8;
+      // 凭据两处：run 内集合（这次审过）+ 盘上的小凭据（**收尾时审过** —— 用户定的口径是
+      // 收尾审一次，所以"以后再来修"必须认那份凭据，否则每次修老课都要重审整门课）。
+      const receiptOnDisk =
+        deps.readReviewReceipt !== undefined
+          ? (await deps.readReviewReceipt(loaded.stageId)) !== null
+          : (await readReviewReceipt(loaded.stageId)) !== null;
       if (
         params.reviewAcknowledged !== true &&
         loaded.doc.scenes.length >= REVIEW_WORTH_ORDER &&
-        !(deps.reviewedStages?.has(loaded.stageId) ?? false)
+        !(deps.reviewedStages?.has(loaded.stageId) ?? false) &&
+        !receiptOnDisk
       ) {
         return toolResult(
           `patch_stage 被拒绝：这门课有 ${loaded.doc.scenes.length} 页，而在**这一次运行里还没有被审过**。` +

@@ -104,6 +104,8 @@ export interface CourseToolDeps {
    * 那是下一步；在那之前，宁可闸得松一点，也不要造一个会静默失效的持久凭据。
    */
   reviewedStages?: Set<string>;
+  /** 测试缝：读盘上的审查凭据（默认读 `OPENMAIC_PLAN_FREEZE_DIR` 下的小文件）。 */
+  readReviewReceipt?: (stageId: string) => Promise<unknown | null>;
 }
 
 /**

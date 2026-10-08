@@ -40,6 +40,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { AICallFn } from '@openmaic/generation';
 
 import { learnerVisibleText, type VisibleTextPage } from '@/lib/quiz/page-text';
+import { writeReviewReceipt } from './plan-freeze-store';
 
 export interface CourseReviewDeps {
   /** 读一门课的页面（与 `course_audit` 同一个读取面）。 */
@@ -50,8 +51,10 @@ export interface CourseReviewDeps {
   render?: (html: string) => Promise<{ text: string; errors: string[] }>;
   /** 审查一次最多带多少页（防止把整门课塞进一次调用）。 */
   maxPages?: number;
-  /** 与 `patch_stage` 共享：审完把 stageId 记进去（B 方案那道闸的依据）。 */
+  /** 与 `patch_stage` 共享：审完把 stageId 记进去（B 方案那道闸的依据，run 内）。 */
   reviewedStages?: Set<string>;
+  /** 落盘凭据（跨 run）。测试可注入；默认写 `OPENMAIC_PLAN_FREEZE_DIR` 下的小文件。 */
+  writeReceipt?: (receipt: { stageId: string; reviewedAt: string; pageCount: number; reportChars: number }) => Promise<boolean>;
 }
 
 const REVIEW_PARAMS = Type.Object({
@@ -132,10 +135,16 @@ export function courseReviewPromptBlock(): string {
     '- Treat its findings as **evidence to act on**, never as a list to trim: the repairs are',
     '  add / move / split / rewrite. Never delete a concept to make a finding go away.',
     '- A finding without a page number is not a finding — the tool refuses to return one.',
-    '- ★ **When to run it while you are still building (A):** once per chapter, not once per page —',
-    '  pass `fromOrder`/`toOrder` for the chapter you just finished (roughly 8–15 pages). Running it',
-    '  on every page would spend a whole-course context per page. Before you tell the learner a',
-    '  course is finished, run it over whatever you have not reviewed yet.',
+    '- ★ **When to run it — the learner decided this (2026-10-08): ONCE, when the course wraps up.**',
+    '  Right before you tell them the course is done, or when they say it is finished. One pass over',
+    '  the whole course = one model call. Not per page (that would spend a whole-course context per',
+    '  page) and not per chapter. `fromOrder`/`toOrder` exist for the exceptions — e.g. reviewing only',
+    '  the part you added after an earlier review.',
+    '  ★ **Know what this choice costs:** the findings arrive LATE. A fix then often means inserting a',
+    '  page, and inserting a page renumbers every page-number reference after it — measured',
+    '  2026-10-08: three inserted pages broke 18 of the 48 references in that course. So when the',
+    '  review lands after the course is otherwise finished, prefer fixing by **rewriting** the page,',
+    '  or refer to pages by **title** instead of by number.',
     '- ★ **Repairing an existing course (B):** `patch_stage` refuses the FIRST write to a course of',
     '  eight pages or more until either `review_course` has run for it in this run, or the learner',
     '  said the review is not needed (`reviewAcknowledged: true`). That refusal is deliberate: an',
@@ -202,8 +211,17 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
         };
       }
 
-      // 审完了 ⇒ 登记，`patch_stage` 的审查闸据此放行（同一个 run 内）。
+      // 审完了 ⇒ 登记两处：run 内集合（快）+ 落盘凭据（跨 run，因为审查发生在**收尾**，
+      // 而"以后再来修"是另一次运行）。
       deps.reviewedStages?.add(params.stageId);
+      const receipt = {
+        stageId: params.stageId,
+        reviewedAt: new Date().toISOString(),
+        pageCount: pages.length,
+        reportChars: report.length,
+      };
+      const writeReceipt = deps.writeReceipt ?? writeReviewReceipt;
+      await writeReceipt(receipt).catch(() => false);
 
       const header = [
         `review_course: 已审 ${pages.length} 页（第 ${pages[0]?.order}–${pages[pages.length - 1]?.order} 页）`,

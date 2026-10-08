@@ -75,6 +75,57 @@ export async function writePlanFreeze(state: PlanFreezeState): Promise<boolean> 
  * 单独抽出来是因为 `generate_scene` 与（将来的）其它写入点都要它，
  * 而"计划条目"的真身在文档存储里、冻结状态在文件里 —— 两个来源拼一次就好。
  */
+/**
+ * 审查凭据 —— **与冻结状态同一个目录**，靠文件名后缀区分。
+ *
+ * 为什么要落盘（2026-10-08 用户定的口径：**收尾时审一次**）：
+ * 既然审查发生在**课程收尾**，那"以后再来修这门课"就是**另一次运行** ——
+ * 如果凭据只在一次运行内有效，每次修老课都会被迫再审一遍整门课（一次长上下文调用）。
+ * 所以审完写一份小凭据，`patch_stage` 的审查闸认它。
+ *
+ * 与冻结状态**同目录**是刻意的：那边已经解决过同一类问题（独立小文件、可打开看、
+ * 可随手删、`OPENMAIC_PLAN_FREEZE_DIR` 会覆盖、whoami 会回显目录），
+ * 再造一个目录等于再造一份要同步的清单。
+ */
+export const REVIEW_RECEIPT_SUFFIX = '.review.json';
+
+export interface ReviewReceipt {
+  stageId: string;
+  /** ISO 时间戳。 */
+  reviewedAt: string;
+  /** 审查时这门课有几页（页数变了不代表凭据失效，只是留个读数）。 */
+  pageCount: number;
+  reportChars: number;
+}
+
+function reviewReceiptFile(stageId: string): string {
+  return join(planFreezeDir(), `${stageId}${REVIEW_RECEIPT_SUFFIX}`);
+}
+
+/** 读凭据；没有或读不动都返回 null（**读不动不能让改页卡死**）。 */
+export async function readReviewReceipt(stageId: string): Promise<ReviewReceipt | null> {
+  try {
+    const raw = await readFile(reviewReceiptFile(stageId), 'utf8');
+    const parsed = JSON.parse(raw) as ReviewReceipt;
+    return typeof parsed?.reviewedAt === 'string' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 写凭据；写不进去返回 false（**审查的结论该给还是要给**）。 */
+export async function writeReviewReceipt(receipt: ReviewReceipt): Promise<boolean> {
+  try {
+    const file = reviewReceiptFile(receipt.stageId);
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(`${file}.tmp`, JSON.stringify(receipt, null, 2), 'utf8');
+    await rename(`${file}.tmp`, file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface PlanFreezeSnapshot {
   state: PlanFreezeState;
   entryCount: number;
