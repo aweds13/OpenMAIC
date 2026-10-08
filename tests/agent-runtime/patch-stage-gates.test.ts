@@ -364,6 +364,27 @@ describe('★ 校验报错按元素汇总（不再被截断埋掉关键那一行
   });
 });
 
+describe('★ 旧生成器写的表：单元格 fontsize 是数字也要收（2026-10-08）', () => {
+  it('★ fontsize: 14（数字）⇒ 整张表合格，页面改得动', () => {
+    const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
+      elements: unknown[];
+    } } }).content.canvas;
+    canvas.elements.push({
+      id: 'table-fontsize',
+      type: 'table',
+      left: 60,
+      top: 260,
+      width: 800,
+      height: 120,
+      rotate: 0,
+      outline: { color: '#e5e7eb', style: 'solid', width: 1 },
+      colWidths: [0.5, 0.5],
+      data: [[{ id: 'c1', colspan: 1, rowspan: 1, text: 'A', style: { fontsize: 14, bold: true } }]],
+    });
+    expect(validateSlideCanvas(canvas)).toEqual([]);
+  });
+});
+
 describe('★ 元素类型不在合同里时，报错要说出来（`code`/`video`/`audio` 就不在）', () => {
   it('★ 一个 type=code 的元素 ⇒ 明说「这个类型不在合同里」，而不是一堆 must be equal to constant', () => {
     // 合同里只有 7 类（text/image/shape/line/chart/table/latex），而上游 DSL 有 10 类。

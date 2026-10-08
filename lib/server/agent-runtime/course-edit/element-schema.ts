@@ -269,7 +269,11 @@ const TableCellStyle = Type.Object(
     strikethrough: optionalBoolean(),
     color: optionalString(),
     backcolor: optionalString(),
-    fontsize: optionalString(),
+    // ★ 数字也要收（2026-10-08 实测）：旧生成器把单元格字号写成 `fontsize: 14`（数字），
+    //   而这里只收字符串 ⇒ 第 43 页那张表的 12 个单元格全不合格 ⇒ **整页任何改动都被拒**
+    //   （校验的是改完之后的整份 scene）。同一页上它和 `cellMinHeight` 是同一个病：
+    //   schema 比现实窄，而代价是"这一页永远改不了"。
+    fontsize: Type.Optional(Type.Union([Type.String(), Type.Number()])),
     fontname: optionalString(),
     align: Type.Optional(TextAlign),
   },
