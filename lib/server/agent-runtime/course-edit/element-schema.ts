@@ -639,14 +639,30 @@ function persistedElementSchema(schema: TSchema): TSchema {
 }
 
 /** Complete persisted element JSON, including the server-owned id. */
+/**
+ * 每种元素**自己那一支**的持久化 schema —— 从它派生 union，同时也用它做**错误定位**：
+ * 一个元素没过 union 时，用**它自己那一支**重新校验，才拿得到"它到底缺什么"。
+ * 直接看 union 的错误会把**所有**分支的必需字段混成一行（实测过：
+ * `缺必需字段 content, defaultFontName, defaultColor, fixedRatio, src, viewBox, path, fill`）。
+ */
+const PERSISTED_ELEMENT_SCHEMAS = {
+  [ElementTypes.TEXT]: persistedElementSchema(TextElementInput),
+  [ElementTypes.IMAGE]: persistedElementSchema(ImageElementInput),
+  [ElementTypes.SHAPE]: persistedElementSchema(ShapeElementInput),
+  [ElementTypes.LINE]: persistedElementSchema(LineElementInput),
+  [ElementTypes.CHART]: persistedElementSchema(ChartElementInput),
+  [ElementTypes.TABLE]: persistedElementSchema(TableElementInput),
+  [ElementTypes.LATEX]: persistedElementSchema(LatexElementInput),
+} as const;
+
 const PersistedSlideElementSchema = Type.Union([
-  persistedElementSchema(TextElementInput),
-  persistedElementSchema(ImageElementInput),
-  persistedElementSchema(ShapeElementInput),
-  persistedElementSchema(LineElementInput),
-  persistedElementSchema(ChartElementInput),
-  persistedElementSchema(TableElementInput),
-  persistedElementSchema(LatexElementInput),
+  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.TEXT],
+  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.IMAGE],
+  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.SHAPE],
+  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.LINE],
+  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.CHART],
+  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.TABLE],
+  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.LATEX],
   persistedElementSchema(VideoElementInput),
   persistedElementSchema(AudioElementInput),
   persistedElementSchema(CodeElementInput),
@@ -757,10 +773,83 @@ export function validateElementInput(element: unknown): string[] {
   );
 }
 
+/**
+ * 把 canvas 的校验错误**按元素汇总**成几行能直接动手的话。
+ *
+ * ── 为什么必须这样（2026-10-08 实测）────────────────────────────
+ *
+ * 原来是**把原始错误平铺**：`Errors(...).map(e => \`canvas${e.instancePath}: ${e.message}\`)`。
+ * 一个可辨识联合里每个变体都会报一次，于是**一个元素就能刷出几十行**，而打印时**在 560 字符
+ * 处被截断** —— 真正有用的那一行（table 分支说"缺 cellMinHeight"）**正好被截掉**。
+ * 那次我是靠"翻出那一页的原始数据 + 三轮比对"才定位的，光看报错原文定不出来。
+ *
+ * 汇总后每个元素一行：
+ *   `canvas/elements/12（type=table）：缺必需字段 cellMinHeight`
+ * · `must be equal to constant` 一律丢掉 —— 那是"这个元素不是我这个类型"的噪声，
+ *   每个变体都会喊一次，与被改的那个元素无关；
+ * · 元素的实际 `type` 补进来（错误消息里不带它，而它是定位的关键）。
+ */
+function summarizeCanvasIssues(
+  canvas: unknown,
+  errors: readonly { instancePath?: string; message: string; params?: unknown }[],
+): string[] {
+  const elements = (canvas as { elements?: unknown[] } | null)?.elements;
+  const rootIssues = errors
+    .filter((error) => !/^\/elements\/\d+/.test(error.instancePath ?? ''))
+    .slice(0, 4)
+    .map((error) => `canvas${error.instancePath ?? ''}: ${error.message}`);
+  const indexes = new Set<number>();
+  for (const error of errors) {
+    const match = /^\/elements\/(\d+)/.exec(error.instancePath ?? '');
+    if (match) indexes.add(Number(match[1]));
+  }
+
+  const lines: string[] = [];
+  for (const index of [...indexes].sort((left, right) => left - right)) {
+    const element = Array.isArray(elements) ? (elements[index] as { type?: unknown } | undefined) : undefined;
+    const type = typeof element?.type === 'string' ? element.type : undefined;
+    const known = Object.keys(PERSISTED_ELEMENT_SCHEMAS);
+    const schema = type && type in PERSISTED_ELEMENT_SCHEMAS
+      ? PERSISTED_ELEMENT_SCHEMAS[type as keyof typeof PERSISTED_ELEMENT_SCHEMAS]
+      : undefined;
+    if (!schema) {
+      // ★ 另一类真故障：元素类型**根本不在合同里** —— 这时 union 里每一支都会抱怨，
+      //   报错原文只会说"must be equal to constant"，看不出是类型不认识。
+      lines.push(
+        `canvas/elements/${index}（type=${String(type)}）：**这个类型不在合同里**（合同只有 ${known.join(' / ')}）` +
+          ' —— 校验的是改完之后的整份 scene，所以这一页**任何**改动都会被拒。',
+      );
+      continue;
+    }
+    // ★ 用**这一支**重新校验：只有这样拿到的才是"它自己缺什么"。
+    const own = Errors(schema, element).filter((error) => error.message !== 'must be equal to constant');
+    const missing = new Set<string>();
+    const extras: string[] = [];
+    const nested: string[] = [];
+    for (const error of own) {
+      const required = /must have required propert(?:y|ies) (.+)$/.exec(error.message);
+      if (required) {
+        for (const field of required[1]!.split(',')) missing.add(field.trim());
+        continue;
+      }
+      if (error.message.includes('must not have additional properties')) {
+        const named = (error.params as { additionalProperties?: string } | undefined)?.additionalProperties;
+        extras.push(named ?? error.instancePath ?? '多余字段');
+        continue;
+      }
+      nested.push(`${error.instancePath ?? ''}: ${error.message}`);
+    }
+    const parts: string[] = [];
+    if (missing.size > 0) parts.push(`缺必需字段 ${[...missing].join(', ')}`);
+    if (extras.length > 0) parts.push(`多余字段 ${extras.slice(0, 3).join(', ')}`);
+    if (nested.length > 0) parts.push(nested.slice(0, 2).join('；'));
+    lines.push(`canvas/elements/${index}（type=${type}）：${parts.join('；') || '不符合合同'}`);
+  }
+  return [...rootIssues, ...lines].length > 0 ? [...rootIssues, ...lines] : ['canvas 校验失败'];
+}
+
 /** Validate the entire patched canvas, rejecting unknown fields at every level. */
 export function validateSlideCanvas(canvas: unknown): string[] {
   if (Check(SlideCanvasSchema, canvas)) return [];
-  return Errors(SlideCanvasSchema, canvas).map(
-    (error) => `canvas${error.instancePath || ''}: ${error.message}`,
-  );
+  return summarizeCanvasIssues(canvas, Errors(SlideCanvasSchema, canvas));
 }

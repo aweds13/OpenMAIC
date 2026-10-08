@@ -501,7 +501,10 @@ describe('patch_stage', () => {
       ops: [{ op: 'set', path: '/content/canvas/elements/0/defaultColour', value: '#f00' }],
     } as never);
     expect(unknown).toMatchObject({ isError: true });
-    expect(textOf(unknown)).toContain('additional properties');
+    // ★ 2026-10-08：这句原来断的是原始 Ajv 措辞 `additional properties`，而那**不点名字段**。
+    //   改成按元素汇总之后，消息直接说「多余字段 defaultColour」—— 信息更多，所以改断"字段名"。
+    //   （不是为了让红变绿：如果哪天它退回去只报措辞、不报字段名，这条会立刻红。）
+    expect(textOf(unknown)).toContain('多余字段 defaultColour');
 
     const placeholder =
       '<image bytes omitted: image/png, 5000 bytes; read-only placeholder; to replace it, write a new media src/URL at this path>';

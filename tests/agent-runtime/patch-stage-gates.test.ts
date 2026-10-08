@@ -5,6 +5,7 @@ import type { PPTTextElement } from '@openmaic/dsl';
 import type { Scene } from '@/lib/types/stage';
 import type { CourseDocument, CourseStore } from '@/lib/server/agent-runtime/course-tools';
 import { buildDslCourseTools } from '@/lib/server/agent-runtime/dsl-tools';
+import { validateSlideCanvas } from '@/lib/server/agent-runtime/course-edit/element-schema';
 import { auditCourse, NOVEL_P90 } from '@/lib/quiz/course-audit';
 
 /**
@@ -326,6 +327,57 @@ function sceneWithLegacyTable(): Scene {
   });
   return scene as unknown as Scene;
 }
+
+/**
+ * ★ 校验报错必须**能直接定位**（2026-10-08）。
+ *
+ * 原来是把原始错误平铺：一个元素的可辨识联合会刷出几十行，而打印时在 **560 字符处截断** ——
+ * 真正有用的那一行（table 分支说"缺 cellMinHeight"）正好被截掉。那次定位靠的是
+ * "翻出那一页的原始数据 + 三轮比对"，光看报错定不出来。所以：
+ * · 每个元素一行，带**元素实际的 type**（错误消息里本来没有它）；
+ * · `must be equal to constant` 是鉴别器噪声（每个变体都喊一次），一律丢掉。
+ */
+describe('★ 校验报错按元素汇总（不再被截断埋掉关键那一行）', () => {
+  it('★ 一张缺 data 的表 ⇒ 一行说清「type=table 缺必需字段 data」，且没有鉴别器噪声', () => {
+    const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
+      elements: unknown[];
+    } } }).content.canvas;
+    canvas.elements.push({
+      id: 'table-broken',
+      type: 'table',
+      left: 60,
+      top: 260,
+      width: 800,
+      height: 120,
+      rotate: 0,
+      outline: { color: '#e5e7eb', style: 'solid', width: 1 },
+      colWidths: [0.5, 0.5],
+      // ★ 故意缺 data（它是结构字段，必需）
+    });
+    const issues = validateSlideCanvas(canvas);
+    const joined = issues.join(' | ');
+    expect(joined).toContain('type=table');
+    expect(joined).toContain('data');
+    expect(joined).not.toContain('must be equal to constant');
+    // 汇总后应当很短：一个元素一行，不是几十行
+    expect(issues.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('★ 元素类型不在合同里时，报错要说出来（`code`/`video`/`audio` 就不在）', () => {
+  it('★ 一个 type=code 的元素 ⇒ 明说「这个类型不在合同里」，而不是一堆 must be equal to constant', () => {
+    // 合同里只有 7 类（text/image/shape/line/chart/table/latex），而上游 DSL 有 10 类。
+    // 含这 3 类的页，同样会因为"校验整份 scene"而**整页改不了** —— 这条判据把这件事钉住。
+    const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
+      elements: unknown[];
+    } } }).content.canvas;
+    canvas.elements.push({ id: 'code-1', type: 'code', left: 60, top: 260, width: 800, height: 100, rotate: 0, code: 'int n = -7;' });
+    const joined = validateSlideCanvas(canvas).join(' | ');
+    expect(joined).toContain('type=code');
+    expect(joined).toContain('不在合同里');
+    expect(joined).not.toContain('must be equal to constant');
+  });
+});
 
 describe('★ patch_stage：含旧生成器写的表（无 cellMinHeight）也能改', () => {
   it('★ 改旁边那个 text ⇒ 必须成功（不许因为表少一个可选字段锁死整页）', async () => {
