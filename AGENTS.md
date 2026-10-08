@@ -132,8 +132,8 @@ reading-page 那套与批量下载对话框；漏看它就会以为"改动只在
 | `lib/server/agent-runtime/learner-profile.ts` | 注入 `学习画像.md`（**每次运行重读**） | 改画像不用重启 |
 | `lib/server/agent-runtime/materials-library.ts` | `read_materials` / `update_materials` + **`listMaterialText()`** | agent 自己维护的材料库；**它的 URL 会喂进会话的 URL 信任闸**（`store.ts` 的建会话钩子）—— 见 §3.1 那条假红与结论库 |
 | `lib/server/agent-runtime/mcp-tools.ts` + `mcp-client.ts` | 外部 MCP（GitHub）接进工作台 | 连不上只记 failed，不拖死会话 |
-| `lib/server/agent-runtime/compaction.ts` | 原生上下文压缩 | **默认关**，本部署开着 |
-| `lib/server/agent-runtime/session-commands.ts` | `/compact` 之类的会话命令 | |
+| `lib/server/agent-runtime/compaction.ts` | 原生上下文压缩 + ★ `usageAnchorIsStale()`：**用量锚点比最新一条 compaction 还旧就不采信**（`estimateAgentContextTokens(…, { trustUsageAnchor })`） | **默认关**，本部署开着。不检查它 ⇒ 提示恒为 `N -> N`，且**每次压缩后必然白压一次**（见结论库 §压缩锚点） |
+| `lib/server/agent-runtime/session-commands.ts` | `/compact` 之类的会话命令 | 手动挡**不需要** ENABLED —— 它绕过阈值也绕过开关 |
 | `lib/server/agent-runtime/prompt-context-file.ts` | 画像/材料库的"路径加载时求值、内容每次重读" | |
 | `lib/server/agent-runtime/fetch-url.ts` | `fetch_url`（**上游就有**，我们改了两处） | 见 §5 |
 | `lib/export/use-export-pptx.ts` | `buildPptxBlob` / `buildResourcePackZip` + 共用的 `collectInteractivePages` | 单课导出；resource pack = PPTX + 交互页 |
@@ -519,6 +519,23 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 写新 dump/报告时**默认值就往 `_tools\openmaic\diagnostics\` 写**，别让默认值落到
 `个人数据\`（`tests/agent-runtime/prompt-audit-live.test.ts` 的 `DUMP_DIR` 是可以照抄的
 样子，需要时用 `OPENMAIC_PROMPT_DUMP_DIR` 覆盖）。
+
+### 6.9 ★ 拿上游的**估算器**当下游决策依据之前，先问它假设了什么没变
+
+pi 的 `estimateContextTokens` **假设「最后一条 assistant 消息的 usage 描述的就是下一次请求」**。
+压缩只把**锚点之前**的历史换成摘要 —— 锚点自己留在保留尾巴里、连它的 usage 一起 ——
+假设当场失效，而它**一个字都不报**：
+
+- 显示恒为 `N -> N`（压前压后量的是同一个数），**仪表失效**；
+- 同一个数还喂给 `shouldCompact` ⇒ **每次压缩后必然白压一次**。
+
+2026-10-08 实测（三场会话 27 次压缩）：**13 次是白压** —— 那一趟真实 prompt 只有
+57,142，而阈值是 133,616。修法与判据在 `compaction.ts` 的 `usageAnchorIsStale()` +
+`tests/agent-runtime/compaction-stale-anchor.test.ts`（5 条因它变红）。
+
+**规矩**：引用上游的**估算 / 判据 / 渲染**函数做决策时，先在注释里写出它的假设，
+再问一句「**我新加的这个功能，打破了其中哪一条？**」——
+特别是假设里出现「上一次 / 最新一次 / 默认 / 不变」这类词的时候。
 
 ---
 
