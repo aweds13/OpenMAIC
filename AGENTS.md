@@ -419,7 +419,7 @@ HTML 能加载、页面看起来正常，但 JS 分块全被 403 拦掉
 | 别用 | 用 |
 |---|---|
 | `taskkill`、`Get-CimInstance` | `netstat -ano` 找 PID + `Stop-Process -Id` |
-| `powershell … \| tr -d '\r'` | 重定向到文件再读。**有 detached 子进程继承管道时它永不返回** |
+| `powershell … \| tr -d '\r'` | 重定向到文件再读。**有 detached 子进程继承管道时它永不返回** —— 2026-10-08 **又踩一次**：`start_all.ps1 \| tail -25`（那脚本自己会 detached 起服务）⇒ 作业 7 分钟不返回，只能杀掉作业，而**dev server 一起被带走**（再跑一次才回来）。**启动脚本的输出一律 `> 文件 2>&1`**，别接管道、也别接 `tail`/`grep` |
 | `$pid`（PowerShell 里只读） | `$procId` |
 | PowerShell 5.1 读非 BOM 的 `.ps1`（当 ANSI） | **脚本只写 ASCII**，路径从 `$PSScriptRoot` 推 |
 
