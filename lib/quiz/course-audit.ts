@@ -83,11 +83,27 @@ export interface CourseAudit {
   pages: PageLinkage[];
   /** 承接率为 0 的讲解页（独立小作文）。**第一页不算** —— 它前面本来就没东西。 */
   unattachedPages: PageLinkage[];
-  /** 一次引入的新块超过阈值的讲解页。 */
+  /**
+   * 一次引入的新块超过阈值的 **slide** 页。
+   *
+   * ★ 只算 slide（2026-10-07 修）：**那条 49 是在 slide 上标定的**（p50=31 / p90=52）。
+   *   `pbl`（项目页）与 `interactive` 是**另一个量纲** —— 实测 `pbl` n=4 的
+   *   p50 = **95**，本身就接近那条线的两倍。拿 slide 的线去量项目页，
+   *   等于**把脚手架当超载**：agent 原话「PBL 页里有角色、学习目标、微任务、
+   *   逐条提示这些脚手架文字，全被当成新块计数了，而它们不是新教的知识」——
+   *   **它是对的**，而它差点照这个数字去拆项目页。
+   */
   overloadedPages: PageLinkage[];
-  /** 全部讲解页的平均承接率。 */
+  /**
+   * 非 slide 的页里超过同一条线的（项目页 / 交互页）。
+   *
+   * **不是超载** —— 它们的"新块"大半是任务说明与脚手架（`roles` / `milestones` /
+   * `gains`），不是新教的知识。**报出来是为了可见**，判断权交给人。
+   */
+  scaffoldPages: PageLinkage[];
+  /** **slide 页**的平均承接率（含项目页会把两个量纲混在一起）。 */
   averageCarryRatio: number;
-  /** 讲解页 novel 的中位数 —— 跟阈值一起看才知道这门课整体紧不紧。 */
+  /** **slide 页** novel 的中位数 —— 跟阈值一起看才知道这门课整体紧不紧。 */
   medianNovel: number;
 }
 
@@ -147,24 +163,35 @@ export function auditCourse(
   //   · **第一页必然是 0% 承接**（前面本来就没东西）—— 第一版把它当成"孤岛"报出来，
   //     是我自己的 bug。所以跳过前面还没有任何内容的第一页。
   const teaching = linkages.filter((page) => page.type !== 'quiz' && page.terms > 0);
+  /**
+   * ★ **判断超载只看 slide**（2026-10-07 修）。
+   * 那条线（`NOVEL_P90 = 49`）是在 slide 上标定的；`pbl` / `interactive` 是另一个量纲
+   * （实测 `pbl` p50 = 95，`interactive` p50 = 11）。混在一起量，项目页**永远"超载"**，
+   * 于是 agent 会去拆一个结构上本来就该由多段任务组成的页面。
+   */
+  const graded = teaching.filter((page) => page.type === 'slide');
   const firstTeachingOrder = teaching[0]?.order;
 
   const unattachedPages = teaching.filter(
     (page) => page.carried === 0 && page.order !== firstTeachingOrder,
   );
-  const overloadedPages = teaching.filter((page) => page.novel > novelThreshold);
+  const overloadedPages = graded.filter((page) => page.novel > novelThreshold);
+  const scaffoldPages = teaching.filter(
+    (page) => page.type !== 'slide' && page.novel > novelThreshold,
+  );
 
   const averageCarryRatio =
-    teaching.length === 0
+    graded.length === 0
       ? 0
-      : teaching.reduce((sum, page) => sum + page.carryRatio, 0) / teaching.length;
+      : graded.reduce((sum, page) => sum + page.carryRatio, 0) / graded.length;
 
   return {
     pages: linkages,
     unattachedPages,
     overloadedPages,
+    scaffoldPages,
     averageCarryRatio,
-    medianNovel: median(teaching.map((page) => page.novel)),
+    medianNovel: median(graded.map((page) => page.novel)),
   };
 }
 
@@ -183,18 +210,30 @@ export function formatCourseAudit(
       .join('、') + (pages.length > maxItems ? ' …' : '');
 
   const lines = [
-    `课程审计：${audit.pages.length} 页，讲解页平均承接率 **${pct(audit.averageCarryRatio)}**` +
-      `（这一页用的词里有多少是前面建立过的），讲解页引入新块的中位数 ${audit.medianNovel}。`,
+    `课程审计：${audit.pages.length} 页，**slide 页**平均承接率 **${pct(audit.averageCarryRatio)}**` +
+      `（这一页用的词里有多少是前面建立过的），slide 页引入新块的中位数 ${audit.medianNovel}。`,
   ];
 
   if (audit.overloadedPages.length) {
     lines.push(
-      `· **${audit.overloadedPages.length} 页超载**（一次引入超过 ${threshold} 个新块，实测 p90）：` +
+      `· **${audit.overloadedPages.length} 页超载**（一次引入超过 ${threshold} 个新块，实测 p90；` +
+        '**这条线只在 slide 上标定过**）：' +
         audit.overloadedPages
           .slice(0, maxItems)
           .map((page) => `第 ${page.order} 页《${page.title}》(${page.novel})`)
           .join('、') +
         (audit.overloadedPages.length > maxItems ? ' …' : ''),
+    );
+  }
+  if (audit.scaffoldPages.length) {
+    lines.push(
+      `· （另有 **${audit.scaffoldPages.length} 页项目/交互页**也超过同一条线：` +
+        audit.scaffoldPages
+          .slice(0, maxItems)
+          .map((page) => `第 ${page.order} 页《${page.title}》(${page.novel})`)
+          .join('、') +
+        ' —— 这些页的"新块"大半是**任务说明与脚手架**（角色 / 学习目标 / 微任务 / 逐条提示），' +
+        '不是新教的知识。**它们不是超载，别照着这个数字拆。**）',
     );
   }
 
