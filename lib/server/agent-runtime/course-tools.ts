@@ -95,6 +95,15 @@ export interface CourseToolDeps {
   synthesizeTts?: (input: SceneTtsInput) => Promise<SceneTtsSummary>;
   /** Resolve the skill that owns structural diagnostics for the current turn. */
   getActiveSkill?: () => LoadedSkill | null;
+  /**
+   * Stage ids that `review_course` has already reviewed **in this run**.
+   *
+   * ★ 一个 run 内共享的集合：`review_course` 审完往里加，`patch_stage` 改页前看它 ——
+   * 这就是"第一次修改一门值得审的课之前，要么审过、要么明说不用审"那道闸的依据（B 方案）。
+   * 只在 run 内有效是**故意的**：跨 run 的凭据要落盘（照 `plan-freeze-store.ts`），
+   * 那是下一步；在那之前，宁可闸得松一点，也不要造一个会静默失效的持久凭据。
+   */
+  reviewedStages?: Set<string>;
 }
 
 /**

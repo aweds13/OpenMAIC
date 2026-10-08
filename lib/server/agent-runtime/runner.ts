@@ -1502,7 +1502,10 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // owner-gated by `withOwnerStageAuthorization`, and patch_stage is marked
     // sequential by the shared STAGE_WRITER_TOOL_NAMES registry
     // (course-tools.ts).
+    // ★ 一次运行内共享「审过哪些课」：`review_course` 写、`patch_stage` 读（B 方案那道闸的依据）。
+    const reviewedStages = new Set<string>();
     const dslTools = buildDslCourseToolset({
+      reviewedStages,
       store: ownerScopedStore,
       backgroundStore: mediaJobStore,
       stageAccess,
@@ -1616,10 +1619,12 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // 而是 `AICallFn(system, user)` 那一次独立调用：system 里只有页面文本 + 规矩，
     // 没有会话历史、没有学习画像、没有工具。interactive 页会**真渲染**（见 page-text.ts），
     // 渲染失败的那几页在提示词里标成 NOT RENDERED，结论按降级处理。
+    // 审查工具与 dslTools 共用上面那个 `reviewedStages`。
     const reviewTools = [
       buildCourseReviewTool({
         loadScenes: async (stageId) => (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
         aiCall: createGenerationAiCallFactory()('course-review'),
+        reviewedStages,
       }),
     ];
     // 草稿纸：**无条件注册**。它是 agent 自己的工作记忆（本地文件），不依赖任何外部能力。

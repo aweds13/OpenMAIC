@@ -121,6 +121,22 @@ export const PATCH_COURSE_SCHEMA = Type.Object({
         'carry) — patch_stage refuses it otherwise so a repair cannot silently skip the learner.',
     }),
   ),
+  holesAcknowledged: Type.Optional(
+    Type.Boolean({
+      description:
+        'Set true ONLY after telling the learner this course has structurally empty pages or page-number ' +
+        'references that point at a missing/empty page. patch_stage refuses the first attempt otherwise, ' +
+        'because those holes are invisible in a page-by-page diff.',
+    }),
+  ),
+  reviewAcknowledged: Type.Optional(
+    Type.Boolean({
+      description:
+        'Set true ONLY after running `review_course { stageId }` for this course, or after the learner ' +
+        'said the adversarial review is not needed. Required before the FIRST write to a course big ' +
+        'enough to be worth reviewing.',
+    }),
+  ),
 });
 
 export const GREP_COURSE_SCHEMA = Type.Object({
@@ -864,6 +880,79 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
             novel: overload.novel,
             novelP90: NOVEL_P90,
             medianNovel: prePatchAudit.medianNovel,
+          },
+          true,
+        );
+      }
+
+      // ★ 结构洞闸（2026-10-08）：空页 / 页码引用指向空页或不存在的页。
+      //   这两条**不需要模型**就能判定，而且**逐页 diff 看不出来** —— 上一版只在
+      //   `course_audit` 里报，agent 不主动跑就永远看不到（第 19 页那种整页空白就是这么漏的）。
+      //   闸的规矩与超载闸一致：先拒一次、把数字摆出来、问过之后带凭据再来。
+      //   **不许删页** —— 修法只有「补」：把内容补上、把引用指对。
+      if (params.holesAcknowledged !== true) {
+        const empty = prePatchAudit.emptyPages;
+        const dangling = prePatchAudit.danglingReferences;
+        if (empty.length > 0 || dangling.length > 0) {
+          const parts: string[] = [];
+          if (empty.length > 0) {
+            parts.push(
+              `**${empty.length} 页是空的**：` +
+                empty.slice(0, 5).map((page) => `第 ${page.order} 页《${page.title}》`).join('、'),
+            );
+          }
+          if (dangling.length > 0) {
+            parts.push(
+              `**${dangling.length} 处页码引用指向不存在或空的页**：` +
+                dangling
+                  .slice(0, 5)
+                  .map((reference) => `第 ${reference.fromOrder} 页 → 第 ${reference.targetOrder} 页`)
+                  .join('、'),
+            );
+          }
+          return toolResult(
+            `patch_stage 被拒绝：这门课有**结构性空洞**（${parts.join('；')}）。` +
+              '先把这些告诉学习者，问他是**这一页就补**还是**先把洞补完**；' +
+              '拿到答复之后再调 `patch_stage`，并带上 `holesAcknowledged: true`。' +
+              '（修法只有「补」：空页写内容、引用指对页。**不要删页、不要为了消掉一条而合并页。**）',
+            {
+              intent: params.intent,
+              blocked: 'course-has-holes',
+              emptyPages: empty.map((page) => page.order),
+              danglingReferences: dangling.map((reference) => ({
+                from: reference.fromOrder,
+                to: reference.targetOrder,
+                problem: reference.problem,
+              })),
+            },
+            true,
+          );
+        }
+      }
+
+      // ★ 审查闸（B 方案，2026-10-08）：**第一次改一门"值得审"的课之前**，要么审过，要么明说不用审。
+      //   ★ 为什么是代码闸而不是提示词：本仓栽过 —— 用户说「修复一下 Day1」，agent 查了一下
+      //     直接 `patch_stage` 改页，不问也不审。**"必须"只能靠闸。**
+      //   ★ 闸的代价（照实说）：一次审查 = 一次长上下文模型调用（整门课文本进上下文），
+      //     所以门槛设在「页数够多才值得审」。`REVIEW_WORTH_ORDER = 8` **不是标定出来的**，
+      //     是一个下限：小于 8 页的课，审查的成本比收益大。**别把它当"这门课该有多少页"。**
+      const REVIEW_WORTH_ORDER = 8;
+      if (
+        params.reviewAcknowledged !== true &&
+        loaded.doc.scenes.length >= REVIEW_WORTH_ORDER &&
+        !(deps.reviewedStages?.has(loaded.stageId) ?? false)
+      ) {
+        return toolResult(
+          `patch_stage 被拒绝：这门课有 ${loaded.doc.scenes.length} 页，而在**这一次运行里还没有被审过**。` +
+            '先跑 `review_course { stageId }`（只读、一次独立的模型调用、会真渲染交互页），' +
+            '把它的发现给学习者看 —— 它专门找「这一页用到、而前面从没解释过」的东西。' +
+            '如果学习者明说这次不用审，再带 `reviewAcknowledged: true` 重试。' +
+            '（审查报告是**候选清单**不是验收：它报的条目要逐条核，修法只允许 补 / 挪 / 拆 / 改写。）',
+          {
+            intent: params.intent,
+            blocked: 'course-not-reviewed',
+            pageCount: loaded.doc.scenes.length,
+            reviewedInThisRun: false,
           },
           true,
         );

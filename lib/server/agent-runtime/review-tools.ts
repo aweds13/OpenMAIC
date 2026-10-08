@@ -50,6 +50,8 @@ export interface CourseReviewDeps {
   render?: (html: string) => Promise<{ text: string; errors: string[] }>;
   /** 审查一次最多带多少页（防止把整门课塞进一次调用）。 */
   maxPages?: number;
+  /** 与 `patch_stage` 共享：审完把 stageId 记进去（B 方案那道闸的依据）。 */
+  reviewedStages?: Set<string>;
 }
 
 const REVIEW_PARAMS = Type.Object({
@@ -130,6 +132,14 @@ export function courseReviewPromptBlock(): string {
     '- Treat its findings as **evidence to act on**, never as a list to trim: the repairs are',
     '  add / move / split / rewrite. Never delete a concept to make a finding go away.',
     '- A finding without a page number is not a finding — the tool refuses to return one.',
+    '- ★ **When to run it while you are still building (A):** once per chapter, not once per page —',
+    '  pass `fromOrder`/`toOrder` for the chapter you just finished (roughly 8–15 pages). Running it',
+    '  on every page would spend a whole-course context per page. Before you tell the learner a',
+    '  course is finished, run it over whatever you have not reviewed yet.',
+    '- ★ **Repairing an existing course (B):** `patch_stage` refuses the FIRST write to a course of',
+    '  eight pages or more until either `review_course` has run for it in this run, or the learner',
+    '  said the review is not needed (`reviewAcknowledged: true`). That refusal is deliberate: an',
+    '  agent asked to "fix Day 1" once started editing pages without auditing or asking.',
   ].join(String.fromCharCode(10));
 }
 
@@ -191,6 +201,9 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
           isError: true,
         };
       }
+
+      // 审完了 ⇒ 登记，`patch_stage` 的审查闸据此放行（同一个 run 内）。
+      deps.reviewedStages?.add(params.stageId);
 
       const header = [
         `review_course: 已审 ${pages.length} 页（第 ${pages[0]?.order}–${pages[pages.length - 1]?.order} 页）`,
