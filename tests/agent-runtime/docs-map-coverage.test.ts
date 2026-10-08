@@ -207,3 +207,48 @@ describe('★ AGENTS.md 的注入预算', () => {
   });
 });
 
+/**
+ * ★ 表格列数一致性（2026-10-07 加）。
+ *
+ * 起因：我往 §2 的一行里追了一格，那一行就变成 **4 列**、而表头是 3 列 ——
+ * 渲染出来多一个空格子，**而当时所有判据都是绿的**（它们只查路径 / 符号 / 一级条目）。
+ * 文档的**结构**坏掉时，没有东西会红。这条补上。
+ */
+describe('★ AGENTS.md 的表格结构', () => {
+  it('每个表格块里，每一行的列数都与表头一致', () => {
+    // 用模块级的 AGENTS（已经读过一次）—— 别自己再 readFileSync 一遍。
+    const lines = AGENTS.split(String.fromCharCode(10));
+    const cells = (line: string): number =>
+      line
+        .trim()
+        // ★ 先去掉**转义管道** `\|` —— 表格里写 `\|` 是合法写法（§6.2 那张表就用了），
+        //   把它算成列分隔符是**判据比它声称的更宽**（我第一次跑就栽在这上面）。
+        .split(String.fromCharCode(92) + '|')
+        .join('')
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|').length;
+    const problems: string[] = [];
+    let header: number | null = null;
+    let inTable = false;
+    lines.forEach((line, index) => {
+      const isRow = line.trim().startsWith('|') && line.trim().endsWith('|');
+      const isSeparator = /^\s*\|[\s:|-]+\|\s*$/.test(line);
+      if (!isRow) {
+        inTable = false;
+        header = null;
+        return;
+      }
+      if (!inTable) {
+        inTable = true;
+        header = cells(line);
+        return;
+      }
+      if (isSeparator) return;
+      if (header !== null && cells(line) !== header) {
+        problems.push(`第 ${index + 1} 行：${cells(line)} 列，表头是 ${header} 列`);
+      }
+    });
+    expect(problems).toEqual([]);
+  });
+});
