@@ -33,7 +33,7 @@
  *      那条判据已经校准过，这里不重复管）。
  * 2. **超载页**（novel > 阈值）：一页一次塞进多少**新块**。
  *    ★ 阈值是**标定出来的，不是拍的**：146 个讲解页的实测分布是
- *      `min=1 p50=25 p75=35 p90=49 max=242`，所以默认取 **p90 = 49**。
+ *      `min=1 p50=25 p75=35 p90=49 max=242`，所以**最初**取 p90 = 49；2026-10-09 抬到 **60**（见常量注释）。
  *      实测最超载的三页：《学生名单管理（集合+Stream+异常+Maven）》**242**、
  *      《待办清单 App（Widget+setState+布局+路由）》**209**、
  *      Day 1《面向对象三概念》**64** —— 正是复盘里点名的那类页
@@ -52,7 +52,19 @@ import { staticPageText } from '@/lib/quiz/page-text';
  *   `conceptsPerPage`（"一页 brief 引入太多新概念"）看着像同一件事，其实输入不同
  *   （计划 brief vs 页面内容），**不能共用这个常量**。见 scene-diagnostics.ts 的注释。
  */
-export const NOVEL_P90 = 49;
+/**
+ * 一页"一次性引入多少个**新内容块**"才值得提一句。
+ *
+ * ★★ **这是新颖度，不是"讲太多"**（2026-10-09，用户的诊断）：
+ *   一页老老实实把 5 种循环讲清楚，它**必然**引入很多新块 —— 按旧值（49）报出来，
+ *   等于**惩罚"讲完整"**，而六条优先级里**内容是第一位**。
+ *   所以这条线的语义是「**这一页塞的东西可能超出一次消化的量**」，不是「你写多了」：
+ *   它是一条**提示**，合规的处理是**拆页**（或确认它确实该在这一页讲完），**不是删内容**。
+ *
+ * 取值：60（原 49）。49 是 146 个真实讲解页的 **p90**；抬到 60 之后只剩最极端的那几页会响。
+ * ⚠ 它**只在 slide 上标定过**（`pbl` p50=95、`interactive` p50=11 是别的量纲，走 `scaffoldPages`）。
+ */
+export const NOVEL_P90 = 60;
 
 /** 审计看到的一页。只需内容和身份，不需要生成包的类型。 */
 export interface AuditedPage {
@@ -338,8 +350,10 @@ export function formatCourseAudit(
 
   if (audit.overloadedPages.length) {
     lines.push(
-      `· **${audit.overloadedPages.length} 页超载**（一次引入超过 ${threshold} 个新块，实测 p90；` +
-        '**这条线只在 slide 上标定过**）：' +
+      `· **${audit.overloadedPages.length} 页一次性引入的新块超过 ${threshold}** —— ★ **这是新颖度，` +
+        '不是「讲太多」**（一页把 5 种循环讲清楚，本来就会引入很多新块）。它是**提示**：' +
+        '要处理就**拆页**，或者用 `course_audit { accept }` 记成「已知、暂不修」。' +
+        '这条线只在 slide 上标定过：' +
         audit.overloadedPages
           .slice(0, maxItems)
           .map((page) => `第 ${page.order} 页《${page.title}》(${page.novel})`)
