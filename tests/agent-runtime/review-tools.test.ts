@@ -103,8 +103,58 @@ describe('★ 审查输出收紧（44/64 页那一跑的根因）', () => {
     expect(String(system)).toMatch(/只在这些里确认/);
   });
 
-  it('★ 每页最多两条 + 轴 1–4 先报 + 「不清楚」不许单独报', async () => {
-    const aiCall = vi.fn(async (_system: string, _user: string) => '第 1 页：没问题。');
+  /**
+   * ★★ 「前面所有页」必须是**全课的前面**，不是"这一段的前面"（2026-10-09 补）。
+   *
+   * 上面那条判据用的是**一次调用就给两页**的夹具，前缀恰好在本段里 ⇒ 照不到这个洞。
+   * 真跑是**分段**的（字符预算 ⇒ 8 段各审一截），而 `earlierChunks` 原来只从本段第一页起累
+   * ⇒ 从第 22 页那一段开始，前缀是**空的** ⇒ 那一段每个词都成了"从没出现过"的候选。
+   * 实测代价：第 22–29 段的候选里出现「Java」「代码」「编辑器里写」—— 第 1–21 页早就讲过；
+   * 审查者照候选把它们判成"真缺口"。**假阳性是工具自己造出来的。**
+   */
+  it('★★ 从中途开始审（fromOrder 落在第二页）时，前面那一页的词**仍然不算候选**', async () => {
+    const aiCall = vi.fn(async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。');
+    const built = buildCourseReviewTool({
+      loadScenes: async () => [SLIDE(1, 'byte 的范围是 -128 到 127'), SLIDE(2, '用 byte 存年龄')],
+      aiCall: aiCall as never,
+    });
+    await built.execute('call-1', { stageId: 'stage-x', fromOrder: 2 });
+    const [system] = aiCall.mock.calls[0]!;
+    // 正文里只有第 2 页（第 1 页没给），但它属于"前面所有页" ⇒ 它的词不许再当候选。
+    expect(String(system)).toContain('# 本次给你的正文：第 2–2 页');
+    const page2 = String(system).split('第 2 页候选：')[1]?.split(String.fromCharCode(10))[0] ?? '';
+    expect(page2).not.toContain('byte');
+  });
+
+  /**
+   * ★★ 提示词必须说清"这是**全课**的第几页"，并给一份**全课目录**（2026-10-09 补）。
+   *
+   * 原来那一行是「课程页面（共 N 页）」，而 N 是**本次调用**的页数 ⇒ 模型据此刻断言
+   * 「本材料只有 8 页」「第 1 页不存在」「没有名为《条件语句》的页」。实测第 22–29、30–33
+   * 两段都是这么错的 —— 那是审出来的假阳性里最大的一类（跨页引用被当成悬空引用）。
+   */
+  it('★★ 说清"全课共 N 页"并列出目录，别让模型把这一段当成整门课', async () => {
+    const aiCall = vi.fn(async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。');
+    const built = buildCourseReviewTool({
+      loadScenes: async () => [
+        SLIDE(1, 'byte 的范围是 -128 到 127', '类型'),
+        SLIDE(2, '用 byte 存年龄', '变量'),
+        SLIDE(3, '后面的页', '条件语句：if / else 怎么让程序分岔'),
+      ],
+      aiCall: aiCall as never,
+      maxChars: 30,
+    });
+    await built.execute('call-1', { stageId: 'stage-x' });
+    const system = String(aiCall.mock.calls[0]![0]);
+    expect(system).toContain('全课目录（共 3 页）');
+    // 没进正文的那一页，标题也要在目录里 —— 否则模型会说"没有《条件语句》那一页"。
+    expect(system).toContain('第 3 页《条件语句：if / else 怎么让程序分岔》');
+    expect(system).toContain('全课有 3 页');
+    // 反面：不许再出现"课程页面（共 N 页）"这种会被读成"整门课就这么多"的说法。
+    expect(system).not.toContain('课程页面（共');
+  });
+
+  it('★ 每页最多两条 + 轴 1–4 先报 + 「不清楚」不许单独报', async () => {    const aiCall = vi.fn(async (_system: string, _user: string) => '第 1 页：没问题。');
     const built = buildCourseReviewTool({
       loadScenes: async () => [SLIDE(1, '内容')],
       aiCall: aiCall as never,

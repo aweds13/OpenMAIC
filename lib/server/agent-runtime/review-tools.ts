@@ -267,7 +267,22 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       // ★ 5a「新概念」的**机械候选**：这一页用到、前面所有页都没出现过的内容块。
       //   用的是 `coverage-gap` 的同一个单位（`contentChunks`），**不另造一把尺** ——
       //   目的是让审查**只确认候选**，不再逐词体检整页（上一跑 44/64 页被点名就是这个根因）。
+      //
+      //   ★★ 「前面所有页」指的是**全课的前面**，不是"这一段的前面"（2026-10-09 修）。
+      //   审查是按字符预算**分段**跑的（一次只给一截，剩下的用 `fromOrder` 接着审），
+      //   而原来 `earlierChunks` 只从**本段第一页**开始累 ⇒ 从第 22 页那一段起，前缀是**空的**
+      //   ⇒ 那一段的每一页、每一个词都成了"从没出现过"的候选。
+      //   实测代价（真跑第 22–29 段的原文）：候选里赫然出现「Java」「代码」「编辑器里写」
+      //   「运行代码」—— 第 1–21 页早就讲过。审查者据候选把它们判成"真缺口"，
+      //   于是**工具自己造出来的假阳性**。所以这里先把本段**之前**的页吃进前缀。
+      const firstOrder = pages[0]?.order ?? Number.POSITIVE_INFINITY;
       const earlierChunks = new Set<string>();
+      for (const scene of [...scenes]
+        .filter((candidate) => candidate.order < firstOrder)
+        .sort((left, right) => left.order - right.order)) {
+        const page = await learnerVisibleText(scene, deps.render ? { render: deps.render } : undefined);
+        for (const chunk of contentChunks(page.text)) earlierChunks.add(chunk);
+      }
       const candidateLines: string[] = [];
       for (const page of pages) {
         const chunks = contentChunks(page.text);
@@ -278,7 +293,22 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       const candidatesText = candidateLines.length
         ? String.fromCharCode(10) + String.fromCharCode(10) + '# 机械候选（5a 新概念）—— **只在这些里确认，别的不要自己列**' + String.fromCharCode(10) + String.fromCharCode(10) + candidateLines.join(String.fromCharCode(10)) + String.fromCharCode(10) + String.fromCharCode(10) + '★ 这些是**机器算出来**的（这一页用到、前面所有页都没出现过）。你要判的只是：哪些是**真缺口**（本页后文或任何前面一页解释了它 ⇒ 不是缺口）。'
         : '';
-      const systemPrompt = `${COURSE_REVIEW_RULES}${candidatesText}\n\n# 课程页面（共 ${pages.length} 页）\n\n${formatPages(pages)}`;
+      // ★ 说清"这是**全课**的第几页到第几页"，并给一份**全课目录**（2026-10-09 修）。
+      //   原来这一行写的是「课程页面（共 N 页）」，而 N 是**本次调用**拿到的页数 ⇒
+      //   模型据此刻断言「本材料只有 8 页」「第 1 页不存在」「没有名为《条件语句》的页」——
+      //   实测第 22–29、30–33 两段都是这么错的（那是 12 条假阳性里最大的一类）。
+      //   跨页引用要能核对，就必须先知道**全课有哪些页**（"声明可引用的东西"）。
+      const allScenes = [...scenes].sort((left, right) => left.order - right.order);
+      const courseIndex = allScenes.map((scene) => `第 ${scene.order} 页《${scene.title ?? ''}》`).join('；');
+      const span = `第 ${pages[0]?.order ?? 0}–${pages[pages.length - 1]?.order ?? 0} 页`;
+      const systemPrompt =
+        `${COURSE_REVIEW_RULES}${candidatesText}\n\n` +
+        `# 全课目录（共 ${allScenes.length} 页）\n\n${courseIndex}\n\n` +
+        `# 本次给你的正文：${span}（共 ${pages.length} 页）\n\n` +
+        `★ 你**只**看到 ${span} 的正文，但**全课有 ${allScenes.length} 页**（目录见上）。` +
+        `目录里列着的页**不是**"不存在的那一页"——指认悬空引用、或想说"本课没讲过 X"之前，` +
+        `先对照目录与已给正文；目录里有而正文没给的页，你**无法核对**，只能说明无法核对。\n\n` +
+        `${formatPages(pages)}`;
       const raw = await deps.aiCall(systemPrompt, '开始审查。按上面的规矩交结果。');
 
       const report = typeof raw === 'string' ? raw.trim() : '';
