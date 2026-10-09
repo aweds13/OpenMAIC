@@ -206,7 +206,8 @@ describe('★ 大纲阶段：单元 · 小点 · 讲/练 · 难度', () => {
   it('★ 不许太简单；形态可在一组内混用，由易到难', () => {
     expect(block).toMatch(/not too easy/);
     expect(block).toMatch(/answered without reading the page measures nothing/);
-    expect(block).toMatch(/mixed inside one set/);
+    expect(block).toMatch(/Choice\s+questions are the exception/);
+    expect(block).toMatch(/Keep the count\s+small/);
   });
 
   it('★ 条目要带：单元/角色抬头、`keyPoints`（非空）、`quizConfig.difficulty`', () => {

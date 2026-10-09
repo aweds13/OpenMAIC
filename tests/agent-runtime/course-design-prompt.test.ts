@@ -162,18 +162,28 @@ describe('★ 讲练节奏：一页一个小点 · 练习=同一小点的一组�
   });
 
   it('★ 形态可以在**一组之内混用**（这才是"循序渐进的多题组合"）', () => {
-    expect(block).toMatch(/Mix the forms inside one set/);
-    expect(block).toMatch(/Every question in the set is about/);
+    expect(block).toMatch(/Mix the two forms inside one set/);
+    expect(block).toMatch(/Both are about \*\*the same small point\*\*/);
   });
 
-  it('★ 三形态由易到难：选择 → 改错 → 写作', () => {
-    expect(block).toMatch(/\*\*Choice\*\*/);
+  it('★ 两个形态：**改错 → 写作**（顺序本身是要求）', () => {
     expect(block).toMatch(/\*\*Fix the bug\*\*/);
     expect(block).toMatch(/\*\*Write it\*\*/);
-    // 顺序本身是要求，不只是"有三种"。
-    const order = [block.indexOf('**Choice**'), block.indexOf('**Fix the bug**'), block.indexOf('**Write it**')];
-    expect(order[0]).toBeGreaterThan(-1);
-    expect(order[0]).toBeLessThan(order[1] as number);
-    expect(order[1]).toBeLessThan(order[2] as number);
+    const fix = block.indexOf('**Fix the bug**');
+    const write = block.indexOf('**Write it**');
+    expect(fix).toBeGreaterThan(-1);
+    expect(write).toBeGreaterThan(fix);
+  });
+
+  it('★★ **选择不是默认**（学习者第 3 轮：「主要先是改错和写作，选择不太适合」）', () => {
+    expect(block).toMatch(/Choice questions are the exception, not the default/);
+    expect(block).toMatch(/picking an option is not the skill being built/);
+    // 只许在"没有可写形态"的点上用。
+    expect(block).toMatch(/no\s+writable form at all/);
+  });
+
+  it('★★ 练习数量要少 —— 一个单元一改错一写作是常态，不是"越多越 thorough"', () => {
+    expect(block).toMatch(/Few exercises, each worth doing/);
+    expect(block).toMatch(/padding, and it buries the one task/);
   });
 });

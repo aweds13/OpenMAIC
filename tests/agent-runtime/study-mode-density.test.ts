@@ -109,9 +109,12 @@ describe('★ 带代码的页：两侧都有这条要求', () => {
   });
 
   it('★ 审查侧也有**练习**那条（一页混小点 / 太简单 / 跳步）——两侧一起改', () => {
-    expect(COURSE_REVIEW_RULES).toMatch(/A set of questions about ONE small point/);
+    expect(COURSE_REVIEW_RULES).toMatch(/A set of tasks about ONE small point/);
     expect(COURSE_REVIEW_RULES).toMatch(/different\*\* points packed onto one page/);
     expect(COURSE_REVIEW_RULES).toMatch(/too easy\*\* to measure anything/);
     expect(COURSE_REVIEW_RULES).toMatch(/a jump the\s+learner cannot see/);
+    // ★ 选择是例外：能在键盘上练的点，只出选择题就是缺陷。
+    expect(COURSE_REVIEW_RULES).toMatch(/choice questions are the exception/i);
+    expect(COURSE_REVIEW_RULES).toMatch(/is a defect/);
   });
 });
