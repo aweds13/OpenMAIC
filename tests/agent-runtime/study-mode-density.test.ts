@@ -32,12 +32,18 @@ describe('★ 内容与页面的六条优先级（用户定序，一处定义三
     // ★ 第 5 条必须**拆成两类**：新概念（有机械替代）与表达不清（只能靠模型）。
     //   用户原话：「不用人猜有两种：新概念和表达不清」—— 混成一条会让收紧做错方向
     //   （把"表达不清"也当成可以机械算的）。
-    expect(CONTENT_PRIORITY).toContain('5a.');
-    expect(CONTENT_PRIORITY).toContain('5b.');
-    expect(CONTENT_PRIORITY).toMatch(/5a[\s\S]*HAS a mechanical substitute/);
-    expect(CONTENT_PRIORITY).toMatch(/5b[\s\S]*NO mechanical check can find this one/);
-    // 表达不清必须"引用那句话"，否则读者无从核对
-    expect(CONTENT_PRIORITY).toMatch(/Quote the sentence that fails/);
+    expect(CONTENT_PRIORITY).toMatch(/HAS a mechanical substitute/);
+    // ★ 表达不清**不是独立的轴**，是症状 —— 必须归因到 1–4 里的一条，修法只许走那一条
+    //   （用户原话：「表达不清要符合内容优先，语义完整准确优先，语言合适，结构完整来解决」）
+    expect(CONTENT_PRIORITY).toMatch(/is NOT a separate axis/);
+    expect(CONTENT_PRIORITY).toMatch(/name which of items 1–4 fails/);
+    // 四条修法路径都要在（少一条就会有人只去"把句子改通顺"）
+    expect(CONTENT_PRIORITY).toMatch(/the content is not there → add it \(1\)/);
+    expect(CONTENT_PRIORITY).toMatch(/say what it must still say \(2\)/);
+    expect(CONTENT_PRIORITY).toMatch(/rewrite the wording \(3\)/);
+    expect(CONTENT_PRIORITY).toMatch(/complete the structure \(4\)/);
+    // 而且明说"只报 unclear 没用"
+    expect(CONTENT_PRIORITY).toMatch(/not actionable/);
 
     // 字数属于第 6 条的地界，不是第 1 条
     expect(CONTENT_PRIORITY).toMatch(/CAPACITY/);
