@@ -80,7 +80,7 @@ describe('★ 超载线只对 slide 有效', () => {
     ]);
     const text = formatCourseAudit(audit);
 
-    expect(text).toContain('1 页超载');
+    expect(text).toContain('1 页一次性引入的新块超过');
     expect(text).toContain('项目/交互页');
     expect(text).toContain('不是超载，别照着这个数字拆');
     // 统计口径要标明是 slide —— 否则读的人会以为这是全课的数。
@@ -221,7 +221,7 @@ describe('★ 已接受的读数：不再重复报成待修', () => {
   it('★ 没有凭据 ⇒ 一行不少地照报（别把闸放成空的）', () => {
     const audit = auditCourse([page(1, 'slide', '短'), heavy(2)]).overloadedPages;
     const text = formatCourseAudit(auditCourse([page(1, 'slide', '短'), heavy(2)]));
-    expect(text).toContain('一次引入超过');
+    expect(text).toContain('一次性引入的新块超过');
     expect(text).not.toContain('你已经接受过');
     expect(audit.length).toBe(1);
   });
