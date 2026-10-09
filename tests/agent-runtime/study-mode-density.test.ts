@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CONTENT_PRIORITY, studyModePromptBlock } from '@/lib/server/agent-runtime/study-mode';
+import { courseDesignPromptBlock } from '@/lib/server/agent-runtime/course-design';
 import { COURSE_REVIEW_RULES } from '@/lib/server/agent-runtime/review-tools';
 import { SELF_STUDY_SLIDE_OVERRIDE } from '@/lib/server/self-study-mode';
 
@@ -67,5 +68,30 @@ describe('★ 内容与页面的六条优先级（用户定序，一处定义三
   it('★ 经典自学覆盖也带同一条顺序（两条路不许只有一条改对）', () => {
     expect(SELF_STUDY_SLIDE_OVERRIDE).toMatch(/substance > complete and accurate meaning/);
     expect(SELF_STUDY_SLIDE_OVERRIDE).toMatch(/character count is LAST/);
+  });
+});
+
+/**
+ * ★ 带代码的页：**生成侧与审查侧都要有**（用户：「先做A呗。生成册和审查册都要有」）。
+ *
+ * 一句话的规矩：代码用 `code` 元素写；并且**两件事是一起要求的** ——
+ * ① 它按什么顺序执行 ② 标准/惯用写法长什么样（与页面这段差在哪）。
+ * 少一件都不算完；页面里没有代码就一个字别扯这个。
+ */
+describe('★ 带代码的页：两侧都有这条要求', () => {
+  it('★ 生成侧 brief 清单里有', () => {
+    const block = courseDesignPromptBlock({ courseSearch: false, mcp: false } as never);
+    expect(block).toMatch(/`code` element/);
+    expect(block).toMatch(/order it runs in/);
+    expect(block).toMatch(/standard form/);
+    // 两件事**一起**要求，别拆成可选
+    expect(block).toContain('they are one');
+  });
+
+  it('★ 审查侧规矩里有，并且明说"没代码就别提"', () => {
+    expect(COURSE_REVIEW_RULES).toMatch(/A page that carries code/);
+    expect(COURSE_REVIEW_RULES).toMatch(/the order it runs in/);
+    expect(COURSE_REVIEW_RULES).toMatch(/the standard form/);
+    expect(COURSE_REVIEW_RULES).toMatch(/carries no code, say nothing about this/);
   });
 });
