@@ -31,6 +31,7 @@ import {
   type AssessedQuestion,
   type CoverageGap,
 } from '@/lib/quiz/coverage-gap';
+import { staticPageText } from '@/lib/quiz/page-text';
 import {
   checkPlanDependencies,
   formatPlanIssues,
@@ -81,7 +82,16 @@ export interface SceneWriteDiagnostics {
   coverageText: string;
   planIssues: PlanIssue[];
   planText: string;
+  /** 机械可判的**字数带**（见下）；文本拼进工具回话。 */
+  densityText: string;
+  /** 这一页的可见正文字数（只看 slide）。 */
+  bodyChars: number;
 }
+
+/** 太薄：实测默认产出平均 61 汉字/页，真实课件 352–390。 */
+export const THIN_PAGE_CHARS = 120;
+/** 过大：1000×562.5 画布在可读字号下约 350–400 字 ⇒ 超过 800 是**布局风险**。 */
+export const OVERFLOW_RISK_CHARS = 800;
 
 export interface SceneWriteDiagnosticsInput {
   /** 落盘之后**重新加载**的全部页面（这一页也在里面）。 */
@@ -123,10 +133,41 @@ export function sceneWriteDiagnostics(input: SceneWriteDiagnosticsInput): SceneW
   //   **别把这两个阈值合并成一个常量。**
   const planIssues = checkPlanDependencies(input.outline?.outlines ?? []);
 
+  // 字数带：**只在 slide 上**算（别的类型的正文不在 canvas 里，见 page-text.ts 的比较表）。
+  const bodyChars =
+    input.scene.type === 'slide'
+      ? staticPageText({
+          order: input.scene.order,
+          type: input.scene.type,
+          title: input.scene.title,
+          content: input.scene.content,
+        }).length
+      : 0;
+  // ★ 不做「超了就是错」：350–400 是**容量**，字数在六条优先级里排最后（study-mode.ts）。
+  //   太薄 ⇒ 知识没落到屏幕上；过大 ⇒ 布局风险（溢出/缩成灰块）。中间那段机械层不插嘴。
+  const densityNotes: string[] = [];
+  if (input.scene.type === 'slide' && bodyChars > 0 && bodyChars < THIN_PAGE_CHARS) {
+    densityNotes.push(
+      `这一页只有 ${bodyChars} 字 —— 实测默认产出平均 61 汉字/页、真实课件 352–390。` +
+        '知识要**落在屏幕上**：把该讲的补上（讲不透就**加页**，不要塞长句）。',
+    );
+  }
+  if (bodyChars > OVERFLOW_RISK_CHARS) {
+    densityNotes.push(
+      `这一页 ${bodyChars} 字，超过画布容量（1000×562.5 可读字号下约 350–400 字）的 ` +
+        `${Math.round(bodyChars / 400)} 倍 —— 这是**布局风险**（溢出或缩成灰块），` +
+        '不是「你写多了」。处理办法是**拆成 2–3 页**，不是删内容。',
+    );
+  }
+
   return {
     coverageGaps,
     coverageText: coverageGaps.length ? `\n\n${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}` : '',
     planIssues,
     planText: planIssues.length ? `\n\n${formatPlanIssues(planIssues)}` : '',
+    densityText: densityNotes.length
+      ? String.fromCharCode(10, 10) + densityNotes.map((note) => `· ${note}`).join(String.fromCharCode(10))
+      : '',
+    bodyChars,
   };
 }

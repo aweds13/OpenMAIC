@@ -743,7 +743,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
                 | AppDocumentOutline
                 | undefined,
             })
-          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '' };
+          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0 };
       const mediaPlaceholders = collectUnresolvedMediaPlaceholders(persisted);
       deps.onCheckpoint({
         tool: 'generate_scene',
@@ -772,7 +772,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           skillViolations.length
             ? ` SKILL CONSTRAINT CHECK against "${skill?.id}": ${skillViolations.join('; ')}.`
             : ''
-        }${diagnostics.coverageText}${diagnostics.planText}${
+        }${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${
           mediaPlaceholders.length
             ? ` ${mediaPlaceholders.length} media placeholder(s) still render as skeletons.`
             : ''

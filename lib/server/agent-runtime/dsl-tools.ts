@@ -1039,7 +1039,7 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
             scene: afterPatch.scenes.find((item) => item.id === next.id) ?? next,
             outline: afterPatch.outline as AppDocumentOutline | undefined,
           })
-        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '' };
+        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0 };
 
       deps.onCheckpoint({
         tool: 'patch_stage',
@@ -1061,7 +1061,7 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
       });
       return toolResult(
         `Updated scene "${next.title}": ${params.intent}` +
-          `${diagnostics.coverageText}${diagnostics.planText}`,
+          `${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}`,
         {
           intent: params.intent,
           updated: { sceneId: next.id, order: next.order, type: next.type, ops: params.ops.length },
