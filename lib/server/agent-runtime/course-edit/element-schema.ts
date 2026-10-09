@@ -657,20 +657,19 @@ const PERSISTED_ELEMENT_SCHEMAS = {
   [ElementTypes.CHART]: persistedElementSchema(ChartElementInput),
   [ElementTypes.TABLE]: persistedElementSchema(TableElementInput),
   [ElementTypes.LATEX]: persistedElementSchema(LatexElementInput),
+  // ★ 这三类**一直都在**（上游 10 类，本仓也全支持）—— 我 2026-10-09 做这张查找表时
+  //   只照"union 的前 7 行"手抄了一遍，把它们漏了 ⇒ 汇总器对 `code` 元素会说
+  //   "这个类型不在合同里"（**假话**），而我还把这条假话写成了判据。
+  //   **手写镜像比现实窄** —— 同一个病，这次犯在我自己身上。
+  [ElementTypes.VIDEO]: persistedElementSchema(VideoElementInput),
+  [ElementTypes.AUDIO]: persistedElementSchema(AudioElementInput),
+  [ElementTypes.CODE]: persistedElementSchema(CodeElementInput),
 } as const;
 
-const PersistedSlideElementSchema = Type.Union([
-  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.TEXT],
-  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.IMAGE],
-  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.SHAPE],
-  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.LINE],
-  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.CHART],
-  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.TABLE],
-  PERSISTED_ELEMENT_SCHEMAS[ElementTypes.LATEX],
-  persistedElementSchema(VideoElementInput),
-  persistedElementSchema(AudioElementInput),
-  persistedElementSchema(CodeElementInput),
-]);
+// union 也从**这张表**派生，不再另抄一份（两份清单必然漂）。
+const PersistedSlideElementSchema = Type.Union(
+  Object.values(PERSISTED_ELEMENT_SCHEMAS) as unknown as [TSchema, ...TSchema[]],
+);
 
 const SlideThemeSchema = Type.Object(
   {

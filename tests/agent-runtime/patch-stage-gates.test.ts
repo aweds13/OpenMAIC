@@ -65,10 +65,10 @@ function slide(order: number, body: string, id = `scene_s${order}`): Scene {
   } as Scene;
 }
 
-/** 60 个互不相同的三字术语 —— 实测 novel=56（> p90=49）。 */
+/** 90 个互不相同的三字术语 —— 实测 novel > 60（阈值 2026-10-09 从 49 抬到 60；夹具要**远高于**阈值）。 */
 function overloadBody(): string {
   return Array.from(
-    { length: 60 },
+    { length: 90 },
     (_, index) => `术语${String.fromCharCode(0x4e00 + index)}码`,
   ).join('，');
 }
@@ -385,18 +385,42 @@ describe('★ 旧生成器写的表：单元格 fontsize 是数字也要收（20
   });
 });
 
-describe('★ 元素类型不在合同里时，报错要说出来（`code`/`video`/`audio` 就不在）', () => {
-  it('★ 一个 type=code 的元素 ⇒ 明说「这个类型不在合同里」，而不是一堆 must be equal to constant', () => {
-    // 合同里只有 7 类（text/image/shape/line/chart/table/latex），而上游 DSL 有 10 类。
-    // 含这 3 类的页，同样会因为"校验整份 scene"而**整页改不了** —— 这条判据把这件事钉住。
+/**
+ * ★ 更正（2026-10-09）：`code` / `video` / `audio` **一直都在合同里**。
+ *
+ * 我上一条判据写的是"type=code ⇒ 这个类型不在合同里" —— 那是**假话**：我当时给汇总器做了一张
+ * 查找表，只照 union 的前 7 行手抄，把后 3 类漏了，于是**我自己的表**比合同窄，
+ * 我还把这条假话钉成了判据。**手写镜像比现实窄 —— 同一个病，这次犯在我身上。**
+ * 现在判据反过来：这三类必须被认成合同内；只有**真正不认识**的名字才报"不在合同里"。
+ */
+describe('★ 元素类型必须在合同内（含 code / video / audio）', () => {
+  it('★ type=code 的元素 ⇒ **不许**说"不在合同里"', () => {
     const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
       elements: unknown[];
     } } }).content.canvas;
-    canvas.elements.push({ id: 'code-1', type: 'code', left: 60, top: 260, width: 800, height: 100, rotate: 0, code: 'int n = -7;' });
+    canvas.elements.push({
+      id: 'code-1',
+      type: 'code',
+      left: 60,
+      top: 260,
+      width: 800,
+      height: 100,
+      rotate: 0,
+      language: 'java',
+      lines: [{ id: 'l1', content: 'int n = -7;' }],
+    });
     const joined = validateSlideCanvas(canvas).join(' | ');
-    expect(joined).toContain('type=code');
+    expect(joined).not.toContain('不在合同里');
+  });
+
+  it('★ 真正不认识的名字 ⇒ 才报"不在合同里"（并列出合同有哪些）', () => {
+    const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
+      elements: unknown[];
+    } } }).content.canvas;
+    canvas.elements.push({ id: 'x-1', type: 'not-a-real-type', left: 0, top: 0, width: 10, height: 10, rotate: 0 });
+    const joined = validateSlideCanvas(canvas).join(' | ');
     expect(joined).toContain('不在合同里');
-    expect(joined).not.toContain('must be equal to constant');
+    expect(joined).toContain('code');
   });
 });
 
