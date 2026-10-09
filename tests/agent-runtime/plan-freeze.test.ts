@@ -214,6 +214,8 @@ describe('★ 大纲阶段：单元 · 小点 · 讲/练 · 难度', () => {
     expect(block).toMatch(/prefixed with the unit and the role/);
     expect(block).toMatch(/【Unit U7 · explanation 1\/2/);
     expect(block).toMatch(/Not empty/);
-    expect(block).toMatch(/quizConfig\.difficulty/);
+    // 难度现在走**自己的字段**（`difficulty`），落进 brief 抬头；`quizConfig` 只在 quiz 页上另外填。
+    expect(block).toMatch(/`difficulty` \(`easy` \/ `medium` \/ `hard`\) on \*\*every practice entry\*\*/);
+    expect(block).toMatch(/lands in the brief prefix/);
   });
 });

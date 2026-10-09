@@ -117,3 +117,80 @@ describe('★ plan_freeze add 不许静默覆盖别的页', () => {
     expect(h.saved).toHaveLength(0);
   });
 });
+
+/**
+ * ★★ `add` 必须真的把**单元 / 角色 / 小点 / 难度**写进计划（2026-10-09）。
+ *
+ * ── 这一条是"让 OpenMAIC 自己规划单元"缺的那一环 ────────────────────
+ *
+ * 提示词里写着"计划是**教学设计**，不是页表"：要拆单元、要 `keyPoints` 非空、
+ * 练习条目要带难度。**而工具的 schema 原来根本不收这四个字段，映射也不写** ⇒
+ * 它们被**静默丢掉**。用户问「这个计划以后能不能让 openmaic 来做」——
+ * 答案是：**改之前不能**，因为写计划的工具承载不了这个设计。
+ *
+ * 这正是本仓 §1.1 那条的形状（提示词承诺了工具没有的能力），只是方向反过来。
+ *
+ * ★ 判据钉的是**落盘结果**，不是提示词文本：光改措辞而映射没跟上，这条会红。
+ */
+describe('★ add 要把单元·角色·小点·难度真的写进计划', () => {
+  it('★★ 四个字段都落到 SceneOutline 里（单元/角色/难度进 brief 抬头，小点进 keyPoints）', async () => {
+    const { h, call } = harness(outlineWith([[1, '已有页']]));
+    const result = await call({
+      action: 'add',
+      entries: [
+        {
+          order: 2,
+          title: '三元运算符：一行写完 if-else',
+          type: 'slide',
+          brief: '讲清三元的结构与求值顺序。',
+          unit: 'U18 ternary',
+          role: 'explanation 1/2',
+          keyPoints: ['三元的结构', '求值顺序'],
+        },
+        {
+          order: 3,
+          title: '改错：这三处三元写法哪里错',
+          type: 'interactive',
+          brief: '给出三处写错的三元。',
+          unit: 'U18 ternary',
+          role: 'practice 2/3 · form: fix-the-bug',
+          keyPoints: ['优先级'],
+          difficulty: 'medium',
+        },
+      ],
+    });
+    // 写盘成功的最强信号：信封里真的多了两条（不看回话措辞 —— 措辞会变，落盘不会）。
+    expect(h.saved.length).toBeGreaterThan(0);
+    expect((h.outline?.outlines ?? []).length).toBe(3);
+    expect(textOf(result)).not.toContain('拒');
+
+    const written = (h.outline?.outlines ?? []) as unknown as Array<Record<string, unknown>>;
+    const explain = written.find((e) => e.order === 2);
+    const practice = written.find((e) => e.order === 3);
+
+    // ① 小点：上游本来就有这个字段，一直空着 —— 现在必须填。
+    expect(explain?.keyPoints).toEqual(['三元的结构', '求值顺序']);
+    // ② 单元 / 角色 / 难度：合成进 brief 抬头（SceneOutline 上游只读，不加字段）。
+    expect(String(explain?.description)).toContain('【Unit U18 ternary · explanation 1/2】');
+    expect(String(explain?.description)).toContain('讲清三元的结构与求值顺序。');
+    expect(String(practice?.description)).toContain('difficulty: medium');
+    expect(String(practice?.description)).toContain('form: fix-the-bug');
+    // ③ 没给难度的**不该**凭空长出一个 difficulty。
+    expect(String(explain?.description)).not.toContain('difficulty:');
+  });
+
+  it('★ `quiz` 页的难度另外落进 `quizConfig`；`interactive` 页**不硬塞**（那是编数据）', async () => {
+    const { h, call } = harness(outlineWith([[1, '已有页']]));
+    await call({
+      action: 'add',
+      entries: [
+        { order: 2, title: '选择：哪条命令验证安装', type: 'quiz', brief: 'x', difficulty: 'easy' },
+        { order: 3, title: '写作：写一个 for', type: 'interactive', brief: 'y', difficulty: 'hard' },
+      ],
+    });
+    const written = (h.outline?.outlines ?? []) as unknown as Array<Record<string, unknown>>;
+    expect(written.find((e) => e.order === 2)?.quizConfig).toMatchObject({ difficulty: 'easy' });
+    expect(written.find((e) => e.order === 3)?.quizConfig).toBeUndefined();
+    expect(String(written.find((e) => e.order === 3)?.description)).toContain('difficulty: hard');
+  });
+});

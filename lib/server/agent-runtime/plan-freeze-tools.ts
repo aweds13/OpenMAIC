@@ -58,11 +58,41 @@ const PLAN_FREEZE_PARAMS = Type.Object({
           Type.String({ description: 'One line: what this page teaches and what it builds on.' }),
         ),
         type: Type.Optional(Type.String({ description: 'slide | quiz | interactive | pbl' })),
+        // ★★ 2026-10-09：**这四项是"大纲阶段就设计单元"的载体**。
+        //   加它们之前，`add` 只写 order/title/type/brief ⇒ 提示词里要求的
+        //   `keyPoints` / `quizConfig.difficulty` **静默丢失**（schema 不收、映射也不写）。
+        //   单元与难度写进 `description` 抬头（`SceneOutline` 在上游、只读，**不加字段**）。
+        unit: Type.Optional(
+          Type.String({
+            description:
+              'Which unit this page belongs to, e.g. "U7 ternary". Written into the brief as a ' +
+              '【Unit …】 prefix so the design is readable later.',
+          }),
+        ),
+        role: Type.Optional(
+          Type.String({
+            description:
+              'The page\'s part in its unit, e.g. "explanation 1/2" or "practice 2/3 · form: fix-the-bug".',
+          }),
+        ),
+        keyPoints: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              'The 1–3 small points this page covers. **Do not leave empty** — an empty list means ' +
+              'the page has no stated job.',
+          }),
+        ),
+        difficulty: Type.Optional(
+          Type.Union([Type.Literal('easy'), Type.Literal('medium'), Type.Literal('hard')], {
+            description:
+              'Practice pages only. Lands in the brief prefix (and in `quizConfig` when type is quiz).',
+          }),
+        ),
       }),
       {
         description:
           'For `add`: the pages to write into the plan. Give brief for each — it is the only thing ' +
-          'that records why the page exists.',
+          'that records why the page exists. Plan **units**, not a flat page list: see the prompt block.',
       },
     ),
   ),
@@ -95,6 +125,58 @@ const PLAN_FREEZE_PARAMS = Type.Object({
     ),
   ),
 });
+
+/**
+ * 一条计划条目 → `SceneOutline`。**`add` 与 `revise` 共用这一个**。
+ *
+ * ★★ 2026-10-09：**这是"让 OpenMAIC 自己规划单元"缺的那一环。**
+ *
+ * 上面刚加的 `unit` / `role` / `keyPoints` / `difficulty` 四个字段，
+ * 在提示词里是**要求**（`planFreezePromptBlock` 的 "teaching design, not a page list"），
+ * 而工具的 schema 原来根本**不收**它们、映射也不写 ⇒ **静默丢失**。
+ * 那正是本仓 §1.1 那条的形状：提示词承诺了一个工具没有的能力。
+ *
+ * ★ 为什么**合成到一个函数**：这个映射原来有两份（`add` 一份、`revise` 一份）。
+ *   两份清单靠人保持同步，必然漂 —— 漂了就是"只有一半的路记得写单元"。
+ *
+ * ★ 字段落点（`SceneOutline` 在 `packages/@openmaic/generation/`，**上游只读，不加字段**）：
+ *   · 单元 / 角色 / 难度 ⇒ 合成 `description` 的 **`【…】` 抬头**（人读得懂、agent 也读得懂）；
+ *   · 小点 ⇒ `keyPoints`（上游本来就有这个字段，一直空着）；
+ *   · 难度另外落进 `quizConfig.difficulty` —— **仅当这一页是 `quiz`**
+ *     （那张类型是给 quiz 用的；给 interactive 页硬塞 `quizConfig` 是编数据）。
+ */
+function outlineEntryFromPlanEntry(entry: {
+  order: number;
+  title: string;
+  brief?: string;
+  type?: string;
+  unit?: string;
+  role?: string;
+  keyPoints?: string[];
+  difficulty?: 'easy' | 'medium' | 'hard';
+}): SceneOutline {
+  const prefix = [
+    entry.unit ? `Unit ${entry.unit}` : '',
+    entry.role ?? '',
+    entry.difficulty ? `difficulty: ${entry.difficulty}` : '',
+  ]
+    .filter((part) => part.length > 0)
+    .join(' · ');
+  const description = [prefix ? `【${prefix}】` : '', entry.brief ?? ''].filter(Boolean).join('');
+  const quizConfig =
+    entry.difficulty !== undefined && entry.type === 'quiz'
+      ? ({ questionCount: 1, difficulty: entry.difficulty, questionTypes: ['single'] } as const)
+      : undefined;
+  return {
+    id: `p${entry.order}`,
+    order: entry.order,
+    title: entry.title,
+    type: (entry.type ?? 'slide') as SceneOutline['type'],
+    keyPoints: entry.keyPoints ?? [],
+    ...(quizConfig ? { quizConfig } : {}),
+    ...(description ? { description } : {}),
+  } as SceneOutline;
+}
 
 /**
  * 工具需要的最小依赖 —— 读计划信封 + 写回。
@@ -250,13 +332,7 @@ export function buildPlanFreezeTool(
         }
         let next = outline;
         for (const entry of list) {
-          const result = upsertOutlineEntry(next, {
-            id: `p${entry.order}`,
-            order: entry.order,
-            title: entry.title,
-            type: entry.type ?? 'slide',
-            ...(entry.brief ? { description: entry.brief } : {}),
-          } as SceneOutline, { matchBy: 'order' });
+          const result = upsertOutlineEntry(next, outlineEntryFromPlanEntry(entry), { matchBy: 'order' });
           if (result.outline) next = result.outline;
         }
         const saved = await deps.saveOutline(params.stageId, next);
@@ -365,13 +441,7 @@ export function buildPlanFreezeTool(
       if (params.entries?.length) {
         let working = next;
         for (const entry of params.entries) {
-          const written = upsertOutlineEntry(working, {
-            id: `p${entry.order}`,
-            order: entry.order,
-            title: entry.title,
-            type: entry.type ?? 'slide',
-            ...(entry.brief ? { description: entry.brief } : {}),
-          } as SceneOutline, { matchBy: 'order' });
+          const written = upsertOutlineEntry(working, outlineEntryFromPlanEntry(entry), { matchBy: 'order' });
           if (written.outline) working = written.outline;
         }
         next = working;
@@ -445,8 +515,9 @@ export function planFreezePromptBlock(): string {
     '  The prefix is what makes the design readable later, when nobody remembers why a page exists.',
     '- `keyPoints` — the 1–3 small points this page covers. **Not empty**: an empty list means the',
     '  page has no stated job.',
-    '- `quizConfig.difficulty` (`easy` / `medium` / `hard`) on **every practice entry**. The field',
-    '  already exists; leaving it unset is exactly what makes a unit\'s gradient unknowable later.',
+    '- `difficulty` (`easy` / `medium` / `hard`) on **every practice entry** — pass it as its own',
+    '  field. It lands in the brief prefix (and in `quizConfig` as well when the page is a `quiz`).',
+    '  Leaving it unset is exactly what makes a unit\'s gradient unknowable later.',
     '',
     '- Write the entries first, confirm the set and the order with the learner once (`ask_user`),',
     '  then call `plan_freeze { action: "freeze" }`.',
