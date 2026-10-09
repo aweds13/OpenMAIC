@@ -194,3 +194,42 @@ describe('★ add 要把单元·角色·小点·难度真的写进计划', () =>
     expect(String(written.find((e) => e.order === 3)?.description)).toContain('difficulty: hard');
   });
 });
+
+/**
+ * ★★ `brief` 与 `description` 是**同一个东西的两个名字** —— 只认一个就会静默丢。
+ *
+ * `SceneOutline`（计划里的形状）把这个字段叫 **`description`**；
+ * 而 `plan_freeze` 的**工具参数**叫 **`brief`**。两个名字指同一件事。
+ *
+ * 只认 `brief` 的后果不是报错，是**写进去的条目一个字都没有** ——
+ * TypeBox 默认不拒多余属性，处理时只读 `brief`，于是 `description` 被**静默丢掉**。
+ * 本轮实测栽过：夹具传 `description`，写进计划的条目光秃秃的，而这种丢法在回话里
+ * **没有任何迹象**。所以 schema 现在两个名字都收（`brief` 优先）。
+ *
+ * ★ 判据钉的是**落盘结果**：光在 schema 里挂个名字、映射不读它，这条会红。
+ */
+describe('★★ brief / description 是同一个字段的两个名字', () => {
+  it('★ 只给 `description` 也要真的写进计划（不许静默丢）', async () => {
+    const { h, call } = harness(outlineWith([[1, '已有页']]));
+    await call({
+      action: 'add',
+      entries: [{ order: 2, title: '第 2 页', type: 'slide', description: '只给了 description' }],
+    });
+    const written = (h.outline?.outlines ?? []) as unknown as Array<Record<string, unknown>>;
+    expect(String(written.find((e) => e.order === 2)?.description)).toContain('只给了 description');
+  });
+
+  it('★ 两个都给时 `brief` 赢（工具参数的正式名字）', async () => {
+    const { h, call } = harness(outlineWith([[1, '已有页']]));
+    await call({
+      action: 'add',
+      entries: [
+        { order: 2, title: '第 2 页', type: 'slide', brief: '用 brief', description: '用 description' },
+      ],
+    });
+    const written = (h.outline?.outlines ?? []) as unknown as Array<Record<string, unknown>>;
+    const text = String(written.find((e) => e.order === 2)?.description);
+    expect(text).toContain('用 brief');
+    expect(text).not.toContain('用 description');
+  });
+});

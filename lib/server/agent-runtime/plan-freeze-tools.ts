@@ -27,6 +27,7 @@ import { shiftOutlineOrders, upsertOutlineEntry } from './course-outline-write';
 import {
   formatPlanFreezeStatus,
   freezePlan,
+  planSpecGaps,
   revisePlan,
 } from './plan-freeze';
 import { readPlanFreeze, writePlanFreeze } from './plan-freeze-store';
@@ -56,6 +57,17 @@ const PLAN_FREEZE_PARAMS = Type.Object({
         title: Type.String(),
         brief: Type.Optional(
           Type.String({ description: 'One line: what this page teaches and what it builds on.' }),
+        ),
+        // ★★ 别名（2026-10-09）：`SceneOutline` 里这个字段叫 **`description`**，
+        //   而工具参数叫 `brief`。两个名字指同一件事 —— 只认一个，另一个就会被
+        //   **静默丢掉**（TypeBox 默认不拒多余属性，而处理时只读 `brief`）。
+        //   实测栽过：夹具传 `description`，写进计划的条目**一个字都没有**。
+        description: Type.Optional(
+          Type.String({
+            description:
+              'Alias for `brief` (the plan field is called `description`). Use either name; ' +
+              '`brief` wins if both are given.',
+          }),
         ),
         type: Type.Optional(Type.String({ description: 'slide | quiz | interactive | pbl' })),
         // ★★ 2026-10-09：**这四项是"大纲阶段就设计单元"的载体**。
@@ -149,6 +161,8 @@ function outlineEntryFromPlanEntry(entry: {
   order: number;
   title: string;
   brief?: string;
+  /** `brief` 的别名 —— 计划字段本来就叫 `description`（见 schema 里的注释）。 */
+  description?: string;
   type?: string;
   unit?: string;
   role?: string;
@@ -162,7 +176,8 @@ function outlineEntryFromPlanEntry(entry: {
   ]
     .filter((part) => part.length > 0)
     .join(' · ');
-  const description = [prefix ? `【${prefix}】` : '', entry.brief ?? ''].filter(Boolean).join('');
+  const prose = entry.brief ?? entry.description ?? '';
+  const description = [prefix ? `【${prefix}】` : '', prose].filter(Boolean).join('');
   const quizConfig =
     entry.difficulty !== undefined && entry.type === 'quiz'
       ? ({ questionCount: 1, difficulty: entry.difficulty, questionTypes: ['single'] } as const)
@@ -462,6 +477,20 @@ export function buildPlanFreezeTool(
           (changes.length > 0
             ? `\n**实际改动**：${changes.join('；')}。`
             : '\n**没有改任何条目** —— 你只传了 `reason`。要改条目请带 `entries` / `shift` / `removeOrders`。') +
+          /**
+           * ★★ **`revise` 这条写入路径也要报规格缺口**（2026-10-09）。
+           *
+           * 闸（`freezePlan`）只挂在 `freeze` 上 —— 而**改造一门老课走的是 `revise`**
+           * （`add` 有"撞标题就拒"的守卫，成批重写只能用 `revise`）。
+           * 于是：**最需要验的那条路，恰好是闸照不到的那条。**
+           * 这正是手册 §1.1「加一个新闸时，顺手问一句『另一条写入路径呢』」。
+           *
+           * ★ 这里**报而不拒**，与 `freeze` 的硬拒不同 —— 故意的：
+           *   `revise` 是**修一门已经存在的课**的路，整批拒掉会挡住修复本身
+           *   （实测：一次真实重写已经写了 149 条，拒掉就全废）。
+           *   所以给它**数字**让它自己补齐；硬闸留给零成本的新计划。
+           */
+          specGapNotice(next?.outlines ?? []) +
           '\n改完页面结构要跟着对齐（`edit_deck` 会同步计划条目）。',
       );
     },
@@ -474,6 +503,32 @@ export function buildPlanFreezeTool(
  * 别往里加会变的东西（当前状态、页数、时间戳）：那会让每次运行的系统消息都不同，
  * 整个前缀缓存作废。状态走工具结果。
  */
+/**
+ * `revise` 之后附上的**规格缺口**提示 —— 报而不拒（见调用处的理由）。
+ *
+ * 返回空串表示没有缺口（那样回话里一个字都不多 —— 诊断不能变成噪声）。
+ */
+function specGapNotice(entries: readonly SceneOutline[]): string {
+  const gaps = planSpecGaps(entries);
+  if (gaps.authored === 0) return '';
+  const bad = gaps.missingKeyPoints + gaps.missingUnit + gaps.practiceMissingDifficulty;
+  if (bad === 0) return '';
+  const parts = [
+    gaps.missingUnit > 0 ? `${gaps.missingUnit} 条没有单元` : '',
+    gaps.missingKeyPoints > 0 ? `${gaps.missingKeyPoints} 条 \`keyPoints\` 是空的` : '',
+    gaps.practiceMissingDifficulty > 0 ? `${gaps.practiceMissingDifficulty} 条练习没写难度` : '',
+  ].filter((part) => part.length > 0);
+  return (
+    String.fromCharCode(10) +
+    `★ **计划里还有缺口**：${parts.join('、')}。` +
+    (gaps.samples.length > 0 ? `例如 ${gaps.samples.join('、')}。` : '') +
+    String.fromCharCode(10) +
+    '这不是错误，但**每一条空着的 `keyPoints` 都会让那一页的生成提示词少一格** —— ' +
+    '页面生成器只看得到 title / brief / keyPoints 三样，它没有别的东西可依据。' +
+    '补齐用 `plan_freeze { action: "revise", entries: [...] }`（覆盖写，不用先删）。'
+  );
+}
+
 export function planFreezePromptBlock(): string {
   return [
     '## The course plan is a durable artifact you own',

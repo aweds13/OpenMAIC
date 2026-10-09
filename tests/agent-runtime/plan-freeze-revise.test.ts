@@ -35,7 +35,10 @@ function outlineWith(entries: Array<[number, string]>): AppDocumentOutline {
       order,
       title,
       type: 'slide',
-      description: `brief ${order}`,
+      // ★ 夹具要**规格内**（有单元抬头 + keyPoints）：2026-10-09 起 `revise` 会
+      //   统计规格缺口，裸条目会把数字带偏 —— 那测的就不是本文件要测的东西了。
+      keyPoints: [`第 ${order} 页的小点`],
+      description: `【Unit U${order} · explanation 1/1】brief ${order}`,
     })) as SceneOutline[],
     requirement: 'x',
     createdAt: 1,
@@ -155,5 +158,98 @@ describe('★ plan_freeze revise 真的改计划', () => {
     expect(text).toContain('已记下第 1 次修订');
     expect(text).toContain('没有改任何条目');
     expect(h.saved).toHaveLength(0);
+  });
+});
+
+/**
+ * ★★ `revise` 这条写入路径也要报**规格缺口**（2026-10-09）。
+ *
+ * ── 由来：一个真实跑出来的洞 ──────────────────────────────────────
+ *
+ * 闸（`freezePlan` 的 `planSpecGaps`）我只挂在 `freeze` 上。可是**改造一门老课走的是
+ * `revise`** —— `add` 有"撞到别的标题就拒"的守卫，成批重写只能用 `revise`。
+ * 于是：**最需要验的那条路，恰好是闸照不到的那条。**
+ *
+ * 这不是假想：真实跑的一次重写写进 **149 条**，其中 **18 条 `keyPoints` 是空的、
+ * 4 条练习没写难度、还缺 14 个 order** —— 全程**一句提示都没有**。
+ * 而那 18 条空着的 `keyPoints`，每一条都让那一页的生成提示词**少一格**
+ * （页面生成器只看得到 title / brief / keyPoints）。
+ *
+ * 这正是手册 §1.1：「**加一个新闸时，顺手问一句『另一条写入路径呢』**」。
+ *
+ * ★ 这里**报而不拒**（与 `freeze` 的硬拒不同，故意的）：`revise` 是修一门
+ *   **已经存在**的课的路，整批拒掉会挡住修复本身 —— 那次 149 条已经写完了。
+ */
+describe('★★ revise 要报规格缺口（闸照不到的那条写入路径）', () => {
+  // ★ 用**工具参数**的名字（`brief` / `unit` / `role`），不是 `SceneOutline` 的字段名 ——
+  //   这两套名字不一样，混了就会被静默丢掉（本轮真栽过，故 schema 里加了 `description` 别名）。
+  const complete = (order: number) => ({
+    order,
+    title: `第 ${order} 页`,
+    type: 'slide',
+    keyPoints: [`小点 ${order}`],
+    unit: `U${order}`,
+    role: 'explanation 1/1',
+    brief: `brief ${order}`,
+  });
+
+  it('★ 有缺口 ⇒ 回话里报出**具体数字**，并点出后果', async () => {
+    const { call } = harness(outlineWith([[1, '第 1 页']]));
+    const result = await call({
+      action: 'revise',
+      reason: '按单元重排',
+      entries: [complete(1), { order: 2, title: '第 2 页', type: 'slide' }],
+    });
+    const out = textOf(result);
+    expect(out).toContain('计划里还有缺口');
+    expect(out).toContain('1 条没有单元');
+    expect(out).toContain('`keyPoints` 是空的');
+    // ★ 要说出**后果**，否则"补一下"没有分量。
+    expect(out).toContain('少一格');
+  });
+
+  it('★ 练习缺难度也要报（它是"由易到难"唯一的落点）', async () => {
+    const { call } = harness(outlineWith([[1, '第 1 页']]));
+    const result = await call({
+      action: 'revise',
+      reason: '补练习',
+      entries: [
+        {
+          order: 2,
+          title: '改错：三处',
+          type: 'interactive',
+          keyPoints: ['小点'],
+          unit: 'U1',
+          role: 'practice 1/1 · form: fix-the-bug',
+          brief: 'brief',
+        },
+      ],
+    });
+    expect(textOf(result)).toContain('练习没写难度');
+  });
+
+  it('★ 规格内就**一个字都不多说**（诊断不能变成噪声）', async () => {
+    const { call } = harness(outlineWith([[1, '第 1 页']]));
+    const result = await call({
+      action: 'revise',
+      reason: '按单元重排',
+      entries: [complete(1), complete(2)],
+    });
+    expect(textOf(result)).not.toContain('计划里还有缺口');
+  });
+
+  it('★ `backfill` 派生的条目**不算账**（否则老课永远在报缺口）', async () => {
+    // 前提：计划里**本来就有**一条 backfill 派生条目（那才是老课的样子）。
+    const outline = outlineWith([[1, '第 1 页']]);
+    (outline.outlines as SceneOutline[]).push({
+      id: 'p2',
+      order: 2,
+      title: '第 2 页',
+      type: 'slide',
+      description: 'backfilled from the existing page (the original brief was never recorded)',
+    } as SceneOutline);
+    const { call } = harness(outline);
+    const result = await call({ action: 'revise', reason: '只挪页号', entries: [complete(3)] });
+    expect(textOf(result)).not.toContain('计划里还有缺口');
   });
 });
