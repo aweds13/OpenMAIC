@@ -161,7 +161,9 @@ reading-page 那套与批量下载对话框；漏看它就会以为"改动只在
 | `lib/quiz/course-audit.ts` | 课程级**审计判据**（承接率 + 超载线 `NOVEL_P90=60`），纯函数。★ **超载线只对 `slide` 有效**（`pbl` p50=95、`interactive` p50=11 是别的量纲；项目页进 `scaffoldPages`，**不叫超载**） | 超载线是 146 个真实讲解页的 p90 标定的 |
 | `lib/quiz/plan-check.ts` | **计划期**依赖校验：超前引用 / 无归属 / 预算（三条只输出「补」和「挪」） | `conceptsPerPage` 默认关；见 结论库 |
 | `components/generation/self-study-button.tsx` | 首页那条链上的「自学」开关（经典路径，与工作台的 `study-mode.ts` 不同一条路） | 在工作台路径上搜不到 `selfStudy` |
-| `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页的正文只在 `<script>` 里**（第 17/28/36/38/42/44/52/57 页）；实测第 28 页 48,080 字符 html → **34,952 字**正文。★ 与 `extractTaughtText` **方向相反**（那个故意少收、偏误报），只能共用 `stripMarkup`，别合并 |
+| `lib/quiz/code-block.ts` | **「这段文字该不该是 `code` 元素」两批规则**（`codeBlockVerdict`）+ **转换器**（`codeElementFromText`，几何不变、行首缩进保留） | 2026-10-09 复量：判据原来要求 `;` 是**最后一个字符** ⇒ **带行尾注释的真代码块整批落进第二批**（28 个候选里 **6** 个）。复现 `OPENMAIC_CODE_BLOCK_LIVE_TSV=<dump> TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/code-block-live.test.ts` |
+| `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页的正文只在 `<script>` 里**（第 17/28/36/38/42/44/52/57 页）；实测第 28 页 48,080 字符 html → **34,952 字**正文。★ 与 `extractTaughtText` **方向相反**（那个故意少收、偏误报），只能共用 `stripMarkup`，别合并。★★ **三个已知缺口（2026-10-09 逐条核出来的，全都会变成审查的假阳性）**：① 收的是 jsdom 的 `body.textContent` ⇒ **内联 `<script>`/widget-config 的文字也进来**（第 34 页的 `type`/`code`/`language`/`description` 因此被判成"真缺口"）；② **配置写在 `<head>` 的那 1 页反而收不到提示**（20 个 interactive 页：head 配置 **1** / body 配置 **17** / 无配置 2 —— 第 32 页的提示因此被判成"全页没说"）；③ **压平了 `left`/`top`** ⇒ 审查会把**两栏**读成"挤在一行"（实测 6 条版面误报全出在这里） |
+| `lib/server/agent-runtime/page-review.ts` | **写入后带上下文再审一页**（`sceneWriteDiagnosticsWithReview()` 用的那半，6 条判据） | ★ **还没在真会话里跑过**（见交接卡"下一步"）；三条纪律有判据：结论进回话 / 抛错被吞掉写入照常 / 没传就一个字不加 |
 | `lib/server/agent-runtime/review-tools.ts` | **`review_course`**：对抗性内容审查 —— **一次隔离的模型调用**（system 里只有页面文本 + 规矩），**没有会话历史 / 画像 / 工具**；结论必须带页码引用，否则 `isError` | 用户原话「审查 agent 要**完全没有任何基础**，不能想『噢原来是这个』」。判据 `tests/agent-runtime/review-tools.test.ts`（8 条 + 两变异） |
 | `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
 | `lib/playback/reading-navigation.ts` | **阅读页滚轮翻页的判据**（阈值 12 / 去抖 450ms / 两道闸：用户开关 + 页内还能滚） | 实现在 `二开说明.md` §八；`readingPage` 是**必填**布尔量，漏传只是静默还回播放键 |
@@ -249,6 +251,11 @@ had not hydrated yet」，实测报的都是 `expected 'metaso' to be 'tavily'`�
 **只有本轮新增的两个 untracked 文件**、`HEAD = d7a5ca4`，且新模块**没有任何
 importer**（`grep -rn "attempt-fold" lib app components tests` 只有它自己的测试）——
 所以与本轮改动无因果。**都是"没有 Web Locks 时的并发路径"，改 quiz 写入之前先看这 4 条。**
+
+**第六条负载假红**（2026-10-09 实测）：`tests/quiz/page-text.test.ts` 的
+`interactive: 渲染后拿到的才是学生看到的东西（JS 建出来的正文）` 在整包并行时
+**5s 超时**，单跑 **919ms** 过。它跑真 jsdom，抢 CPU。当时机器上还有 4 个子代理在跑。
+**别把它算成回归** —— 单跑一遍再判。
 
 **测试是 hermetic 的**：`tests/setup-env.ts` **默认不加载 `.env.local`**。所以你的测试
 不依赖本机配置；要跑真端点才用 `TEST_LOAD_LOCAL_ENV=1`。
@@ -540,6 +547,37 @@ pi 的 `estimateContextTokens` **假设「最后一条 assistant 消息的 usage
 **规矩**：引用上游的**估算 / 判据 / 渲染**函数做决策时，先在注释里写出它的假设，
 再问一句「**我新加的这个功能，打破了其中哪一条？**」——
 特别是假设里出现「上一次 / 最新一次 / 默认 / 不变」这类词的时候。
+
+### 6.10 ★ 分段的工具里，「前面所有页」必须指**全课**的前面 —— 否则假阳性是工具自己造的
+
+2026-10-09 实测。`review_course` 按**字符预算分段**跑（一次一截，剩下的用 `fromOrder` 接着审），
+而它有两处把「这一段」当成了「整门课」，于是**审查者照着工具给的错前提说话**：
+
+| 洞 | 后果（真跑读数） | 修法 |
+|---|---|---|
+| `earlierChunks` 只从**本段第一页**起累 ⇒ 第 22 页那段起**前缀是空的** | 那一段每个词都成了"从没出现过"的候选；第 22 页的候选里出现「Java」「代码」「编辑器里写」—— **第 1–21 页早就讲过**，审查者照候选把它们判成"真缺口" | 先把本段**之前**的页吃进前缀（`order < 本段第一页`） |
+| 提示词写「课程页面（共 N 页）」，N 是**本段**页数 | 模型据此断言「本材料只有 8 页」「第 1 页不存在」「没有名为《条件语句》的页」—— 跨页引用被成批当成悬空引用 | 改成「全课目录（共 M 页）」+「本次给你的正文：第 A–B 页」+ 一句「目录里列着的页**不是**不存在的那一页」 |
+
+两条都有判据 + 变异（`tests/agent-runtime/review-tools.test.ts`：命中途开始审 / 全课目录与页数）。
+★ **原来那条"机械候选"判据用的是"一次给两页"的夹具**，前缀恰好在本段里 ⇒ **照不到这个洞**；
+改判据时**必须让 `fromOrder` 落在第二页**，否则等于没测。
+
+**同一形状还有三处（都还没修，别再当成"审查者不行"）**：
+
+1. **`stripMarkup` 会吃掉纯文本里的 `<…>`**：`coverage-gap.ts` 把 `/<[^>]*>/g` 换成**空格**，
+   于是纯文本字段里的 `List<String>` 变成 `List ` —— 第 53 页那句"括号里是空的"就是这么来的
+   （存储里是 raw 的 `List<String>`，学生看到的是完整的）。
+2. **jsdom 无网 ⇒ CDN 桩造成的报错被当成页面缺陷**：第 51/54/58/59 页的
+   `CodeMirror is not a function` / `matchMedia is not a function` **在真浏览器里不存在**
+   （页面从 CDN 取真 CodeMirror；桩只提供一个空实现）。审查报告里那句
+   「渲染时有脚本报错」是**工具自己的注记**（`page-text.ts` 的 note），不是页面文字 ——
+   第 46 页那条更绕：页面**有** else 兜底，失效的真因是它 `<head>` 的 shim 把
+   `window.CodeMirror` 换成了**非函数对象**。
+3. **压平了 `left`/`top`**：slide 元素是绝对定位的，抽出来的却是单列文本 ⇒ 审查把
+   **两栏**读成"挤在同一行"、"列丢了"（实测 6 条版面误报全出在这里）。
+
+**教训（比上面每条都值钱）**：审查者的输出**不能超过它拿到的输入**。看到"审查说了一堆蠢话"，
+先问一句「**它当时看到的到底是什么**」—— 上面这几条里，蠢话全是**输入**造的。
 
 ---
 
