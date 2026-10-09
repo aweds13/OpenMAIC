@@ -118,6 +118,8 @@ export const COURSE_REVIEW_RULES = [
   '  break if two lines swapped; and (b) **the standard form** — what idiomatic code looks like',
   '  here and how the code on the page differs from it. Missing either one ⇒ report it under axis 4',
   '  (structure) and quote the code or the sentence that should have said it.',
+  '  **Two batches:** a **multi-line** block belongs in a `code` element; a **one-line** fragment',
+  '  staying inline in the prose is correct — do NOT report that as a problem.',
   '  If a page carries no code, say nothing about this.',
   '',
   'Two of those axes are where a real course actually broke (measured 2026-10-08):',

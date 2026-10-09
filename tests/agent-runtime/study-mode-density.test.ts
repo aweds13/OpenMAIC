@@ -86,6 +86,8 @@ describe('★ 带代码的页：两侧都有这条要求', () => {
     expect(block).toMatch(/standard form/);
     // 两件事**一起**要求，别拆成可选
     expect(block).toContain('they are one');
+    // ★ 两批，不一刀切（生成侧也要有）
+    expect(block).toMatch(/Two batches, not all-or-nothing/);
   });
 
   it('★ 审查侧规矩里有，并且明说"没代码就别提"', () => {
@@ -93,5 +95,9 @@ describe('★ 带代码的页：两侧都有这条要求', () => {
     expect(COURSE_REVIEW_RULES).toMatch(/the order it runs in/);
     expect(COURSE_REVIEW_RULES).toMatch(/the standard form/);
     expect(COURSE_REVIEW_RULES).toMatch(/carries no code, say nothing about this/);
+    // ★ 两批，不一刀切：多行进 code 元素；**单行片段留在正文里是对的，不许报成问题**
+    expect(COURSE_REVIEW_RULES).toMatch(/Two batches/);
+    expect(COURSE_REVIEW_RULES).toMatch(/\*\*one-line\*\*/);
+    expect(COURSE_REVIEW_RULES).toMatch(/staying inline in the prose is correct/);
   });
 });
