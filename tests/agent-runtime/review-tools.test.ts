@@ -111,7 +111,11 @@ describe('★ 审查输出收紧（44/64 页那一跑的根因）', () => {
     });
     await built.execute('call-1', { stageId: 'stage-x' });
     const system = String(aiCall.mock.calls[0]![0]);
-    expect(system).toMatch(/two is the hard cap/);
+    // ★ 不设条数上限（上限会**静默丢掉真问题**）：靠"同轴合并"限长，并明说**不许为省条目丢真问题**
+    expect(system).toMatch(/NO per-page count limit/);
+    expect(system).toMatch(/Merge everything on the same axis into ONE entry/);
+    expect(system).toMatch(/Never drop a real blocker to fit a budget/);
+    expect(system).not.toMatch(/hard cap/);
     expect(system).toMatch(/1–4 first/);
     expect(system).toMatch(/「Unclear」 alone is not actionable/);
   });
