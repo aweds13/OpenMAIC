@@ -358,7 +358,8 @@ function CodeLineRow({
           {lineNumber}
         </span>
       )}
-      <span className="flex-1 pr-4" style={{ whiteSpace: 'pre', tabSize: 4 }}>
+      {/* 右内边距交给代码区自己（`px-3`）—— 这里再加一个 `pr-4` 会让左右不等宽。 */}
+      <span className="flex-1" style={{ whiteSpace: 'pre', tabSize: 4 }}>
         {contentNode}
       </span>
     </motion.div>
@@ -368,7 +369,15 @@ function CodeLineRow({
 // ==================== BaseCodeElement ====================
 
 export function BaseCodeElement({ elementInfo, animate }: BaseCodeElementProps) {
-  const { language, lines, fileName, showLineNumbers = true, fontSize = 14 } = elementInfo;
+  // ★ 2026-10-09：**幻灯片上默认不显示行号**（原来默认 true）。
+  //   实测（Day02 第 21 页，盒子 250px 宽）：行号槽是 `3.5em` ≈ **49px + 16px 间距**，
+  //   占掉盒子宽度的 **20%**，直接把最长一行挤出可视区（横向溢出 47px）。
+  //   行号的价值是"能指着某一行讲执行顺序"，那只有在**盒子够宽**时才划算
+  //   —— 所以它是 per-element 的开关（转换那一页的人自己决定），不是全局默认。
+  // ★ `language` / `fileName` 现在**不参与渲染**（顶栏去掉了），但仍留在 elementInfo 里：
+  //   `language` 仍决定 Shiki 怎么高亮；两者都是"将来要恢复顶栏"时的现成数据。
+  //   故意不解构 `fileName` —— 解构了不用就是死代码。
+  const { language, lines, showLineNumbers = false, fontSize = 14 } = elementInfo;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const codeBodyRef = useRef<HTMLDivElement>(null);
 
@@ -579,7 +588,6 @@ export function BaseCodeElement({ elementInfo, animate }: BaseCodeElementProps) 
     return delays;
   }, [lines, animStates]);
 
-  const langDisplay = LANG_DISPLAY_NAMES[language] || language;
 
   return (
     <div
@@ -608,62 +616,33 @@ export function BaseCodeElement({ elementInfo, animate }: BaseCodeElementProps) 
         <div
           className="element-content w-full h-full flex flex-col overflow-hidden"
           style={{
-            borderRadius: '8px',
-            border: '1px solid #d1d5db',
-            background: '#fafbfc',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05)',
+            borderRadius: '6px',
+            border: '1px solid #e5e7eb',
+            background: '#f8f9fa',
             fontFamily:
               '"JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, SFMono-Regular, "Liberation Mono", Menlo, Monaco, Consolas, monospace',
             fontSize: `${fontSize}px`,
           }}
         >
-          {/* Header */}
-          <div
-            className="flex items-center justify-between shrink-0 px-3"
-            style={{
-              height: '32px',
-              background: '#f8f9fa',
-              borderBottom: '1px solid #e5e7eb',
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <div className="flex gap-[6px]">
-                <div className="w-[10px] h-[10px] rounded-full" style={{ background: '#ff5f57' }} />
-                <div className="w-[10px] h-[10px] rounded-full" style={{ background: '#febc2e' }} />
-                <div className="w-[10px] h-[10px] rounded-full" style={{ background: '#28c840' }} />
-              </div>
-              {fileName && (
-                <span
-                  className="ml-2 truncate"
-                  style={{
-                    color: '#6b7280',
-                    fontSize: '11px',
-                    letterSpacing: '0.01em',
-                  }}
-                >
-                  {fileName}
-                </span>
-              )}
-            </div>
-            <span
-              style={{
-                color: '#9ca3af',
-                fontSize: '10px',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                fontWeight: 500,
-              }}
-            >
-              {langDisplay}
-            </span>
-          </div>
+          {/*
+            ★ 2026-10-09：**原来这里有一条仿 macOS 编辑器的顶栏** —— 红黄绿三个圆点 +
+            右上角语言标签（`JAVA`），外加 8px 圆角与投影。它在这台机器上被用户否掉了
+            （原话「感觉这个代码块丑丑的」），理由实测得出来：
+              · 顶栏固定 **32px + 1px 边框**，而这一页的盒子只有 **127px 高** ⇒ 光它自己
+                吃掉 **26%**，再叠上内边距与 5 行 × 22.4px，代码区只剩 93px 装 128px
+                ⇒ **纵向溢出 35px**（第 5 行的 `}` 根本看不到）；
+              · 投影 + 圆角 + 三点让它读起来像**一个浮起来的窗口**，而幻灯片其余部分
+                是白底纯文字 —— 两种语言打架。
+            现在只留"浅底 + 细边框"这一层，与正文同一套语言。
+            语言名与文件名仍然在 `elementInfo` 里，只是不再占版面；
+            要恢复顶栏的话，判据 `tests/components/code-element-chrome.test.ts` 会先红。
+          */}
 
           {/* Code body */}
           <div
             ref={codeBodyRef}
-            className="flex-1 overflow-auto py-2"
+            className="flex-1 overflow-auto py-3 px-3"
             style={{
-              background: '#fafbfc',
               color: '#24292e',
               userSelect: 'none',
               WebkitUserSelect: 'none',
@@ -707,22 +686,3 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-const LANG_DISPLAY_NAMES: Record<string, string> = {
-  python: 'Python',
-  javascript: 'JavaScript',
-  typescript: 'TypeScript',
-  json: 'JSON',
-  go: 'Go',
-  rust: 'Rust',
-  java: 'Java',
-  c: 'C',
-  cpp: 'C++',
-  html: 'HTML',
-  css: 'CSS',
-  bash: 'Bash',
-  sql: 'SQL',
-  yaml: 'YAML',
-  markdown: 'Markdown',
-  jsx: 'JSX',
-  tsx: 'TSX',
-};
