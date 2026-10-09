@@ -40,7 +40,7 @@ describe('★ 内容与页面的六条优先级（用户定序，一处定义三
     expect(COURSE_REVIEW_RULES).toMatch(/「为真，走 if」 became 「为真走 if」/);
     expect(COURSE_REVIEW_RULES).toMatch(/Layout that does not hold/);
     // 索引式引用：禁写页码、按《标题》，并要核"标题是否唯一命中"
-    expect(COURSE_REVIEW_RULES).toMatch(/by 《title》/, 'never by page number');
+    expect(COURSE_REVIEW_RULES).toMatch(/by 《title》/);
     expect(COURSE_REVIEW_RULES).toMatch(/match exactly one page/);
   });
 
