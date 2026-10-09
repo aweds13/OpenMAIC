@@ -41,6 +41,47 @@ describe('staticPageText', () => {
     expect(text).not.toContain('strong');
   });
 
+  /**
+   * ★ `code` 元素（2026-10-09 补）。
+   *
+   * 这条路径靠**通用 walker 顺带**走到：`lines[]` 是数组 ⇒ 数组项照原键继续往下 ⇒
+   * 撞上 `content` 键 ⇒ 收下。所以它一直"看起来能用"，却**从来没有真数据走过** ——
+   * 实测 2026-10-09 之前，整个部署里 `code` 元素数量是 **0**（转第一页之前专门查过）。
+   * 抽不到的话，审查与覆盖缺口会**静默**看不见那一页的代码，正是本模块最该防的那种漏。
+   */
+  it('slide: `code` 元素的 lines[].content 收得到（第 21 页转出来的那种）', () => {
+    const text = staticPageText(
+      page({
+        content: {
+          type: 'slide',
+          canvas: {
+            elements: [
+              {
+                type: 'code',
+                language: 'java',
+                showLineNumbers: true,
+                left: 370,
+                top: 188,
+                width: 250,
+                height: 127,
+                rotate: 0,
+                lines: [
+                  { id: 'code_x-l1', content: 'for (int i=1; i<=3; i++) {' },
+                  { id: 'code_x-l2', content: '  System.out.print("*");' },
+                  { id: 'code_x-l3', content: '}' },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    expect(text).toContain('for (int i=1; i<=3; i++) {');
+    expect(text).toContain('System.out.print("*")');
+    // 行 id 是身份不是内容，别混进去。
+    expect(text).not.toContain('code_x-l1');
+  });
+
   it('quiz: 收题干、选项文字与解析，不收选项字母', () => {
     const text = staticPageText(
       page({
