@@ -5,7 +5,7 @@ import type { Scene, SlideContent } from '@/lib/types/stage';
 import { validateAppScene } from '@/lib/document-store/validators';
 import type { CourseDocument, CourseToolDeps } from './course-tools';
 import { putSceneBringingCurrent } from './document-writes';
-import { sceneWriteDiagnostics } from './scene-diagnostics';
+import { sceneWriteDiagnosticsWithReview } from './scene-diagnostics';
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import { splitCoverageGaps } from '@/lib/quiz/coverage-gap';
 import { runStageMutation } from './mutation-fence';
@@ -1034,12 +1034,15 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
        */
       const afterPatch = await deps.store.loadDocument(loaded.stageId);
       const diagnostics = afterPatch
-        ? sceneWriteDiagnostics({
-            scenes: afterPatch.scenes,
-            scene: afterPatch.scenes.find((item) => item.id === next.id) ?? next,
-            outline: afterPatch.outline as AppDocumentOutline | undefined,
-          })
-        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0 };
+        ? await sceneWriteDiagnosticsWithReview(
+            {
+              scenes: afterPatch.scenes,
+              scene: afterPatch.scenes.find((item) => item.id === next.id) ?? next,
+              outline: afterPatch.outline as AppDocumentOutline | undefined,
+            },
+            { reviewPage: deps.reviewPage },
+          )
+        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, pageReviewText: '' };
 
       deps.onCheckpoint({
         tool: 'patch_stage',
@@ -1061,7 +1064,7 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
       });
       return toolResult(
         `Updated scene "${next.title}": ${params.intent}` +
-          `${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}`,
+          `${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.pageReviewText}`,
         {
           intent: params.intent,
           updated: { sceneId: next.id, order: next.order, type: next.type, ops: params.ops.length },

@@ -104,6 +104,14 @@ export interface CourseToolDeps {
    * 那是下一步；在那之前，宁可闸得松一点，也不要造一个会静默失效的持久凭据。
    */
   reviewedStages?: Set<string>;
+  /**
+   * ★ 写入之后**连上下文再审一遍这一页**（见 `page-review.ts`）。
+   * 两条写入路径共用（`GenerationToolDeps extends CourseToolDeps`）；**不传就是没这一步**。
+   */
+  reviewPage?: (input: {
+    scenes: readonly Scene[];
+    order: number;
+  }) => Promise<{ findings: string } | null>;
   /** 测试缝：读盘上的审查凭据（默认读 `OPENMAIC_PLAN_FREEZE_DIR` 下的小文件）。 */
   readReviewReceipt?: (stageId: string) => Promise<unknown | null>;
 }

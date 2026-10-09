@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { sceneWriteDiagnostics, OVERFLOW_RISK_CHARS, THIN_PAGE_CHARS } from '@/lib/server/agent-runtime/scene-diagnostics';
+import { sceneWriteDiagnosticsWithReview, sceneWriteDiagnostics, OVERFLOW_RISK_CHARS, THIN_PAGE_CHARS } from '@/lib/server/agent-runtime/scene-diagnostics';
 import type { Scene } from '@/lib/types/stage';
 
 const slide = (text: string): Scene =>
@@ -54,5 +54,40 @@ describe('★ 字数带（机械层）', () => {
     const result = sceneWriteDiagnostics({ scenes: [quiz], scene: quiz, outline: undefined });
     expect(result.bodyChars).toBe(0);
     expect(result.densityText).toBe('');
+  });
+});
+
+/**
+ * ★ LLM 那一半：写入之后**连上下文**再审一遍这一页（`page-review.ts`）。
+ *
+ * 三件必须钉住的（否则就是"半成品挂在写入路径上"）：
+ * ① 传了 `reviewPage` ⇒ 结论**拼进工具回话**（agent 看得见）；
+ * ② 审查**抛错要吞掉** —— 没验成就是没验成，**绝不能让写入失败**；
+ * ③ 没传 ⇒ **一个字不加**（部署没配模型时，行为与以前完全一致）。
+ */
+describe('★ 写入后带上下文再审一遍（LLM 那一半）', () => {
+  const input = () => ({ scenes: [slide('这一页的内容')], scene: slide('这一页的内容'), outline: undefined });
+
+  it('★ 传了 reviewPage ⇒ 结论与"带前面讲过的页"一起拼进回话', async () => {
+    const result = await sceneWriteDiagnosticsWithReview(input(), {
+      reviewPage: async () => ({ findings: '第 1 页：轴 2 —— 掉了一个动词。' }),
+    });
+    expect(result.pageReviewText).toContain('掉了一个动词');
+    expect(result.pageReviewText).toMatch(/前面已经讲过的页/);
+  });
+
+  it('★ 审查抛错 ⇒ 吞掉，机械那一半照常（绝不让写入失败）', async () => {
+    const result = await sceneWriteDiagnosticsWithReview(input(), {
+      reviewPage: async () => {
+        throw new Error('模型挂了');
+      },
+    });
+    expect(result.pageReviewText).toBe('');
+    expect(result.bodyChars).toBeGreaterThan(0);
+  });
+
+  it('★ 没传 ⇒ 一个字不加', async () => {
+    const result = await sceneWriteDiagnosticsWithReview(input());
+    expect(result.pageReviewText).toBe('');
   });
 });

@@ -28,7 +28,7 @@ import { createGenerationAiCallFactory, sceneContentStage } from './generation-a
 import { synthesizeSceneNarration } from './scene-tts';
 import { toGenerationContent } from './generation-content';
 import { checkScenesAgainstSkill } from './skills';
-import { sceneWriteDiagnostics } from './scene-diagnostics';
+import { sceneWriteDiagnosticsWithReview } from './scene-diagnostics';
 import { splitCoverageGaps } from '@/lib/quiz/coverage-gap';
 import { appendToSystemPrompt, buildQuizGrounding } from '@/lib/quiz/quiz-grounding';
 import { upsertOutlineEntry } from './course-outline-write';
@@ -736,14 +736,17 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
        */
       const diagnostics =
         afterWrite !== null
-          ? sceneWriteDiagnostics({
-              scenes: afterWrite.scenes,
-              scene: persisted,
-              outline: (outlineUpdate.outline ?? afterWrite.outline) as
-                | AppDocumentOutline
-                | undefined,
-            })
-          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0 };
+          ? await sceneWriteDiagnosticsWithReview(
+              {
+                scenes: afterWrite.scenes,
+                scene: persisted,
+                outline: (outlineUpdate.outline ?? afterWrite.outline) as
+                  | AppDocumentOutline
+                  | undefined,
+              },
+              { reviewPage: deps.reviewPage },
+            )
+          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, pageReviewText: '' };
       const mediaPlaceholders = collectUnresolvedMediaPlaceholders(persisted);
       deps.onCheckpoint({
         tool: 'generate_scene',
@@ -772,7 +775,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           skillViolations.length
             ? ` SKILL CONSTRAINT CHECK against "${skill?.id}": ${skillViolations.join('; ')}.`
             : ''
-        }${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${
+        }${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.pageReviewText}${
           mediaPlaceholders.length
             ? ` ${mediaPlaceholders.length} media placeholder(s) still render as skeletons.`
             : ''

@@ -171,3 +171,42 @@ export function sceneWriteDiagnostics(input: SceneWriteDiagnosticsInput): SceneW
     bodyChars,
   };
 }
+
+/**
+ * ★ 带**读者视角再读一遍**的诊断（2026-10-09）。
+ *
+ * 机械诊断（覆盖缺口 / 计划依赖 / 字数带）是**可算的**；"这一页读得通吗"**不可算**，
+ * 只能让一次带上下文的模型调用去读（`page-review.ts`）。
+ *
+ * 三条纪律（和写入后诊断同源）：
+ * 1. **绝不让写入失败** —— 审查抛错/超时/返回空，都只是"这次没验成"，页面照样是写好的；
+ * 2. **没传 `reviewPage` 就是没这一步**（部署没配模型时行为与以前完全一致）；
+ * 3. 文本**拼在同一处**（两个写入点都调这个函数），免得只有一条路径挂上了。
+ */
+export interface SceneWriteReviewDeps {
+  reviewPage?: (input: {
+    scenes: readonly Scene[];
+    order: number;
+  }) => Promise<{ findings: string } | null>;
+}
+
+export async function sceneWriteDiagnosticsWithReview(
+  input: SceneWriteDiagnosticsInput,
+  deps: SceneWriteReviewDeps = {},
+): Promise<SceneWriteDiagnostics & { pageReviewText: string }> {
+  const base = sceneWriteDiagnostics(input);
+  if (!deps.reviewPage) return { ...base, pageReviewText: '' };
+  try {
+    const review = await deps.reviewPage({ scenes: input.scenes, order: input.scene.order });
+    if (!review || review.findings.trim().length === 0) return { ...base, pageReviewText: '' };
+    return {
+      ...base,
+      pageReviewText: `
+
+这一页写完后再读一遍（带它前面已经讲过的页）——
+${review.findings}`,
+    };
+  } catch {
+    return { ...base, pageReviewText: '' };
+  }
+}

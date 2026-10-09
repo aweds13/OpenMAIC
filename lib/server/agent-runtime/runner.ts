@@ -79,6 +79,7 @@ import {
 import { planGateEnabled } from './plan-freeze';
 import { buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
 import { buildCourseReviewTool, courseReviewPromptBlock } from './review-tools';
+import { reviewPageWithContext } from './page-review';
 import { createGenerationAiCallFactory } from './generation-ai-call';
 import { buildScratchTool, scratchPromptBlock } from './scratch-tools';
 import {
@@ -1504,8 +1505,30 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // (course-tools.ts).
     // ★ 一次运行内共享「审过哪些课」：`review_course` 写、`patch_stage` 读（B 方案那道闸的依据）。
     const reviewedStages = new Set<string>();
+    // ★ 写入之后**连上下文再审一遍这一页**（机械那一半在 `scene-diagnostics.ts`，这里补
+    //   "读得通吗"——那件事不可算）。用户的原话：「有的上面的 ppt 讲了，**不能孤立地看**」，
+    //   所以带上这一页**前面已经讲过的页**（`page-review.ts` 按字符预算从最近往前取）。
+    //   没配模型 / 调用失败 ⇒ `sceneWriteDiagnosticsWithReview` 吞掉异常、退回"这次没验成"，
+    //   **绝不让写入失败**。
+    const reviewPage = async (input: {
+      scenes: readonly { order: number; type: string; title: string; content: unknown }[];
+      order: number;
+    }) =>
+      reviewPageWithContext(
+        {
+          scenes: input.scenes.map((scene) => ({
+            order: scene.order,
+            type: scene.type,
+            title: scene.title,
+            content: scene.content,
+          })),
+          order: input.order,
+        },
+        { aiCall: createGenerationAiCallFactory()('course-review') },
+      );
     const dslTools = buildDslCourseToolset({
       reviewedStages,
+      reviewPage,
       store: ownerScopedStore,
       backgroundStore: mediaJobStore,
       stageAccess,
