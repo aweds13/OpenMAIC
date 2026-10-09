@@ -187,3 +187,46 @@ describe('★ 讲练节奏：一页一个小点 · 练习=同一小点的一组�
     expect(block).toMatch(/padding, and it buries the one task/);
   });
 });
+
+/**
+ * ★★ 交互页的**报错格式**（2026-10-09，学习者第 3 轮「✗ 看不懂的字符」）。
+ *
+ * 他的原话逐字是：**「看不懂的字符：. 和正规报错不同，不好找 BUG，工具问题」** ——
+ * 那不是抱怨，那是**引用**。实测挖出生成器真正吐出来的文案：
+ *
+ * ```
+ * P19 / P22 / P46：看不懂的字符：.        ← 没有行号，一个裸 token
+ * P34          ：3 行：无法识别的字符 "."   ← 同一个生成器，这一页有行号
+ * ```
+ *
+ * **同一个生成器，两种格式** —— 所以这必须写进要求，不能碰运气。
+ * 另外实测：20 个交互页里只有 **12** 个带上游的结构化 `widgetConfig`，
+ * 其余 8 个自己造 UI ⇒ **不受任何结构化检查覆盖**。
+ */
+describe('★ 交互页：报错要能照着改，而且要带结构化配置', () => {
+  const block = courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: true });
+
+  it('★★ 报错必须**带行号**，并引原文（`看不懂的字符：.` 就是反面例子）', () => {
+    expect(block).toMatch(/Interactive pages: an error the learner can act on/);
+    expect(block).toMatch(/Name the line, always/);
+    expect(block).toMatch(/第 3 行：看不懂的字符/);
+    // 反面例子必须在场 —— 判据要能说清"错的长什么样"。
+    expect(block).toMatch(/not `看不懂的字符：\.`/);
+    expect(block).toMatch(/a bare token with no line number is unusable/);
+  });
+
+  it('★ 要说明"期望什么"，不许自创报错格式', () => {
+    expect(block).toMatch(/Say what was expected, not just what was seen/);
+    expect(block).toMatch(/Never invent your own error format/);
+  });
+
+  it('★ 两种格式并存这件事有实测出处（不是我们拍的）', () => {
+    expect(block).toMatch(/same generator produced two formats/);
+    expect(block).toMatch(/12 of 20/);
+  });
+
+  it('★ 必须带结构化 `widgetConfig`，否则不进任何结构化检查', () => {
+    expect(block).toMatch(/carry the structured `widgetConfig`/);
+    expect(block).toMatch(/invisible to every structural check/);
+  });
+});
