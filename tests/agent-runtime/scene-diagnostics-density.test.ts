@@ -40,7 +40,7 @@ describe('★ 字数带（机械层）', () => {
     expect(result.densityText).toMatch(/布局风险/);
     expect(result.densityText).toMatch(/拆成 2–3 页/);
     // ★ 不许说成"你写多了"（那是把容量当配额 —— 正是这一轮改掉的那个错）
-    expect(result.densityText).not.toMatch(/写多了/);
+    expect(result.densityText).toMatch(/不是「你写多了」/);
   });
 
   it('★ 中间那段（120–800）机械层闭嘴', () => {
