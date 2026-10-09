@@ -55,9 +55,16 @@ This explicitly includes:
 REQUIRED CONTENT DENSITY
 1. Each content slide must carry the complete explanation: definitions, rules,
    concrete examples, and the reasoning that connects them.
-2. Aim for roughly 350-400 Chinese characters (or 180-220 English words) of
-   meaningful body text per slide, excluding the title. This is substantially
-   MORE than the default; that is intended.
+2. Roughly 350-400 Chinese characters (or 180-220 English words) of meaningful
+   body text per slide is a measured page CAPACITY, not a quota and not a limit.
+   This is substantially MORE than the default; that is intended.
+   ★★ PRIORITY, in this order: substance > complete and accurate meaning >
+   fitting language > complete structure > nothing left to guess > sound layout.
+   The character count is LAST — it is a page capacity, not a quota. If it does not
+   fit, add a page or rewrite; never compress the sentence.
+   Never drop a subject, verb or object to save characters — 「为真，走 if」 is
+   correct and 「为真走 if」 is not. Going over the number is acceptable;
+   truncating a sentence until its meaning changes is not.
    The number is not arbitrary: a real university deck measured 352-390
    characters/page (Tianjin University, 《程序设计》, week 2 lectures). It is
    also near the ceiling the fixed 1000x562.5 canvas can hold at a readable
