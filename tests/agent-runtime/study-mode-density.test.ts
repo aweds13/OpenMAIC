@@ -29,6 +29,16 @@ describe('★ 内容与页面的六条优先级（用户定序，一处定义三
     // 具体反例必须留着（抽象措辞生成器读不进去）
     expect(CONTENT_PRIORITY).toContain('「为真，走 if」 is correct; 「为真走 if」 is not');
     expect(CONTENT_PRIORITY).toMatch(/truncated until its meaning changes is worse/);
+    // ★ 第 5 条必须**拆成两类**：新概念（有机械替代）与表达不清（只能靠模型）。
+    //   用户原话：「不用人猜有两种：新概念和表达不清」—— 混成一条会让收紧做错方向
+    //   （把"表达不清"也当成可以机械算的）。
+    expect(CONTENT_PRIORITY).toContain('5a.');
+    expect(CONTENT_PRIORITY).toContain('5b.');
+    expect(CONTENT_PRIORITY).toMatch(/5a[\s\S]*HAS a mechanical substitute/);
+    expect(CONTENT_PRIORITY).toMatch(/5b[\s\S]*NO mechanical check can find this one/);
+    // 表达不清必须"引用那句话"，否则读者无从核对
+    expect(CONTENT_PRIORITY).toMatch(/Quote the sentence that fails/);
+
     // 字数属于第 6 条的地界，不是第 1 条
     expect(CONTENT_PRIORITY).toMatch(/CAPACITY/);
     expect(CONTENT_PRIORITY).toMatch(/add a page or rewrite/);
