@@ -76,6 +76,47 @@ describe('review_course 的隔离性', () => {
  * 40 万+ token。所以按**字符预算**在页序上停，并**说清停在哪、剩下多少、怎么接着审**
  * —— 不截断页面内容（截断会让审查者对着半页说"没讲"，那是新的假阳性）。
  */
+/**
+ * ★ 收紧：每页最多报最先卡住的一两条 + 新概念只从**机械候选**里确认。
+ *
+ * 依据是真跑读数（2026-10-09）：上一跑 **44/64 页**被点名，轴 5 占 23 条 ——
+ * 那不是发现，是把整门课逐页体检了一遍。根因是让模型从零开始盘"这页用了什么没讲过的词"，
+ * 而**那件事机器能算**（`coverage-gap` 的同一个单位）。所以：
+ * · 机器算候选 → 模型**只确认候选**；
+ * · 每页最多两条，且必须按轴 1–4 先报。
+ */
+describe('★ 审查输出收紧（44/64 页那一跑的根因）', () => {
+  it('★ 机械候选要进 system prompt，且明说「只在这些里确认」', async () => {
+    const aiCall = vi.fn(async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。');
+    const built = buildCourseReviewTool({
+      loadScenes: async () => [SLIDE(1, 'byte 的范围是 -128 到 127'), SLIDE(2, '用 byte 存年龄')],
+      aiCall: aiCall as never,
+    });
+    await built.execute('call-1', { stageId: 'stage-x' });
+    const [system] = aiCall.mock.calls[0]!;
+    expect(String(system)).toContain('机械候选');
+    // 第 2 页用到的 byte 在第 1 页出现过 ⇒ **不该**出现在第 2 页的候选里
+    const page2 = String(system).split('第 2 页候选：')[1]?.split(String.fromCharCode(10))[0] ?? '';
+    expect(page2).not.toContain('byte');
+    // 第 1 页是首现 ⇒ 它本身是候选
+    expect(String(system)).toContain('第 1 页候选');
+    expect(String(system)).toMatch(/只在这些里确认/);
+  });
+
+  it('★ 每页最多两条 + 轴 1–4 先报 + 「不清楚」不许单独报', async () => {
+    const aiCall = vi.fn(async (_system: string, _user: string) => '第 1 页：没问题。');
+    const built = buildCourseReviewTool({
+      loadScenes: async () => [SLIDE(1, '内容')],
+      aiCall: aiCall as never,
+    });
+    await built.execute('call-1', { stageId: 'stage-x' });
+    const system = String(aiCall.mock.calls[0]![0]);
+    expect(system).toMatch(/two is the hard cap/);
+    expect(system).toMatch(/1–4 first/);
+    expect(system).toMatch(/「Unclear」 alone is not actionable/);
+  });
+});
+
 describe('★ 字符预算：一次审查不许把整门课塞进去', () => {
   it('★ 超预算就停在预算处，并告诉调用方用 fromOrder 接着审', async () => {
     const big = (order: number): VisibleTextPage => SLIDE(order, '字'.repeat(900));

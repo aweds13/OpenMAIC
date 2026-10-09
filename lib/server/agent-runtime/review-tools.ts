@@ -40,6 +40,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { AICallFn } from '@openmaic/generation';
 
 import { learnerVisibleText, type VisibleTextPage } from '@/lib/quiz/page-text';
+import { contentChunks } from '@/lib/quiz/coverage-gap';
 import { CONTENT_PRIORITY } from './study-mode';
 import { writeReviewReceipt } from './plan-freeze-store';
 
@@ -125,6 +126,22 @@ export const COURSE_REVIEW_RULES = [
   'numbers rot the moment a page is inserted (measured: three inserted pages broke 18 of the 48',
   'references in that course). Report any 「第 N 页」 you see, and report any 《title》 that does not',
   'match exactly one page of this course.',
+  '',
+  'How to report (this is what makes the report usable):',
+  '· **At most the FIRST thing that blocks the reader on each page** — one finding, two only if the',
+  '  second is on a different axis, and two is the hard cap. Do NOT give every page a verdict and do',
+  '  not inventory a page axis by axis: last run 44 of 64 pages came back with findings, which is a',
+  '  list nobody can act on.',
+  '· Report in axis order — **1–4 first** (content · meaning · language · structure), because that is',
+  '  the order the learner feels them. Item 5 (a new concept) goes in a short appendix at the end.',
+  '· A page with nothing blocking it gets **one line** saying so — not a paragraph.',
+  '· When something is merely 「unclear」, do not report that word: name which of 1–4 fails and quote',
+  '  the sentence (see item 5 above). 「Unclear」 alone is not actionable.',
+  '',
+  'On item 5: you are given a **mechanical candidate list** per page — the terms that page uses which',
+  'appear nowhere before it. **Only judge those candidates**; do not list a page is terms yourself.',
+  'Call one a gap only if neither that page nor any earlier page explains it (a later line on the',
+  'same page counts as explained).',
   '',
   'Write in Chinese. Be specific: every claim carries a page number and a quote. No advice,',
   'no summary, no pleasantries — only what is wrong.',
@@ -229,7 +246,21 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       const notRendered = pages.filter((page) => page.mode === 'source');
       const empty = pages.filter((page) => page.text.trim().length === 0);
 
-      const systemPrompt = `${COURSE_REVIEW_RULES}\n\n# 课程页面（共 ${pages.length} 页）\n\n${formatPages(pages)}`;
+      // ★ 5a「新概念」的**机械候选**：这一页用到、前面所有页都没出现过的内容块。
+      //   用的是 `coverage-gap` 的同一个单位（`contentChunks`），**不另造一把尺** ——
+      //   目的是让审查**只确认候选**，不再逐词体检整页（上一跑 44/64 页被点名就是这个根因）。
+      const earlierChunks = new Set<string>();
+      const candidateLines: string[] = [];
+      for (const page of pages) {
+        const chunks = contentChunks(page.text);
+        const fresh = chunks.filter((chunk) => !earlierChunks.has(chunk)).slice(0, 8);
+        if (fresh.length > 0) candidateLines.push(`第 ${page.order} 页候选：${fresh.join("、")}`);
+        for (const chunk of chunks) earlierChunks.add(chunk);
+      }
+      const candidatesText = candidateLines.length
+        ? String.fromCharCode(10) + String.fromCharCode(10) + '# 机械候选（5a 新概念）—— **只在这些里确认，别的不要自己列**' + String.fromCharCode(10) + String.fromCharCode(10) + candidateLines.join(String.fromCharCode(10)) + String.fromCharCode(10) + String.fromCharCode(10) + '★ 这些是**机器算出来**的（这一页用到、前面所有页都没出现过）。你要判的只是：哪些是**真缺口**（本页后文或任何前面一页解释了它 ⇒ 不是缺口）。'
+        : '';
+      const systemPrompt = `${COURSE_REVIEW_RULES}${candidatesText}\n\n# 课程页面（共 ${pages.length} 页）\n\n${formatPages(pages)}`;
       const raw = await deps.aiCall(systemPrompt, '开始审查。按上面的规矩交结果。');
 
       const report = typeof raw === 'string' ? raw.trim() : '';
@@ -281,6 +312,7 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
           emptyPages: empty.map((page) => page.order),
           /** 全量出口：逐页的取文方式，正文只给样本时用得上。 */
           pageModes: pages.map((page) => ({ order: page.order, mode: page.mode, chars: page.text.length })),
+          candidatePages: candidateLines.length,
           charsUsed: used,
           charsBudget: budget,
           remainingPages: remaining,
