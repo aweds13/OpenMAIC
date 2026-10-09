@@ -8,6 +8,7 @@ import { ChartElement } from '../../components/element/ChartElement';
 import { LatexElement } from '../../components/element/LatexElement';
 import { TableElement } from '../../components/element/TableElement';
 import { VideoElement } from '../../components/element/VideoElement';
+import { BaseCodeElement } from '../../components/element/CodeElement/BaseCodeElement';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -63,6 +64,16 @@ export function EditableElement({
       [ElementTypes.LATEX]: LatexElement,
       [ElementTypes.TABLE]: TableElement,
       [ElementTypes.VIDEO]: VideoElement,
+      // ★ 2026-10-09：`code` 原来**不在这张表里** ⇒ 走下面那个
+      //   「`{type} element (not implemented)`」占位块。用户截图就是它。
+      //   实测三条渲染路径里只有两条认 `code`：
+      //     · 播放（`ScreenElement`）—— 认；
+      //     · **本文件（旧的可编辑画布，本部署实际走的就是这条 ——
+      //       `NEXT_PUBLIC_MAIC_EDITOR_RENDERER_ENABLED` 没设 ⇒ `isEditorRendererEnabled()` 为假）** —— 原来不认；
+      //     · `@openmaic/renderer` 的 `SlideCanvas`（新渲染器）—— 它自己有一份 `BaseCodeElement`，认，
+      //       但那是**上游的独立实现**，我们改不到（`packages/@openmaic/**` 只读）。
+      //   ★ 所以"给 code 加了渲染器"这件事有**三处**，改一处不等于改完 —— 见 `AGENTS.md` §2。
+      [ElementTypes.CODE]: BaseCodeElement,
       // TODO: Add other element types
       // [ElementTypes.AUDIO]: AudioElement,
     };

@@ -51,6 +51,32 @@ interface OperateProps {
   readonly openLinkDialog: () => void;
 }
 
+/**
+ * 元素类型 → 选中时那个"操作层"组件。
+ *
+ * ★ 导出是为了让判据能钉住**派生关系**（`tests/components/slide-renderer/editable-code-element.test.ts`），
+ *   而不是去读源码文本 —— 后者行为零变化也会碎（本仓栽过一次）。
+ *
+ * ★ 2026-10-09：`code` 原来**不在这张表里**。缺了它，**选中代码块没有缩放手柄**
+ *   （调用处 `isSelected && CurrentOperateComponent` 直接短路）。而代码块的盒子恰恰最需要手调：
+ *   实测它的内部开销与 `text` 元素不同（内边距 24 + 每行 1.6×字号 + 边框 2），
+ *   照抄 `text` 的盒子会把内容挤出去（Day02 第 21 页就是这么坏的）。
+ *   ★ 这是 `code` 元素**三处元素表**的第三处（另两处：`ScreenElement`、`EditableElement`）。
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- element operate components have varying prop signatures
+export const ELEMENT_OPERATE_COMPONENTS: Record<string, any> = {
+  [ElementTypes.IMAGE]: ImageElementOperate,
+  [ElementTypes.TEXT]: TextElementOperate,
+  [ElementTypes.SHAPE]: ShapeElementOperate,
+  [ElementTypes.LINE]: LineElementOperate,
+  [ElementTypes.TABLE]: TableElementOperate,
+  [ElementTypes.CHART]: CommonElementOperate,
+  [ElementTypes.LATEX]: CommonElementOperate,
+  [ElementTypes.VIDEO]: CommonElementOperate,
+  [ElementTypes.AUDIO]: CommonElementOperate,
+  [ElementTypes.CODE]: CommonElementOperate,
+};
+
 export function Operate({
   elementInfo,
   isSelected,
@@ -100,21 +126,10 @@ export function Operate({
     return formatedAnimations;
   }, [currentSlide]);
 
-  const CurrentOperateComponent = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- element operate components have varying prop signatures
-    const elementTypeMap: Record<string, any> = {
-      [ElementTypes.IMAGE]: ImageElementOperate,
-      [ElementTypes.TEXT]: TextElementOperate,
-      [ElementTypes.SHAPE]: ShapeElementOperate,
-      [ElementTypes.LINE]: LineElementOperate,
-      [ElementTypes.TABLE]: TableElementOperate,
-      [ElementTypes.CHART]: CommonElementOperate,
-      [ElementTypes.LATEX]: CommonElementOperate,
-      [ElementTypes.VIDEO]: CommonElementOperate,
-      [ElementTypes.AUDIO]: CommonElementOperate,
-    };
-    return elementTypeMap[elementInfo.type] || null;
-  }, [elementInfo.type]);
+  const CurrentOperateComponent = useMemo(
+    () => ELEMENT_OPERATE_COMPONENTS[elementInfo.type] || null,
+    [elementInfo.type],
+  );
 
   const elementIndexListInAnimation = useMemo(() => {
     if (!formatedAnimations) return [];
