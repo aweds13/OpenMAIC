@@ -7,6 +7,7 @@ import {
   normalizePlanFreeze,
   planGate,
   revisePlan,
+  BACKFILLED_BRIEF,
   type PlanFreezeState,
 } from '@/lib/server/agent-runtime/plan-freeze';
 import { PLAN_FREEZE_TOOL_NAMES } from '@/lib/server/agent-runtime/plan-freeze-tools';
@@ -15,24 +16,47 @@ import type { SceneOutline } from '@/lib/types/generation';
 
 const T0 = 1_700_000_000_000;
 
+/**
+ * 一条**合格**的计划条目：有单元抬头、有 `keyPoints`。
+ * ★ 2026-10-09 起 `freezePlan` 会验这个（"计划是不是规格"），
+ *   所以夹具必须是规格内的 —— 否则测的就不是它本来要测的东西。
+ */
 function entry(order: number): SceneOutline {
-  return { id: `p${order}`, order, title: `第 ${order} 页`, type: 'slide' } as SceneOutline;
+  return {
+    id: `p${order}`,
+    order,
+    title: `第 ${order} 页`,
+    type: 'slide',
+    keyPoints: [`第 ${order} 页的小点`],
+    description: `【Unit U${order} · explanation 1/1】第 ${order} 页的 brief`,
+  } as SceneOutline;
+}
+
+/** `backfill` 派生出来的那种条目 —— 天生没有单元与小点，**闸不该算它的账**。 */
+function backfilled(order: number): SceneOutline {
+  return {
+    id: `p${order}`,
+    order,
+    title: `第 ${order} 页`,
+    type: 'slide',
+    description: BACKFILLED_BRIEF,
+  } as SceneOutline;
 }
 
 /** 走一遍正常路径：写计划 → 冻结。 */
 function frozen(entries: SceneOutline[]): PlanFreezeState {
-  return freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entryCount: entries.length }).state;
+  return freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries }).state;
 }
 
 describe('冻结', () => {
   it('★ refuses to freeze an empty plan (otherwise the gate is theatre)', () => {
-    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entryCount: 0 });
+    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: [] });
     expect(result.state.frozen).toBe(false);
     expect(result.error).toContain('先把要做的页写进计划');
   });
 
   it('freezes a non-empty plan and remembers how many entries there were', () => {
-    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entryCount: 4 });
+    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: [entry(1), entry(2), entry(3), entry(4)] });
     expect(result.error).toBeUndefined();
     expect(result.state.frozen).toBe(true);
     expect(result.state.frozenAt).toBe(T0);
@@ -131,15 +155,17 @@ describe('解析磁盘上的状态', () => {
 
 describe('状态行', () => {
   it('says未冻结 when it is not frozen', () => {
-    expect(formatPlanFreezeStatus(emptyPlanFreeze('s'), 3)).toContain('未冻结');
+    expect(formatPlanFreezeStatus(emptyPlanFreeze('s'), [entry(1), entry(2), entry(3)])).toContain('未冻结');
   });
 
   it('reports the revision count, and notices drift in the entry count', () => {
     const state = frozen([entry(1), entry(2)]);
-    expect(formatPlanFreezeStatus(state, 2)).toContain('修订 0 次');
-    expect(formatPlanFreezeStatus(state, 2)).not.toContain('冻结时是');
+    expect(formatPlanFreezeStatus(state, [entry(1), entry(2)])).toContain('修订 0 次');
+    expect(formatPlanFreezeStatus(state, [entry(1), entry(2)])).not.toContain('冻结时是');
     // 冻结之后悄悄加了页 —— 要看得见。
-    expect(formatPlanFreezeStatus(state, 5)).toContain('冻结时是 2 条');
+    expect(
+      formatPlanFreezeStatus(state, [entry(1), entry(2), entry(3), entry(4), entry(5)]),
+    ).toContain('冻结时是 2 条');
   });
 });
 
@@ -155,7 +181,7 @@ describe('★ 拒绝消息里点名的工具必须真实存在', () => {
       planGate({ state: emptyPlanFreeze('stage-x'), entries: [], order: 1 }),
       planGate({ state: emptyPlanFreeze('stage-x'), entries: [entry(1)], order: 1 }),
       planGate({
-        state: freezePlan(emptyPlanFreeze('stage-x'), { at: T0, entryCount: 1 }).state,
+        state: freezePlan(emptyPlanFreeze('stage-x'), { at: T0, entries: [entry(1)] }).state,
         entries: [entry(1)],
         order: 9,
       }),
@@ -217,5 +243,79 @@ describe('★ 大纲阶段：单元 · 小点 · 讲/练 · 难度', () => {
     // 难度现在走**自己的字段**（`difficulty`），落进 brief 抬头；`quizConfig` 只在 quiz 页上另外填。
     expect(block).toMatch(/`difficulty` \(`easy` \/ `medium` \/ `hard`\) on \*\*every practice entry\*\*/);
     expect(block).toMatch(/lands in the brief prefix/);
+  });
+});
+
+/**
+ * ★★ 「这份计划**是不是规格**」—— 2026-10-09 加的那道闸与那份诊断。
+ *
+ * ── 它回答的是学习者那句「以后能让它自动怎么改吗」────────────────
+ *
+ * 在他问之前，冻结**只验一件事：条目数不为 0**。于是一份"一页一条、没有单元、
+ * `keyPoints` 全空"的计划**照样冻结成功** —— 而实测那一门（`stage-GYvpbYB_aN`：
+ * 66 条里 24 条 `backfill` 占位、`keyPoints` 有内容的 **0** 条）就是这么来的。
+ * 提示词里写着"计划是教学设计，不是页表"，**冻结那一刻一个字都不验**。
+ *
+ * 闸 + 诊断合起来才叫"自动"：
+ *   · `freeze` **拒** —— 新计划零代价，改了再来；
+ *   · `status` **报** —— 已有课程不会被拦死，但 agent 一次 `status` 就会看见
+ *     "这份计划不是规格"，于是**自己**提出重排，不需要用户知道要贴什么提示词。
+ *
+ * ★ 两类条目必须分开：`backfill` 派生的**一律不算账**，
+ *   否则一门老课**永远无法重新冻结** —— 那比没有闸更糟。
+ */
+describe('★★ 计划是不是规格：闸 + 诊断', () => {
+  it('★ 作者写的条目缺单元 / 缺 keyPoints ⇒ **拒冻结**，并点名是哪几页', () => {
+    const bare = { id: 'p1', order: 1, title: '第 1 页', type: 'slide' } as SceneOutline;
+    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: [bare] });
+    expect(result.state.frozen).toBe(false);
+    expect(result.error).toContain('不算**规格**');
+    expect(result.error).toContain('没写单元');
+    expect(result.error).toContain('`keyPoints` 是空的');
+    expect(result.error).toContain('第 1 页');
+  });
+
+  it('★ 练习页没写难度 ⇒ 也拒（难度是"由易到难"唯一的落点）', () => {
+    const practice = {
+      id: 'p2', order: 2, title: '改错：三处', type: 'interactive',
+      keyPoints: ['小点'], description: '【Unit U1 · practice 1/1 · form: fix-the-bug】brief',
+    } as SceneOutline;
+    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: [practice] });
+    expect(result.state.frozen).toBe(false);
+    expect(result.error).toContain('没写难度');
+  });
+
+  it('★★ `backfill` 派生的条目**不算账**（否则老课永远冻结不了）', () => {
+    const result = freezePlan(emptyPlanFreeze('stage-a'), {
+      at: T0,
+      entries: [backfilled(1), backfilled(2)],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.state.frozen).toBe(true);
+  });
+
+  it('★ 合格的条目照常冻结（闸不能把正常路挡住）', () => {
+    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: [entry(1), entry(2)] });
+    expect(result.error).toBeUndefined();
+    expect(result.state.frozenEntryCount).toBe(2);
+  });
+
+  it('★★ `status` 要**自己说出**"这份计划不是规格"（这才是"自动"的那一环）', () => {
+    const bare = { id: 'p1', order: 1, title: '第 1 页', type: 'slide' } as SceneOutline;
+    const line = formatPlanFreezeStatus(emptyPlanFreeze('s'), [bare]);
+    expect(line).toContain('不是规格');
+    expect(line).toContain('没有单元');
+  });
+
+  it('★ 全是 `backfill` 的课也要被点名（那正是"从来没设计过"的样子）', () => {
+    const line = formatPlanFreezeStatus(emptyPlanFreeze('s'), [backfilled(1), backfilled(2)]);
+    expect(line).toContain('全是 `backfill`');
+    expect(line).toContain('按单元重排');
+  });
+
+  it('★ 规格内的计划**不许**被诊断啰嗦（否则这条诊断会变成噪声）', () => {
+    const line = formatPlanFreezeStatus(emptyPlanFreeze('s'), [entry(1), entry(2)]);
+    expect(line).not.toContain('不是规格');
+    expect(line).not.toContain('backfill');
   });
 });

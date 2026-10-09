@@ -95,9 +95,10 @@ export function normalizePlanFreeze(stageId: string, value: unknown): PlanFreeze
  */
 export function freezePlan(
   state: PlanFreezeState,
-  input: { at: number; entryCount: number },
+  input: { at: number; entries: readonly SceneOutline[] },
 ): { state: PlanFreezeState; error?: string } {
-  if (input.entryCount === 0) {
+  const entryCount = input.entries.length;
+  if (entryCount === 0) {
     return {
       state,
       error:
@@ -105,12 +106,51 @@ export function freezePlan(
         '先把要做的页写进计划（每页一句 brief），再冻结。',
     };
   }
+  /**
+   * ★★ **"计划是不是规格"这道闸**（2026-10-09）。
+   *
+   * 在这之前，冻结**只验条目数不为 0** —— 于是一份"一页一条、没有单元、`keyPoints`
+   * 全空"的计划**照样冻结成功**，而它正是实测那一门（66 条里 24 条占位、0 条有 keyPoints）
+   * 的来历。提示词里写着"计划是教学设计，不是页表"，**冻结那一刻一个字都不验**。
+   *
+   * 两类条目分开算（见 `planSpecGaps`）：`backfill` 派生的**一律不算账**，
+   * 否则一门老课**永远无法重新冻结** —— 那比没有闸更糟。
+   */
+  const gaps = planSpecGaps(input.entries);
+  // ★ 三条都要**真的拒** —— 只把 `practiceMissingDifficulty` 算出来、写进消息里却不拒，
+  //   那就是"报了但没管"（我自己的判据当场抓到的：练习页缺难度时它照样冻结成功）。
+  //   难度是"由易到难"唯一的落点，缺了它，一个单元的梯度事后无从查起。
+  if (
+    gaps.authored > 0 &&
+    (gaps.missingKeyPoints > 0 || gaps.missingUnit > 0 || gaps.practiceMissingDifficulty > 0)
+  ) {
+    const parts = [
+      gaps.missingUnit > 0 ? `${gaps.missingUnit} 条没写单元` : '',
+      gaps.missingKeyPoints > 0 ? `${gaps.missingKeyPoints} 条 \`keyPoints\` 是空的` : '',
+      gaps.practiceMissingDifficulty > 0
+        ? `${gaps.practiceMissingDifficulty} 条练习没写难度`
+        : '',
+    ].filter((part) => part.length > 0);
+    return {
+      state,
+      error: [
+        `这份计划还不算**规格**，不能冻结：你写的 ${gaps.authored} 条里有 ${parts.join('、')}。`,
+        gaps.samples.length > 0 ? `例如：${gaps.samples.join('、')}。` : '',
+        '规矩是：**一个单元 = 讲解（一页一个小点）+ 练习（同一小点的一组题）**；' +
+          '每条都要有 `unit`、`keyPoints`（非空），练习条目还要有 `difficulty`。',
+        '用 `plan_freeze { action: "revise", entries: [...] }` 把这些补齐（`revise` 会覆盖写，' +
+          '不用先删）。补齐之前冻结不了 —— 计划不是规格，生成出来的页也不会是。',
+      ]
+        .filter((line) => line.length > 0)
+        .join(String.fromCharCode(10)),
+    };
+  }
   return {
     state: {
       ...state,
       frozen: true,
       frozenAt: input.at,
-      frozenEntryCount: input.entryCount,
+      frozenEntryCount: entryCount,
     },
   };
 }
@@ -146,6 +186,68 @@ export interface PlanGateInput {
   entries: readonly SceneOutline[];
   /** 正要生成的那一页的页号。 */
   order: number;
+}
+
+/** `backfill` 给派生条目写的 brief —— **它是"这条不是作者写的"的唯一标记**。 */
+export const BACKFILLED_BRIEF =
+  'backfilled from the existing page (the original brief was never recorded)';
+
+/**
+ * 「这份计划**是不是一份规格**」—— 2026-10-09。
+ *
+ * ── 为什么要有这个函数（实测逼出来的）──────────────────────────
+ *
+ * 学习者第 3 轮吐槽里，根因最深的一条是：**计划根本不是规格**。
+ * 实测 `stage-GYvpbYB_aN`：66 条里 **24 条**是 `backfill` 派生（brief 就一句
+ * "backfilled…"）、`keyPoints` 有内容的 **0 条**、`teachingObjective` **0 条**。
+ * 它当初是"生成页面时顺手落盘"出来的，**从来没有人设计过**。
+ *
+ * 而 `freezePlan` 当时**只验一件事：条目数不为 0**（见下）。
+ * 所以一份"一页一条、没有单元、没有小点"的计划**照样冻结成功** ——
+ * 提示词里写着"计划是教学设计，不是页表"，而**冻结那一刻一个字都不验**。
+ * 这就是手册 §4 那条：**提示词约束不住的东西，必须在代码里给默认值。**
+ *
+ * ── 两类条目要分开（否则这个闸会误伤）────────────────────────────
+ *
+ * · **作者写的**：agent 按设计写进去的 —— **必须有** `keyPoints`，必须有 `【Unit …】` 抬头；
+ * · **`backfill` 派生的**：从已有页面反推出来的，**天生没有**这些字段，**一律不算账**。
+ *   （不分开的话，一门老课**永远无法重新冻结** —— 那比没有闸更糟。）
+ */
+export interface PlanSpecGaps {
+  /** 作者写的条目数（派生的不算）。 */
+  authored: number;
+  /** 作者条目里 `keyPoints` 为空的条数 —— 空 = 这一页没有说出来的任务。 */
+  missingKeyPoints: number;
+  /** 作者条目里 description 没有 `【Unit …】` 抬头的条数 —— 也就是没进任何单元。 */
+  missingUnit: number;
+  /** 练习页（`interactive` / `quiz`）里抬头没写 `difficulty` 的条数。 */
+  practiceMissingDifficulty: number;
+  /** 点名用：最多几条 `order · title`。 */
+  samples: string[];
+}
+
+export function planSpecGaps(entries: readonly SceneOutline[]): PlanSpecGaps {
+  const authoredEntries = entries.filter(
+    (entry) => (entry.description ?? '').trim() !== BACKFILLED_BRIEF,
+  );
+  const samples: string[] = [];
+  let missingKeyPoints = 0;
+  let missingUnit = 0;
+  let practiceMissingDifficulty = 0;
+  for (const entry of authoredEntries) {
+    const description = entry.description ?? '';
+    const noPoints = (entry.keyPoints ?? []).length === 0;
+    const noUnit = !description.includes('【Unit ');
+    const isPractice = entry.type === 'interactive' || entry.type === 'quiz';
+    const noDifficulty = isPractice && !description.includes('difficulty:');
+    if (noPoints) missingKeyPoints += 1;
+    if (noUnit) missingUnit += 1;
+    if (noDifficulty) practiceMissingDifficulty += 1;
+    if ((noPoints || noUnit) && samples.length < 4) {
+      samples.push(`第 ${entry.order} 页《${entry.title}》`);
+    }
+  }
+  return { authored: authoredEntries.length, missingKeyPoints, missingUnit, practiceMissingDifficulty, samples };
 }
 
 export type PlanGateResult = { ok: true } | { ok: false; message: string };
@@ -244,13 +346,42 @@ export function planGate(input: PlanGateInput, options: PlanGateOptions = {}): P
 }
 
 /** 给 agent 的一句状态（放工具结果里；不需要时返回空串）。 */
-export function formatPlanFreezeStatus(state: PlanFreezeState, entryCount: number): string {
+export function formatPlanFreezeStatus(
+  state: PlanFreezeState,
+  entries: readonly SceneOutline[],
+): string {
+  const entryCount = entries.length;
+  /**
+   * ★ **把"这份计划不是规格"说出来**（2026-10-09）。
+   *
+   * 这是"以后能不能自动"的关键一环：学习者只要说一句「帮我修一下这门课」，
+   * agent 一次 `plan_freeze status` 就会看到"作者写的条目里 N 条没有单元、
+   * M 条 keyPoints 空" —— **于是它自己会提出重排计划，不需要用户知道要贴什么提示词**。
+   *
+   * 实测来历：`stage-GYvpbYB_aN` 那份计划（66 条 / 24 条占位 / keyPoints 全空）
+   * 在这里**一个字都不会被提**，所以它一直没被修。
+   */
+  const gaps = planSpecGaps(entries);
+  const specLine =
+    gaps.authored === 0
+      ? String.fromCharCode(10) +
+        '★ 这份计划里的条目**全是 `backfill` 从已有页面反推的**（不是设计出来的）：' +
+        '没有单元、没有小点。要它变成规格，就按单元重排一遍。'
+      : gaps.missingUnit > 0 ||
+          gaps.missingKeyPoints > 0 ||
+          gaps.practiceMissingDifficulty > 0
+        ? String.fromCharCode(10) +
+          `★ **这份计划不是规格**：你写的 ${gaps.authored} 条里有 ` +
+          `${gaps.missingUnit} 条没有单元、${gaps.missingKeyPoints} 条 \`keyPoints\` 是空的` +
+          `${gaps.practiceMissingDifficulty > 0 ? `、${gaps.practiceMissingDifficulty} 条练习没写难度` : ''}。` +
+          '（规矩见系统提示词：一个单元 = 讲解 + 练习。）'
+        : '';
   if (!state.frozen) {
-    return `计划：${entryCount} 条，**未冻结** —— 生成第一页之前要先确认 + 冻结。`;
+    return `计划：${entryCount} 条，**未冻结** —— 生成第一页之前要先确认 + 冻结。${specLine}`;
   }
   const drift = state.frozenEntryCount !== undefined && entryCount !== state.frozenEntryCount;
   return (
     `计划：已冻结（${entryCount} 条，修订 ${state.revision} 次` +
-    `${drift ? `；冻结时是 ${state.frozenEntryCount} 条` : ''}）。`
+    `${drift ? `；冻结时是 ${state.frozenEntryCount} 条` : ''}）。${specLine}`
   );
 }

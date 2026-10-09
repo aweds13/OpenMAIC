@@ -155,7 +155,7 @@ reading-page 那套与批量下载对话框；漏看它就会以为"改动只在
 | `lib/practice/scaffold.ts` | 脚手架**内容**生成（`check.mjs` runner / README / `.vscode`） | 编码坑（GBK）在 runner 里**修一次** |
 | `lib/practice/results.ts` | 读练习目录下的 `result.json` → 渲染进 `学习状态.md` | T9 走**读取侧**，不开新写入路径 |
 | `lib/scratch/scratchpad.ts` | 草稿纸**纯逻辑**：编号 `s001`（永不复用）/ 两层 / 索引 / 「只有 1 个来源」 | 与材料库的边界在 `promote` |
-| `lib/server/agent-runtime/plan-freeze.ts` | 阶段冻结的**判据**（`planGate` 三条）+ 总开关 `planGateEnabled()` | 开关默认关；本部署 `OPENMAIC_PLAN_GATE=1` |
+| `lib/server/agent-runtime/plan-freeze.ts` | 阶段冻结的**判据**（`planGate` 三条）+ 总开关 `planGateEnabled()` + ★★ **`planSpecGaps()`：「这份计划是不是规格」**（作者写的条目必须有 `keyPoints` + `【Unit …】` 抬头，练习条目必须有 `difficulty`；**`backfill` 派生的不算账**） | 开关默认关；本部署 `OPENMAIC_PLAN_GATE=1`。<br>★★ 2026-10-09 加的闸与诊断 —— **在它之前冻结只验「条目数不为 0」**，所以实测那一门（66 条里 24 条占位、`keyPoints` 有内容的 **0** 条）**照样冻结成功**。闸拒新计划、`status` 报老课程（这样用户只说「帮我修这门课」，agent 自己就会看见「这份计划不是规格」）。判据 `tests/agent-runtime/plan-freeze.test.ts` 末组（7 条 + 三道变异） |
 | `lib/server/agent-runtime/plan-freeze-store.ts` | 冻结状态的**独立小文件**读写（`data/plan-freeze/`） | 不放 `document_outlines`（怕静默失效） |
 | `lib/server/agent-runtime/plan-freeze-tools.ts` | **`plan_freeze`**（status / add / backfill / freeze / revise）+ 提示词块。★ `revise` 带 **`shift`**（拆页 ⇒ 页号顺延）/ **`removeOrders`** / `entries` —— **它真的改计划**（原来只记一次理由） | `backfill` **只补缺、绝不覆盖** |
 | `lib/quiz/course-audit.ts` | 课程级**审计判据**（承接率 + 超载线 `NOVEL_P90=60`），纯函数。★ **超载线只对 `slide` 有效**（`pbl` p50=95、`interactive` p50=11 是别的量纲；项目页进 `scaffoldPages`，**不叫超载**） | 超载线是 146 个真实讲解页的 p90 标定的 |
@@ -257,6 +257,14 @@ importer**（`grep -rn "attempt-fold" lib app components tests` 只有它自己�
 `interactive: 渲染后拿到的才是学生看到的东西（JS 建出来的正文）` 在整包并行时
 **5s 超时**，单跑 **919ms** 过。它跑真 jsdom，抢 CPU。当时机器上还有 4 个子代理在跑。
 **别把它算成回归** —— 单跑一遍再判。
+
+**第七批负载假红**（2026-10-09 实测，一次全量并行跑里同时出现）：`agent-driver-model.test.ts`
+（2 条）、`owner-material-binding.test.ts`（1 条）、`practice-scaffold.test.ts` 的
+`adds the UTF-8 flags to java commands by itself (the GBK trap)`（1 条）——
+**三个文件单跑 35/35 全过**，同一批并行跑再跑两次也全过。判据同 §3.1 开头：**单跑一遍再判**，
+别把它们算成回归。（那次同批还有 `plan-freeze-revise.test.ts` 的一条报
+「修订没能写盘」—— 那是它和 `plan-freeze-store.test.ts` 抢
+`OPENMAIC_PLAN_FREEZE_DIR` 那个临时目录，同属负载/顺序，不是代码。）
 
 **测试是 hermetic 的**：`tests/setup-env.ts` **默认不加载 `.env.local`**。所以你的测试
 不依赖本机配置；要跑真端点才用 `TEST_LOAD_LOCAL_ENV=1`。

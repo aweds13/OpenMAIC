@@ -123,12 +123,19 @@ function ownTexts(materialsEnabled: boolean): { where: string; text: string }[] 
   }
 
   // 门槛的三条拒绝消息 —— 正是第一处 bug 的所在地。
-  const entry = { id: 'p1', order: 1, title: '第 1 页', type: 'slide' } as SceneOutline;
+  const entry = {
+    id: 'p1',
+    order: 1,
+    title: '第 1 页',
+    type: 'slide',
+    keyPoints: ['小点'],
+    description: '【Unit U1 · explanation 1/1】brief',
+  } as SceneOutline;
   const gateMessages = [
     planGate({ state: emptyPlanFreeze('stage-x'), entries: [], order: 1 }),
     planGate({ state: emptyPlanFreeze('stage-x'), entries: [entry], order: 1 }),
     planGate({
-      state: freezePlan(emptyPlanFreeze('stage-x'), { at: 1, entryCount: 1 }).state,
+      state: freezePlan(emptyPlanFreeze('stage-x'), { at: 1, entries: [entry] }).state,
       entries: [entry],
       order: 9,
     }),

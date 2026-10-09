@@ -232,7 +232,7 @@ export function buildPlanFreezeTool(
       const state = await readPlanFreeze(params.stageId);
 
       if (params.action === 'status') {
-        const lines = [formatPlanFreezeStatus(state, entries.length)];
+        const lines = [formatPlanFreezeStatus(state, entries)];
         /**
          * ★ 把「缺哪些号 / 哪些号重复」**直接报出来**（2026-10-07 加）。
          *
@@ -390,7 +390,7 @@ export function buildPlanFreezeTool(
               '`plan_freeze { action: "revise", reason: "…" }`。',
           );
         }
-        const result = freezePlan(state, { at: Date.now(), entryCount: entries.length });
+        const result = freezePlan(state, { at: Date.now(), entries });
         if (result.error) return text(result.error, true);
         const written = await writePlanFreeze(result.state);
         if (!written) {
