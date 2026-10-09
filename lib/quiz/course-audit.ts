@@ -76,6 +76,80 @@ export interface AuditedPage {
   content?: unknown;
 }
 
+/**
+ * 这一页的练习上有几个**任务**（2026-10-09）。
+ *
+ * ── 为什么要有这个数 ──────────────────────────────────────────────
+ *
+ * 学习者第 3 轮吐槽里最刺眼的一条是「**练习页的难度真的很离谱**」。量下来根因不是难度，
+ * 是**粒度**：实测 Day02 的练习页**一页塞 3~4 个任务**（P19/P22/P26/P37/P40/P42/P44/P49
+ * 各 3，P38/P46/P51 各 4）。而 P19 那一页还横跨三档难度 —— 补一个 `if` → `if/else if`
+ * 链 → 闰年（`%` + `&&` + `||` + 括号优先级），而**讲解页 P18 把闰年那句原样写了出来**。
+ * 于是"练"变成了"抄"。
+ *
+ * 规矩（见 `course-design.ts` 的 "Practice: one small point, a graded set of questions"）：
+ * **练习围绕一个小点** —— 同一小点可以出多题、可以跨多页（页数不是约束），
+ * **但一页不许混别的小点**。
+ *
+ * ★ 所以这个数是**信号，不是合格线**：`>1` 不等于错（一组题本来就该有多题），
+ *   它要回答的是「这一页上压了几组题」—— 配合页标题就能看出有没有混小点
+ *   （Day02 P19 标题写着「正负判断、成绩等级、闰年判断」，计数 3 ⇒ 三个小点挤一页）。
+ *   真正的合格线在 brief 那一侧（`course-design.ts`），不在这个计数上。
+ *
+ * ── 三种情况，判据不同（**别把它们混成一个数**）──────────────────────
+ *
+ * 1. `quiz` —— 题量是**结构化**的（`content.questions`），数得准。
+ * 2. `interactive` **带 `widgetConfig`** —— 那是**上游合同**：
+ *    `{starterCode, solution, testCases, hints, …}`，**一份 starterCode = 一个任务** ⇒
+ *    按合同就是 **1**。`testCases.length` 是"这一题查了几件事"，**不是**任务数
+ *    （实测 P26 有 8 条 testCases，可它那一道题里塞了三个练习）。所以两个数都给出来。
+ * 3. `interactive` **没有 `widgetConfig`** —— 那一页**自己造了 UI**（P19 就是），
+ *    任务数只能尽力从 HTML 里认；认不出就返回 **`null`（不知道）**，**绝不返回 0** ——
+ *    把"不知道"说成"没有任务"，正是这个仓库反复栽过的那种静默。
+ *
+ * ★ 「没有 `widgetConfig`」本身就是一个可查的缺陷：20 个练习页里 **8 个**是这样，
+ *   而它们同时**不受任何结构化检查覆盖**。
+ */
+export interface PracticePageShape {
+  /** 任务数；`null` = 认不出来（**不是** 0）。 */
+  tasks: number | null;
+  /** `interactive` 且带上游合同时，这一题查了几件事。 */
+  testCases?: number;
+  /** 这一页有没有按上游合同带 `widgetConfig`。 */
+  followsContract: boolean;
+}
+
+export function practiceTaskCount(page: AuditedPage): PracticePageShape {
+  // ★ 两种形状都收：`page.content` 既可能是**场景的 content**（`{canvas|html|questions}`），
+  //   也可能是**整条场景**（`{id,type,order,…,content}`）—— 仓库里两种调用点都有
+  //   （`course-audit-live.test.ts` 的 loader 传的就是整条场景）。
+  //   只认一种，另一种会**静默**返回"不知道"。
+  const outer = page.content as { content?: unknown } | undefined;
+  const content = (outer?.content && typeof outer.content === 'object' ? outer.content : outer) as
+    | { questions?: unknown; html?: unknown; widgetConfig?: Record<string, unknown> }
+    | undefined;
+
+  if (page.type === 'quiz') {
+    return { tasks: Array.isArray(content?.questions) ? content.questions.length : null, followsContract: true };
+  }
+  if (page.type !== 'interactive') return { tasks: null, followsContract: true };
+
+  const config = content?.widgetConfig;
+  if (config && typeof config === 'object') {
+    const cases = Array.isArray(config.testCases) ? config.testCases.length : undefined;
+    return { tasks: 1, ...(cases === undefined ? {} : { testCases: cases }), followsContract: true };
+  }
+
+  const html = typeof content?.html === 'string' ? content.html : '';
+  const declared = html.match(/const\s+TASKS\s*=\s*\[([\s\S]*?)\n\s*\];/);
+  // ★ 按 `title:` 数，**不按 `id:` 数** —— 实测（Day02 P19/P40/P54）：
+  //   `id:` 在这三页上是 **3 / 17 / 15**，而它们的标题分别写着「正负判断、成绩等级、闰年」
+  //   「这三段」「这三处」⇒ 真值都是 **3**。多出来的是**任务内部**嵌套对象的 id
+  //   （改错页每一段里还有自己的 id）。`title:` 三页都是 3，与标题对得上。
+  const titles = declared?.[1]?.match(/\btitle:\s*'/g);
+  return { tasks: titles ? titles.length : null, followsContract: false };
+}
+
 export interface PageLinkage {
   stageId: string;
   sceneId: string;

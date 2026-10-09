@@ -107,3 +107,73 @@ describe('courseDesignPromptBlock 的能力条件', () => {
     expect(onlyMaterials).not.toContain('course_search');
   });
 });
+
+/**
+ * ★★ 讲练节奏（2026-10-09，学习者第 3 轮吐槽）。
+ *
+ * 他的原话：「**练习页的难度真的很离谱**」「**很多小点他都没讲细，只是浅浅的过**」
+ * 「每个小点他都可以拆出来」「练习要循序渐进，先给简单的练熟了，然后再给复杂的」
+ * 「页数不是问题」。
+ *
+ * 量出来的根因**不是难度，是粒度**：Day02 的练习页**一页塞 3~4 个任务**，
+ * 自检页一页 8~10 题；而 P19 一页横跨三档（补一个 `if` → `if/else if` 链 → 闰年），
+ * 偏偏**讲解页 P18 把闰年那句原样写了出来** —— 于是"练"成了"抄"。
+ *
+ * 这组判据钉四条：**一页一个小点**、**代码讲三件事（结构/执行顺序/怎么写）**、
+ * **讲解不许泄练习答案**、**练习一页一个任务且由易到难**。
+ */
+describe('★ 讲练节奏：一页一个小点 · 练习=同一小点的一组题（由易到难）· 讲解不泄答案', () => {
+  const block = courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: true });
+
+  it('★ 一页一个小点，而且**不许**再拿"太薄"当合并的理由', () => {
+    expect(block).toMatch(/One small point per page/);
+    // 反面：原来那句「太薄就该合并到邻页」是反的，必须消失。
+    expect(block).not.toMatch(/belongs merged with a neighbour/);
+    // 正解是"配一道练习"或"并进单元"，以及"加页"。
+    expect(block).toMatch(/pair it with[\s\S]{0,40}its own practice page/);
+  });
+
+  it('★ 代码要讲三件事：结构 / 执行顺序 / 怎么写', () => {
+    expect(block).toMatch(/Its structure/);
+    expect(block).toMatch(/The order it runs in/);
+    expect(block).toMatch(/How to write it/);
+    // 「抄这几行不算教」—— 学习者要能**写出来**，不是**抄回来**。
+    expect(block).toMatch(/produce it, not reproduce it/);
+  });
+
+  it('★★ 讲解页不许给出练习的答案（P18 泄闰年答案就是这条缺了）', () => {
+    expect(block).toMatch(/must not give away the practice/);
+    expect(block).toMatch(/teaches the \*shape\* of the solution/);
+  });
+
+  it('★ 练习 = **同一小点的一组题**（多题组合），页数不是约束', () => {
+    expect(block).toContain('### Practice: one small point');
+    expect(block).toMatch(/a set of questions about one small point/);
+    expect(block).toMatch(/One small point per page/);
+    expect(block).toMatch(/Page count is not a constraint/);
+    // 一组题可以跨页 —— 不是"一页一题"。
+    expect(block).toMatch(/continue it on the next\s+page/);
+  });
+
+  it('★ 不许太简单，而且**一页不许混别的小点**（P19 就是三个小点挤一页）', () => {
+    expect(block).toMatch(/Not too easy/);
+    expect(block).toMatch(/without having read the page measures nothing/);
+    expect(block).toMatch(/Questions about \*different\* points must not/);
+  });
+
+  it('★ 形态可以在**一组之内混用**（这才是"循序渐进的多题组合"）', () => {
+    expect(block).toMatch(/Mix the forms inside one set/);
+    expect(block).toMatch(/Every question in the set is about/);
+  });
+
+  it('★ 三形态由易到难：选择 → 改错 → 写作', () => {
+    expect(block).toMatch(/\*\*Choice\*\*/);
+    expect(block).toMatch(/\*\*Fix the bug\*\*/);
+    expect(block).toMatch(/\*\*Write it\*\*/);
+    // 顺序本身是要求，不只是"有三种"。
+    const order = [block.indexOf('**Choice**'), block.indexOf('**Fix the bug**'), block.indexOf('**Write it**')];
+    expect(order[0]).toBeGreaterThan(-1);
+    expect(order[0]).toBeLessThan(order[1] as number);
+    expect(order[1]).toBeLessThan(order[2] as number);
+  });
+});

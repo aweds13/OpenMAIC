@@ -74,17 +74,23 @@ describe('★ 内容与页面的六条优先级（用户定序，一处定义三
 /**
  * ★ 带代码的页：**生成侧与审查侧都要有**（用户：「先做A呗。生成册和审查册都要有」）。
  *
- * 一句话的规矩：代码用 `code` 元素写；并且**两件事是一起要求的** ——
- * ① 它按什么顺序执行 ② 标准/惯用写法长什么样（与页面这段差在哪）。
+ * 一句话的规矩：代码用 `code` 元素写；并且**三件事是一起要求的** ——
+ * ① 它的**结构**（由哪几块构成、怎么嵌套）② 它按什么顺序执行 ③ **怎么写**（标准/惯用写法
+ * 长什么样、怎么从空文件搭出来，与页面这段差在哪）。
  * 少一件都不算完；页面里没有代码就一个字别扯这个。
+ *
+ * ★ 2026-10-09 从"两件"改成"三件"：学习者第 3 轮吐槽「很多东西他没有真的讲清楚那个代码的
+ *   **结构**，执行逻辑，也没有讲清楚**怎么写**」。改的是定义本身，所以**两侧一起改** ——
+ *   这一组判据（生成侧 + 审查侧）就是防它们漂的那道闸。
  */
 describe('★ 带代码的页：两侧都有这条要求', () => {
   it('★ 生成侧 brief 清单里有', () => {
     const block = courseDesignPromptBlock({ courseSearch: false, mcp: false } as never);
     expect(block).toMatch(/`code` element/);
+    expect(block).toMatch(/Its structure/);
     expect(block).toMatch(/order it runs in/);
-    expect(block).toMatch(/standard form/);
-    // 两件事**一起**要求，别拆成可选
+    expect(block).toMatch(/How to write it/);
+    // 三件事**一起**要求，别拆成可选
     expect(block).toContain('they are one');
     // ★ 两批，不一刀切（生成侧也要有）
     expect(block).toMatch(/Two batches, not all-or-nothing/);
@@ -92,12 +98,20 @@ describe('★ 带代码的页：两侧都有这条要求', () => {
 
   it('★ 审查侧规矩里有，并且明说"没代码就别提"', () => {
     expect(COURSE_REVIEW_RULES).toMatch(/A page that carries code/);
+    expect(COURSE_REVIEW_RULES).toMatch(/its structure/);
     expect(COURSE_REVIEW_RULES).toMatch(/the order it runs in/);
-    expect(COURSE_REVIEW_RULES).toMatch(/the standard form/);
+    expect(COURSE_REVIEW_RULES).toMatch(/how to write it/);
     expect(COURSE_REVIEW_RULES).toMatch(/carries no code, say nothing about this/);
     // ★ 两批，不一刀切：多行进 code 元素；**单行片段留在正文里是对的，不许报成问题**
     expect(COURSE_REVIEW_RULES).toMatch(/Two batches/);
     expect(COURSE_REVIEW_RULES).toMatch(/\*\*one-line\*\*/);
     expect(COURSE_REVIEW_RULES).toMatch(/staying inline in the prose is correct/);
+  });
+
+  it('★ 审查侧也有**练习**那条（一页混小点 / 太简单 / 跳步）——两侧一起改', () => {
+    expect(COURSE_REVIEW_RULES).toMatch(/A set of questions about ONE small point/);
+    expect(COURSE_REVIEW_RULES).toMatch(/different\*\* points packed onto one page/);
+    expect(COURSE_REVIEW_RULES).toMatch(/too easy\*\* to measure anything/);
+    expect(COURSE_REVIEW_RULES).toMatch(/a jump the\s+learner cannot see/);
   });
 });

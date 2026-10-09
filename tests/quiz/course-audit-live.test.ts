@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { Client } from 'pg';
 
-import { auditCourse, formatCourseAudit, type AuditedPage } from '@/lib/quiz/course-audit';
+import { auditCourse, formatCourseAudit, practiceTaskCount, type AuditedPage } from '@/lib/quiz/course-audit';
 
 const live = process.env.TEST_LOAD_LOCAL_ENV === '1' && !!process.env.DATABASE_URL;
 
@@ -62,6 +62,27 @@ describe.skipIf(!live)('course audit against real courses', () => {
             `讲解页平均承接率 ${pct}% · 无承接 ${audit.unattachedPages.length} · ` +
             `超载 ${audit.overloadedPages.length} · 中位新块 ${audit.medianNovel}`,
         );
+
+        // ★ 练习页的**任务数**（2026-10-09）：学习者第 3 轮吐槽「练习页难度离谱」，
+        //   量下来根因是**粒度** —— 一页塞了好几个任务。规矩是**一页一个任务**。
+        const practices = pages
+          .map((page) => ({ page, shape: practiceTaskCount(page) }))
+          .filter(({ page }) => page.type === 'quiz' || page.type === 'interactive');
+        if (practices.length > 0) {
+          const multi = practices.filter(({ shape }) => (shape.tasks ?? 1) > 1);
+          const unknown = practices.filter(({ shape }) => shape.tasks === null);
+          const offContract = practices.filter(({ shape }) => !shape.followsContract);
+          summary.push(
+            `    练习页 ${practices.length}：一页多任务 **${multi.length}** · ` +
+              `数不出来 ${unknown.length} · 没带上游 widgetConfig ${offContract.length}`,
+          );
+          for (const { page, shape } of multi) {
+            summary.push(
+              `      · P${page.order} ${page.title.slice(0, 30)} → ${shape.tasks} 个任务` +
+                (shape.testCases === undefined ? '' : `（查 ${shape.testCases} 件事）`),
+            );
+          }
+        }
 
         // 结构契约：不管数据怎样，这些必须成立。
         expect(audit.pages).toHaveLength(pages.length);

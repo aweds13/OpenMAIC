@@ -10,6 +10,7 @@ import {
   type PlanFreezeState,
 } from '@/lib/server/agent-runtime/plan-freeze';
 import { PLAN_FREEZE_TOOL_NAMES } from '@/lib/server/agent-runtime/plan-freeze-tools';
+import { planFreezePromptBlock } from '@/lib/server/agent-runtime/plan-freeze-tools';
 import type { SceneOutline } from '@/lib/types/generation';
 
 const T0 = 1_700_000_000_000;
@@ -168,5 +169,50 @@ describe('★ 拒绝消息里点名的工具必须真实存在', () => {
     }
     expect(messages).toContain('plan_freeze');
     expect(PLAN_FREEZE_TOOL_NAMES as readonly string[]).toContain('plan_freeze');
+  });
+});
+
+/**
+ * ★★ 大纲阶段就该把「单元 × 小点 × 讲/练」列清楚（2026-10-09，学习者第 3 轮吐槽）。
+ *
+ * 他的原话：「**小块的话，你可以在大纲的时候研究啊，你大纲的时候就应该列清楚了**」
+ * 「计划和大纲应该是并行的，**大纲应该是计划的载体**」。
+ *
+ * 而这段提示词原来写的是 **"one entry per page (order, title, one-line brief)"** ——
+ * 只列页码，不设计单元。于是"讲什么、练什么、多难"**在大纲阶段根本没人想**，
+ * 全留给写页的那一刻现编。Day02 的计划里 24/66 条是回填占位、`keyPoints` 与
+ * `quizConfig` 全是 0，就是这条缺了的后果。
+ */
+describe('★ 大纲阶段：单元 · 小点 · 讲/练 · 难度', () => {
+  const block = planFreezePromptBlock();
+
+  it('★ 计划是**教学设计**，不是页表', () => {
+    expect(block).toMatch(/teaching design, not a page list/);
+    expect(block).toMatch(/Do the decomposition \*\*here, at plan time\*\*/);
+  });
+
+  it('★ 拆成**单元**；讲解一页一个小点', () => {
+    expect(block).toMatch(/Break the course into \*\*units\*\*/);
+    expect(block).toMatch(/one small point per page, never more/);
+  });
+
+  it('★ 练习按**一组题**规划（多题可跨页），一页不许混小点', () => {
+    expect(block).toMatch(/a graded set of questions about one small point/);
+    expect(block).toMatch(/page count is not a constraint/i);
+    expect(block).toMatch(/One small point per page/);
+    expect(block).toMatch(/questions about \*different\* points must not/i);
+  });
+
+  it('★ 不许太简单；形态可在一组内混用，由易到难', () => {
+    expect(block).toMatch(/not too easy/);
+    expect(block).toMatch(/answered without reading the page measures nothing/);
+    expect(block).toMatch(/mixed inside one set/);
+  });
+
+  it('★ 条目要带：单元/角色抬头、`keyPoints`（非空）、`quizConfig.difficulty`', () => {
+    expect(block).toMatch(/prefixed with the unit and the role/);
+    expect(block).toMatch(/【Unit U7 · explanation 1\/2/);
+    expect(block).toMatch(/Not empty/);
+    expect(block).toMatch(/quizConfig\.difficulty/);
   });
 });

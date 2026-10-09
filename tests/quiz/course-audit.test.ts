@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { auditCourse, formatCourseAudit, NOVEL_P90, type AuditedPage } from '@/lib/quiz/course-audit';
+import { practiceTaskCount, auditCourse, formatCourseAudit, NOVEL_P90, type AuditedPage } from '@/lib/quiz/course-audit';
 
 /**
  * ★ 超载线**只对 slide 有效** —— 项目页不该被判超载（2026-10-07 修）。
@@ -224,5 +224,59 @@ describe('★ 已接受的读数：不再重复报成待修', () => {
     expect(text).toContain('一次性引入的新块超过');
     expect(text).not.toContain('你已经接受过');
     expect(audit.length).toBe(1);
+  });
+});
+
+/**
+ * ★★ 练习页的**任务数**（2026-10-09）。
+ *
+ * 学习者第 3 轮吐槽「练习页的难度真的很离谱」。量下来根因**不是难度，是粒度**：
+ * Day02 一页塞 3~4 个**不同小点**的任务。规矩是「练习围绕一个小点，可以多题多页，
+ * 但**一页不许混别的小点**」—— 所以这个计数是**信号不是合格线**。
+ *
+ * 三条分支各自钉一条：
+ *   ① `quiz` —— 题量结构化，数得准；
+ *   ② `interactive` 带 `widgetConfig`（上游合同：一份 starterCode = 一个任务）⇒ 恒为 1，
+ *      另给 testCases 数（"这一题查了几件事"）；
+ *   ③ `interactive` 没带 ⇒ 自己造的 UI，**认不出就 `null`，绝不返回 0**。
+ */
+describe('★ practiceTaskCount：练习页上压了几组题', () => {
+  const page = (order: number, type: string, content: unknown) =>
+    ({ stageId: 'stage-x', sceneId: `scene-p${order}`, order, title: `P${order}`, type, content });
+
+  it('quiz：按 questions 数（Day02 P29 八道题 = 8）', () => {
+    const questions = Array.from({ length: 8 }, (_, i) => ({ question: `q${i}` }));
+    expect(practiceTaskCount(page(29, 'quiz', { questions }))).toEqual({ tasks: 8, followsContract: true });
+  });
+
+  it('interactive 带 widgetConfig ⇒ 合同上就是**一个任务**；testCases 是"查了几件事"', () => {
+    const shape = practiceTaskCount(page(26, 'interactive', { widgetConfig: { starterCode: 'x', testCases: [1, 2, 3, 4, 5, 6, 7, 8] } }));
+    expect(shape).toEqual({ tasks: 1, testCases: 8, followsContract: true });
+  });
+
+  it('interactive **没带** widgetConfig ⇒ 从 HTML 的 TASKS 里数，按 `title:` 不按 `id:`', () => {
+    // 真实形状（Day02 P19）：每个任务有 title，任务**内部**还会有别的 id。
+    const html =
+      "const TASKS = [\n" +
+      "{\n  id: 'sign',\n  title: '任务 1：正负判断',\n  tests: [{ id: 'a' }]\n},\n" +
+      "{\n  id: 'grade',\n  title: '任务 2：成绩等级',\n  tests: [{ id: 'b' }, { id: 'c' }]\n},\n" +
+      "{\n  id: 'leap',\n  title: '任务 3：闰年',\n  tests: []\n}\n];\n";
+    expect(practiceTaskCount(page(19, 'interactive', { html }))).toEqual({ tasks: 3, followsContract: false });
+  });
+
+  it('★ 认不出来就是 `null`（**不是 0**）—— 把"不知道"说成"没有任务"是本仓反复栽过的静默', () => {
+    const shape = practiceTaskCount(page(11, 'interactive', { html: '<html>自己造的 UI，没有 TASKS</html>' }));
+    expect(shape.tasks).toBeNull();
+    expect(shape.tasks).not.toBe(0);
+  });
+
+  it('★ 整条场景也能收（仓库里两种调用点都有，只认一种会静默返回"不知道"）', () => {
+    const scene = { id: 's', type: 'interactive', order: 19, content: { html: "const TASKS = [\n{\n title: '一'\n}\n];\n" } };
+    expect(practiceTaskCount(page(19, 'interactive', scene)).tasks).toBe(1);
+  });
+
+  it('slide / pbl 不是练习页 ⇒ 不计数', () => {
+    expect(practiceTaskCount(page(1, 'slide', {})).tasks).toBeNull();
+    expect(practiceTaskCount(page(2, 'pbl', {})).tasks).toBeNull();
   });
 });
