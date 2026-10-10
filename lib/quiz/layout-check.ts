@@ -39,8 +39,30 @@ export const CANVAS_HEIGHT = 562.5;
  */
 export const MIN_READABLE_FONT_PX = 14;
 
-/** 一行文字的盒高相对字号的倍数 —— 与 `AGENTS.md` §2 里 `code` 那组实测同源。 */
-const LINE_HEIGHT_RATIO = 1.6;
+/**
+ * 一行文字的盒高相对字号的倍数 —— **必须是真渲染器实际用的那个值**。
+ *
+ * ★★ 2026-10-10 实测更正（原来这里是写死的 **1.6**，**错了**）：
+ *   · 真渲染器 `BaseTextElement.tsx` 读的是 `elementInfo.lineHeight`；
+ *   · 而库里**绝大多数 text 元素没有这个字段** ⇒ 生效的是宿主 CSS 的值，
+ *     即 Tailwind preflight 的 `html { line-height: 1.5 }`（`app/globals.css` 第一行
+ *     `@import 'tailwindcss'`，`tailwindcss/preflight.css:30`）。
+ *   · 1.6 比 1.5 高 **6.7%**，而 Day02 上 23 条 `text-does-not-fit` 里**几乎每一条
+ *     都刚好"余 2px"** ⇒ 这 6.7% 足以把结论整体翻面。
+ *   · 用**真 Edge** 量（`_tools/openmaic/diagnostics/measure-slide-fit.mjs`，
+ *     注入渲染器自己的 `SLIDE_RENDERER_STYLES`）：23 条里真溢出的只有 **3 条**
+ *     （第 50 页 el14 / 第 55 页 el10 / 第 74 页 el14）；按 1.6 判则 20 条"溢出"。
+ *   ⇒ **精确率 3/23 ≈ 13%**，而假阳性的来源就是我们自己写错的一个常数。
+ */
+const LINE_HEIGHT_RATIO = 1.5;
+
+/**
+ * `.element-content` 的内边距（`box-sizing: border-box`）——
+ * 可用宽度是 `width − 2 × 这个值`，不是盒子全宽。
+ * 内容自带 insets（`<div style="…padding:…">`）时渲染器把内边距设为 0。
+ */
+const TEXT_PADDING_PX = 10;
+const SELF_PADDED = /^\s*<div\b[^>]*\bstyle\s*=\s*["'][^"']*\bpadding\s*:/i;
 
 export interface LayoutElement {
   type?: string;
@@ -50,6 +72,8 @@ export interface LayoutElement {
   height?: number;
   content?: unknown;
   fontSize?: unknown;
+  /** 真渲染器读的就是它（`BaseTextElement`）；库里常常没有 ⇒ 回落到宿主生效值。 */
+  lineHeight?: unknown;
 }
 
 export interface LayoutFinding {
@@ -71,8 +95,21 @@ export function maxFontSizePx(html: string): number | undefined {
   return valid.length > 0 ? Math.max(...valid) : undefined;
 }
 
-/** 估算一段 HTML 在给定宽度下占多高。**故意保守**（宁可漏报，不要用假数字去拒绝）。 */
-export function estimateTextHeightPx(html: string, width: number, fontPx: number): number {
+/**
+ * 估算一段 HTML 在给定宽度下占多高。
+ *
+ * ★ 参数**必须与渲染器同源**（2026-10-10 实测）：可用宽度扣掉 `.element-content` 的内边距，
+ *   行高用元素自己的 `lineHeight`、没有才回落到宿主那个值。写死常数会整批误报。
+ *
+ * @param lineHeight 元素自己的 `lineHeight`；不给就用宿主生效值（1.5）。
+ */
+export function estimateTextHeightPx(
+  html: string,
+  width: number,
+  fontPx: number,
+  lineHeight: number = LINE_HEIGHT_RATIO,
+  selfPadded = false,
+): number {
   // 去掉标记后按块统计：每个块算一行起，再按宽度折算换行。
   const blocks = html
     .split(/<\/(?:p|div|li|h[1-6])>/i)
@@ -80,14 +117,15 @@ export function estimateTextHeightPx(html: string, width: number, fontPx: number
     .filter((text) => text.length > 0);
   if (blocks.length === 0) return 0;
   // 汉字按 1em、ASCII 按 0.6em 估宽（与等宽那组实测同源，但这是**正文**，取通用值）。
-  const charsPerLine = Math.max(1, Math.floor(width / fontPx));
+  const usable = Math.max(1, width - (selfPadded ? 0 : TEXT_PADDING_PX * 2));
+  const charsPerLine = Math.max(1, Math.floor(usable / fontPx));
   let lines = 0;
   for (const block of blocks) {
     const wide = [...block].filter((char) => char.charCodeAt(0) > 0x2e80).length;
     const units = wide + (block.length - wide) * 0.6;
     lines += Math.max(1, Math.ceil(units / charsPerLine));
   }
-  return lines * fontPx * LINE_HEIGHT_RATIO;
+  return lines * fontPx * lineHeight;
 }
 
 function box(element: LayoutElement): { left: number; top: number; width: number; height: number } | null {
@@ -142,14 +180,37 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
     if (html.length > 0) {
       const fontPx = maxFontSizePx(html);
       if (fontPx !== undefined) {
-        const needed = estimateTextHeightPx(html, rect.width, fontPx);
+        // ★ 参数从**元素身上**取（渲染器读什么，这里就读什么）—— 写死常数会整批误报。
+        const ownLineHeight =
+          typeof element.lineHeight === 'number' && Number.isFinite(element.lineHeight) && element.lineHeight > 0
+            ? element.lineHeight
+            : LINE_HEIGHT_RATIO;
+        const needed = estimateTextHeightPx(html, rect.width, fontPx, ownLineHeight, SELF_PADDED.test(html));
         if (needed > rect.height + 1) {
+          /**
+           * ★★ 会不会"装不下"，**在差额小于一行时估算说了不算**（2026-10-10 真 Edge 实测）。
+           *
+           * 那个估算是"按字数折算行数"，而真换行由字体度量决定 —— 边界上**系统性多算一行**。
+           * 实测 Day02：估算报 **23** 条装不下，用真 Edge（注入渲染器自己的
+           * `SLIDE_RENDERER_STYLES`）量，**真溢出的只有 3 条**（第 50 页 el14 /
+           * 第 55 页 el10 / 第 74 页 el14），其余 20 条的真实余量只有 **2px**。
+           * 更要紧的是**没有阈值能分开它们**：真溢出的第 50 页 el14，估算差额是 +12px，
+           * 而误报的第 7 页 el8 是 +26px —— 估算**两边都错**。
+           * 所以这里不再冒充结论：一行之内的，直说"要渲染确认"，并给出工具名。
+           */
+          const oneLine = fontPx * ownLineHeight;
+          const boundary = needed <= rect.height + oneLine;
           findings.push({
             code: 'text-does-not-fit',
-            message:
-              `${label}的文字装不下：按 ${fontPx}px、宽 ${Math.round(rect.width)}px 估，` +
-              `内容约需 ${Math.round(needed)}px 高，而盒子只有 ${Math.round(rect.height)}px。` +
-              '结果就是**末行被切掉**，或者字号被缩成灰块。放不下就**加一页**，不要压字号。',
+            message: boundary
+              ? `${label}的文字**可能**装不下：按 ${fontPx}px、宽 ${Math.round(rect.width)}px 估，` +
+                `内容约需 ${Math.round(needed)}px 高，而盒子只有 ${Math.round(rect.height)}px。` +
+                '★ 差额在**一行之内**，而估算在边界上会系统性多算一行 ⇒ **这不是结论**。' +
+                '要定论就渲染量一遍（`_tools/openmaic/diagnostics/measure-slide-fit.mjs`）。' +
+                '真要改，方向仍然是**加一页**，不要压字号。'
+              : `${label}的文字装不下：按 ${fontPx}px、宽 ${Math.round(rect.width)}px 估，` +
+                `内容约需 ${Math.round(needed)}px 高，而盒子只有 ${Math.round(rect.height)}px（差 ${Math.round(needed - rect.height)}px，超过一行）。` +
+                '结果就是**末行被切掉**，或者字号被缩成灰块。放不下就**加一页**，不要压字号。',
           });
         }
         // ④ 正文字号过小
