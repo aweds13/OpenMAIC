@@ -598,14 +598,24 @@ pi 的 `estimateContextTokens` **假设「最后一条 assistant 消息的 usage
 1. **`stripMarkup` 会吃掉纯文本里的 `<…>`**：`coverage-gap.ts` 把 `/<[^>]*>/g` 换成**空格**，
    于是纯文本字段里的 `List<String>` 变成 `List ` —— 第 53 页那句"括号里是空的"就是这么来的
    （存储里是 raw 的 `List<String>`，学生看到的是完整的）。
-2. **jsdom 无网 ⇒ CDN 桩造成的报错被当成页面缺陷**：第 51/54/58/59 页的
-   `CodeMirror is not a function` / `matchMedia is not a function` **在真浏览器里不存在**
-   （页面从 CDN 取真 CodeMirror；桩只提供一个空实现）。审查报告里那句
-   「渲染时有脚本报错」是**工具自己的注记**（`page-text.ts` 的 note），不是页面文字 ——
-   第 46 页那条更绕：页面**有** else 兜底，失效的真因是它 `<head>` 的 shim 把
-   `window.CodeMirror` 换成了**非函数对象**。
+2. **★ 反过来也栽过：jsdom 的报错不全是假阳性 —— 判据是「按钮还绑不绑得上」。**
+   第 51/54/58/59 页的 `renderMathInElement is not defined` 是**桩造成的、非致命**（后面照跑）。
+   但 `CodeMirror is not a function` 是**真缺陷**：**CDN 真被拦**时真浏览器一样死。
+   2026-10-10 实测（Day02 全 **26** 个 interactive 页离线跑）：**25 页的「运行」按钮都绑上了，
+   唯一死的是第 56 页** —— 它恰好是唯一一个用 `CodeMirror(host, …)` 直呼形态的页：`<head>` 的
+   shim 把全局换成**非函数对象**，页面的 `if (window.CodeMirror)` 守卫被真值骗过 ⇒ 下一行抛错
+   ⇒ **监听全不绑**，它自己的 `else` 兜底**永远走不到**。（原来这条页码写成 46，是错的 —— 46 是好的。
+   修法与判据在 §2 的 `course-design.ts` 那条。）
 3. **压平了 `left`/`top`**：slide 元素是绝对定位的，抽出来的却是单列文本 ⇒ 审查把
    **两栏**读成"挤在同一行"、"列丢了"（实测 6 条版面误报全出在这里）。
+4. **孤立阅读的假象：「×× 没解释」**（2026-10-10，学习者说**不追**）：复审只拿到第 44–46 页
+   正文 + 标题时，报了一串「`main` / `static` / `List` / `void` / `System.out.println` 都没解释」
+   —— **这些在第 5、16、34 页讲过，容器在第 47 页正要讲**。它拿的是**这一段**不是全课，
+   按"我没看到"推"不存在"。**别照它去改。**
+
+**量第 2 条的工具**：`_tools/openmaic/diagnostics/probe-interactive-offline.mjs` —— jsdom 不加载
+外部资源，正好是"CDN 被拦"；它劫持 `addEventListener` 数**谁真的绑上了 click**。退出码 1 = 有死页。
+**改 interactive 页的脚本之后都跑一遍它。**
 
 **教训（比上面每条都值钱）**：审查者的输出**不能超过它拿到的输入**。看到"审查说了一堆蠢话"，
 先问一句「**它当时看到的到底是什么**」—— 上面这几条里，蠢话全是**输入**造的。
@@ -666,47 +676,13 @@ pi 的 `estimateContextTokens` **假设「最后一条 assistant 消息的 usage
 
 ## 10. 批量下载（工作台）
 
-**问题**：想拿某门课的 PPTX / 可交互页，只能**打开那门课**再用 Stage Header 的下载菜单
-—— 课一多就是"一门门打开"。而且浏览器**会拦截一个页面连续触发的多次下载**，
-所以"批量"必须打成**一个 ZIP**。
+**这一节按 §7 的规矩搬走了（2026-10-10，`docs-map-coverage.test.ts` 的 56000 预算判据红了）：**
+入口 / 流程 / 产物 / 命名 / 失败隔离 / 浏览器级验证的脚本要点与实测读数，
+现在都在 [`二开说明.md`](二开说明.md) 的「批量下载（工作台）」一节 —— 那是**功能说明**该待的地方。
 
-| | |
-|---|---|
-| 入口 | 工作台左侧栏 → **课程**标签 → 搜索行右侧的 ⬇（`data-testid="pro-nav-batch-download"`）。**只在课程标签页渲染**（默认标签是对话，别在对话页找它） |
-| 流程 | 勾课（全选/清空/筛选）→ 选内容（PPTX / 交互式页面 HTML / 完整课堂 ZIP，默认全开）→ 下载 ZIP |
-| 产物 | `OpenMAIC-batch-<yyyy-mm-dd-hhmm>.zip`，每个课程一个文件夹：`<课>.pptx`、`interactive/NN_标题.html`、`<课>.maic.zip` |
-| 命名 | 非法字符换 `_`，重名追加 ` (2)`（大小写不敏感去重）——ZIP 条目撞名会**静默吞掉**一门课 |
-| 失败隔离 | 某门课抛错只记一行（结果面板里标红、`title` 是原因），**其余照跑**；全失败则不落盘 |
-| 取消 | 对话框里的取消 / 直接关窗都 abort；**已经组装的部分被丢弃**，不产生半个 ZIP |
-| 进度 | 逐课串行（PPTX 与媒体收集本来就吃满一个线程，并发只会把峰值内存乘上去） |
-
-**为什么每课还要 `.maic.zip`**：测验页和 PBL 页**没有独立 HTML 导出**——它们靠应用的
-React 渲染器（`components/scene-renderers/quiz-renderer.tsx`、`pbl-renderer.tsx`）。
-`.maic.zip`（`manifest.json` + 结构 + 媒体，见 `classroom-zip-types.ts`）是**唯一**
-能把一门课**整门**带走、还能再导入回来的产物。它**不含** PPTX。
-
-**改这块之前先读**：`lib/export/batch-export.ts` 顶部的注释（设计口径），以及 `复盘/已结案结论.md` 里
-"不能静态 import `use-export-pptx`" 那条 —— 那是这条链路上最容易踩的性能坑。
-
-**浏览器级验证**（这轮实测用的办法，无需用户数据；`/workspace` 的 rail 是**纯客户端**的，
-`curl` 拿到的 HTML 里**没有** rail，别用 curl 验 UI）：
-
-```bash
-# 1) 需要 dev server 在跑（§3.2）。2) playwright 在 pnpm store 里，不在根 node_modules：
-#    require('…/node_modules/.pnpm/playwright@1.58.2/node_modules/playwright')
-# 3) 脚本要点（照抄即可）：
-#    page.goto('http://127.0.0.1:3000/workspace')
-#    waitForSelector('[data-testid="pro-nav-tablist"]')
-#    click('[data-testid="pro-nav-tab-courses"]')          # 默认在对话标签！
-#    waitForSelector('[data-testid="pro-nav-batch-download"]')
-#    click(...) → waitForSelector('[data-testid="batch-download-dialog"]')
-```
-
-实测读数（2026-10-06，本机）：工具栏 = `["pro-nav-import-course","pro-nav-new-folder",
-"pro-nav-batch-download"]`；`aria-label="批量下载"`；对话框标题 `批量下载`、
-按钮 `下载 ZIP`（未选课时 **disabled**）、计数 `已选 0 / 0 门`、3 个内容勾选、
-`maic.zip` 与 `PBL` 提示语都在；**console errors: none**。
-新窗口（无 cookie）owner 为空 ⇒ 课程列表 0 条，属正常。
+动手前必看：`lib/export/batch-export.ts` 顶部的注释（设计口径）；`复盘/已结案结论.md` 里
+「不能静态 import `use-export-pptx`」那条（这条链路上最容易踩的性能坑）；入口在**课程**标签
+（**默认是对话标签**，别在对话页找它）。
 
 ---
 
