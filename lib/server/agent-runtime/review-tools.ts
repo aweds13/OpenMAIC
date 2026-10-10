@@ -170,9 +170,14 @@ export const COURSE_REVIEW_RULES = [
   '  the sentence (see item 5 above). 「Unclear」 alone is not actionable.',
   '',
   'On item 5: you are given a **mechanical candidate list** per page — the terms that page uses which',
-  'appear nowhere before it. **Only judge those candidates**; do not list a page is terms yourself.',
-  'Call one a gap only if neither that page nor any earlier page explains it (a later line on the',
-  'same page counts as explained).',
+  'appear nowhere before it. **Only judge those candidates.** A term that is *not* on the list has',
+  '**already appeared on an earlier page** — reporting it as "not explained" is wrong by',
+  'construction, and the tool will strike it out. Do not list a page is terms yourself.',
+  'Call a candidate a gap only if **this page** does not explain it (a later line on the same page',
+  'counts as explained). Whether "an earlier page explained it" is **not yours to judge and not',
+  'checkable from what you are given** — you are handed one slice of the course, and that question',
+  'is about slices you cannot see. If a term on the list looks familiar to you from your own',
+  'knowledge, that is not evidence either: the only evidence you have is the text in front of you.',
   '',
   'Write in Chinese. Be specific: every claim carries a page number and a quote. No advice,',
   'no summary, no pleasantries — only what is wrong.',
@@ -187,6 +192,69 @@ function formatPages(pages: readonly { order: number; title: string; type: strin
       return `### 第 ${page.order} 页（${page.type}）${page.title}${flag}${note}\n${page.text || '（这一页没有任何可见文字）'}`;
     })
     .join('\n\n');
+}
+
+/**
+ * 审查报告里**越界点名**的词：被说成"没解释"，但机器已经确认它在本段**之前**出现过。
+ *
+ * 为什么要有它（2026-10-10 实测）：第 44–46 页那一跑，审查者报了一串
+ * 「`main` / `static` / `List` / `void` / `System.out.println` 都没解释」——
+ * 而这 5 个词**一个都不在那三页的候选里**（它们首次出现在第 4 / 10 页）。
+ * 候选没算错，是**审查者越界自己点名了**：提示词里"只在这些里确认"拦不住模型
+ * （§4：提示词约束不住的东西，必须在代码里给默认值）。
+ *
+ * 判据取**准**不取全：只认带拉丁字母的 token（那类误报全是 API / 标识符名），
+ * 外加报告里显式用反引号 / 「」标出来的词。中文短语不认 —— 报告里到处都是，
+ * 认了只会把真结论一起淹掉。
+ *
+ * 纯函数，可单测：不碰模型、不碰渲染。
+ */
+const GAP_CLAIM_MARKER =
+  /没解释|没有解释|没讲|没有讲|未讲|没说过|没有说|未定义|没有定义|没有说明|没说明|首次出现|第一次出现|第一次见/;
+
+export function outOfScopeGapClaims(
+  report: string,
+  firstSeen: ReadonlyMap<string, number>,
+  firstOrder: number,
+  limit = 12,
+): { term: string; firstOrder: number }[] {
+  /** 直接查；查不到就把复合词拆成块再查（`System.out.println` 库里是三个块）。 */
+  const seenAt = (term: string): number | undefined => {
+    const direct = firstSeen.get(term);
+    if (direct !== undefined) return direct;
+    let best: number | undefined;
+    for (const part of contentChunks(term)) {
+      const at = firstSeen.get(part);
+      if (at !== undefined && (best === undefined || at < best)) best = at;
+    }
+    return best;
+  };
+
+  const found = new Map<string, { term: string; firstOrder: number }>();
+  for (const raw of report.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || !GAP_CLAIM_MARKER.test(line)) continue;
+    const quoted = [...line.matchAll(/[`「『]([^`」』\n]{1,40})[`」』]/g)].map((match) => match[1].trim());
+    // 被引号标出来的整词优先：`System.out.println` 在库里是 System/out/println 三块，
+    // 不去重的话同一处会报出四条（三条碎片 + 一条完整的），把回话搞成噪音。
+    const tokens = new Set<string>([
+      ...contentChunks(line).filter(
+        (term) => /[A-Za-z]/.test(term) && !quoted.some((whole) => whole.includes(term)),
+      ),
+      ...quoted,
+    ]);
+    for (const token of tokens) {
+      if (token.length > 48) continue;
+      const at = seenAt(token);
+      // 只算**本段之前**出现过的。首次出现落在本段之内、或根本没索引到（在本段之后）
+      // 的，都不作废 —— 那可能是真缺口，也可能是"这一页之后才讲"，都不该被机器抹掉。
+      if (at === undefined || at >= firstOrder) continue;
+      const key = token.toLowerCase();
+      if (!found.has(key)) found.set(key, { term: token, firstOrder: at });
+    }
+    if (found.size >= limit) break;
+  }
+  return [...found.values()].sort((left, right) => left.firstOrder - right.firstOrder).slice(0, limit);
 }
 
 /**
@@ -288,13 +356,42 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       //   实测代价（真跑第 22–29 段的原文）：候选里赫然出现「Java」「代码」「编辑器里写」
       //   「运行代码」—— 第 1–21 页早就讲过。审查者据候选把它们判成"真缺口"，
       //   于是**工具自己造出来的假阳性**。所以这里先把本段**之前**的页吃进前缀。
+      //
+      //   ★★ 2026-10-10：把"本段之前"换成一张**全课首次出现索引**（到本段末页为止）。
+      //   同一趟走完，两件事一起得到：
+      //     ① `earlierChunks` = 首次出现早于本段的词（与原来的并集**等价**，见下）；
+      //     ② 事后核对的凭据 —— 报告里点名"没解释"的词，到底首次出现在哪一页。
+      //   为什么需要 ②：实测第 44–46 页那一跑，审查者报了一串
+      //   「`main` / `static` / `List` / `void` / `System.out.println` 都没解释」，
+      //   而这 5 个词**一个都不在那三页的候选里** —— 它们首次出现在**第 4 / 10 页**。
+      //   也就是说：**候选没算错，是审查者越界自己点名了**（提示词里那句"只在这些里确认"
+      //   拦不住模型）。所以提示词改掉那句**问不出答案的话**（"任何前面一页解释了它吗" ——
+      //   候选的定义就是"前面没出现过"，这个问题它无法核对），并在事后**用机器把那类条目
+      //   指名作废**（§4：提示词约束不住的东西，必须在代码里给默认值）。
+      //
+      //   等价性：原来 `earlierChunks` = ⋃{第 o 页的 chunk | o < firstOrder}，
+      //   而现在 = {c | firstSeen(c) < firstOrder} —— 两者是同一个集合。
+      //   段内的候选循环**一个字没改**（仍在段落内逐页累积）。
+      const lastOrderOfSegment = pages[pages.length - 1]?.order ?? 0;
       const firstOrder = pages[0]?.order ?? Number.POSITIVE_INFINITY;
+      const renderedByOrder = new Map<number, (typeof pages)[number]>();
+      for (const page of pages) renderedByOrder.set(page.order, page);
+      const firstSeen = new Map<string, number>();
+      for (const scene of [...scenes].sort((left, right) => left.order - right.order)) {
+        if (scene.order > lastOrderOfSegment) break;
+        // 段内的页已经渲染过，别再渲染第二遍（jsdom 那 26 个 interactive 页很贵）。
+        let page = renderedByOrder.get(scene.order);
+        if (!page) {
+          page = await learnerVisibleText(scene, deps.render ? { render: deps.render } : undefined);
+          renderedByOrder.set(scene.order, page);
+        }
+        for (const chunk of contentChunks(page.text)) {
+          if (!firstSeen.has(chunk)) firstSeen.set(chunk, scene.order);
+        }
+      }
       const earlierChunks = new Set<string>();
-      for (const scene of [...scenes]
-        .filter((candidate) => candidate.order < firstOrder)
-        .sort((left, right) => left.order - right.order)) {
-        const page = await learnerVisibleText(scene, deps.render ? { render: deps.render } : undefined);
-        for (const chunk of contentChunks(page.text)) earlierChunks.add(chunk);
+      for (const [chunk, seenAt] of firstSeen) {
+        if (seenAt < firstOrder) earlierChunks.add(chunk);
       }
       const candidateLines: string[] = [];
       for (const page of pages) {
@@ -304,7 +401,7 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
         for (const chunk of chunks) earlierChunks.add(chunk);
       }
       const candidatesText = candidateLines.length
-        ? String.fromCharCode(10) + String.fromCharCode(10) + '# 机械候选（5a 新概念）—— **只在这些里确认，别的不要自己列**' + String.fromCharCode(10) + String.fromCharCode(10) + candidateLines.join(String.fromCharCode(10)) + String.fromCharCode(10) + String.fromCharCode(10) + '★ 这些是**机器算出来**的（这一页用到、前面所有页都没出现过）。你要判的只是：哪些是**真缺口**（本页后文或任何前面一页解释了它 ⇒ 不是缺口）。'
+        ? String.fromCharCode(10) + String.fromCharCode(10) + '# 机械候选（5a 新概念）—— **只在这些里确认，别的不要自己列**' + String.fromCharCode(10) + String.fromCharCode(10) + candidateLines.join(String.fromCharCode(10)) + String.fromCharCode(10) + String.fromCharCode(10) + '★ 这些是**机器算出来**的（这一页用到、前面所有页都没出现过）。你要判的只是：**这一页（含它的后文）有没有把它讲清楚**。候选的定义就是「前面所有页都没出现过」—— 所以「前面讲过没有」**不是你能核对的**，别去猜、也别用你自己的先验知识补；**没出现在候选里的词一律不许报**（机器已经确认它在本课更早的页出现过）。'
         : '';
       // ★ 说清"这是**全课**的第几页到第几页"，并给一份**全课目录**（2026-10-09 修）。
       //   原来这一行写的是「课程页面（共 N 页）」，而 N 是**本次调用**拿到的页数 ⇒
@@ -352,6 +449,20 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       const writeReceipt = deps.writeReceipt ?? writeReviewReceipt;
       await writeReceipt(receipt).catch(() => false);
 
+      // ★ 机器复核：报告里点名"没解释"、但**本段之前就出现过**的词，指名作废。
+      //   候选机制已经证明那些词在本课更早的页出现过 —— 而"本课没讲过 X"正是审查者
+      //   从"只看到第 A–B 页"里**推不出来**的（第 44–46 页那一跑就是这么错的）。
+      //   只作废"新概念"这一类条目，不碰 1–4 的表达类结论（那些对着本页原句就能核）。
+      const outOfScope = outOfScopeGapClaims(report, firstSeen, firstOrder);
+      const outOfScopeText = outOfScope.length
+        ? `\n\n★ **机器复核：下面这些条目不算数。** 报告把它们当成"没解释"，` +
+          `但机器按同一把尺确认它们在本课**更早的页**已经出现过 —— 而"本课没讲过 X"` +
+          `不是"只看到第 ${pages[0]?.order}–${stoppedAt} 页"能推出来的：\n` +
+          outOfScope.map((claim) => `· \`${claim.term}\` —— 首次出现在**第 ${claim.firstOrder} 页**`).join('\n') +
+          `\n这些条目请**直接丢掉**。如果你真正想说的是"本页把一个已经出现过的词讲糊了"，` +
+          `那属于 1–4 的**表达**问题：按那个轴重写，并引本页原句。`
+        : '';
+
       const header = [
         `review_course: 已审 ${pages.length} 页（第 ${pages[0]?.order}–${stoppedAt} 页，约 ${used} 字符）`,
         remaining > 0
@@ -364,7 +475,7 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
         .join('\n');
 
       return {
-        content: [{ type: 'text' as const, text: `${header}\n\n${report}` }],
+        content: [{ type: 'text' as const, text: `${header}\n\n${report}${outOfScopeText}` }],
         details: {
           stageId: params.stageId,
           pageCount: pages.length,
@@ -374,6 +485,8 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
           /** 全量出口：逐页的取文方式，正文只给样本时用得上。 */
           pageModes: pages.map((page) => ({ order: page.order, mode: page.mode, chars: page.text.length })),
           candidatePages: candidateLines.length,
+          /** 被机器作废的"新概念"条目：词 + 它真正首次出现的页。 */
+          outOfScopeClaims: outOfScope,
           charsUsed: used,
           charsBudget: budget,
           remainingPages: remaining,

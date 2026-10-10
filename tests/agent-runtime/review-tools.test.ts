@@ -7,7 +7,11 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { buildCourseReviewTool, COURSE_REVIEW_RULES } from '@/lib/server/agent-runtime/review-tools';
+import {
+  buildCourseReviewTool,
+  COURSE_REVIEW_RULES,
+  outOfScopeGapClaims,
+} from '@/lib/server/agent-runtime/review-tools';
 import type { VisibleTextPage } from '@/lib/quiz/page-text';
 
 const SLIDE = (order: number, text: string, title = `第 ${order} 页`): VisibleTextPage => ({
@@ -278,5 +282,118 @@ describe('review_course 的诚实性', () => {
     const result = (await built.execute('call-1', { stageId: 'stage-x' })) as { isError?: boolean };
     expect(result.isError).toBe(true);
     expect(aiCall).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ★★ 孤立阅读：审查者**越界点名**（2026-10-10 实测逼出来的）。
+ *
+ * 学习者转来的一条：复审只拿到第 44–46 页时，报了一串
+ * 「`main` / `static` / `List` / `void` / `System.out.println` 都没解释」。
+ * 量下来**候选没算错** —— 这 5 个词**一个都不在那三页的候选里**，
+ * 它们首次出现在**第 4 / 10 页**（`npx vitest run tests/agent-runtime/_isolated-reading-probe.test.ts`
+ * 那支临时探针跑出来的读数）。也就是说：
+ *
+ *   · **工具给的证据是对的**：候选 = 首次出现的词，那三页的候选是
+ *     「定义接口、travel、只写声明」/「命中一、chain、分支全部跳过」/「泛型方法、三件事」；
+ *   · **是审查者自己点名了**：提示词里"只在这些里确认"拦不住模型。
+ *   · 而且提示词里那句「或**任何前面一页**解释了它 ⇒ 不是缺口」是**问不出答案的问题** ——
+ *     候选的定义就是"前面所有页都没出现过"，而它又看不到那些页。
+ *
+ * 所以两处都改：① 把那个无法回答的问句从提示词里删掉，并明说"没出现在候选里的一律不许报"；
+ * ② 事后**用机器把那类条目指名作废**（§4：提示词约束不住的东西，必须在代码里给默认值）。
+ */
+describe('★★ 孤立阅读：越界点名的"没解释"要用机器作废', () => {
+  it('★ 提示词不再问"前面哪一页解释了它"（那个问题审查者无法核对）', async () => {
+    const { built, aiCall } = tool({
+      scenes: [SLIDE(1, 'void 表示没有返回值'), SLIDE(2, '写一个 travel 接口')],
+      reply: '第 2 页：轴 2 —— 掉了一个动词。',
+    });
+    await built.execute('call-1', { stageId: 'stage-x', fromOrder: 2 });
+    const [system] = aiCall.mock.calls[0]!;
+    // 反例：原来那句「本页后文或任何前面一页解释了它 ⇒ 不是缺口」必须消失。
+    expect(String(system)).not.toMatch(/任何前面一页解释了它/);
+    expect(String(system)).not.toMatch(/neither that page nor any earlier page explains it/);
+    // 正解：明说"前面讲过没有"不是它能核对的，且候选之外一律不许报。
+    expect(String(system)).toMatch(/不是你能核对的/);
+    expect(String(system)).toMatch(/没出现在候选里的词一律不许报/);
+    expect(String(system)).toMatch(/not yours to judge and not/);
+  });
+
+  it('★★ 报告点名"没解释"、但该词本段之前就出现过 ⇒ 机器作废，并给出它真正的首现页', async () => {
+    const { built } = tool({
+      scenes: [
+        SLIDE(1, 'void 表示没有返回值，static 表示属于类'),
+        SLIDE(2, '写一个 travel 接口，别的先不管'),
+      ],
+      reply: '第 2 页：轴 5 —— 这一页用了 `void` 和 `static`，但没解释。',
+    });
+    const result = (await built.execute('call-1', { stageId: 'stage-x', fromOrder: 2 })) as {
+      content: { text: string }[];
+      details: { outOfScopeClaims: { term: string; firstOrder: number }[] };
+    };
+    expect(result.content[0]!.text).toContain('机器复核');
+    expect(result.content[0]!.text).toContain('直接丢掉');
+    // 首现页要报出来 —— 那才是可行动的信息（"第 1 页已经讲过"）。
+    expect(result.content[0]!.text).toContain('首次出现在**第 1 页**');
+    const terms = result.details.outOfScopeClaims.map((claim) => claim.term);
+    expect(terms).toContain('void');
+    expect(terms).toContain('static');
+    expect(result.details.outOfScopeClaims.every((claim) => claim.firstOrder === 1)).toBe(true);
+  });
+
+  it('★ 不误伤真缺口：候选里的词（本页首现）被点名"没解释"**不**作废', async () => {
+    const { built } = tool({
+      scenes: [SLIDE(1, 'void 表示没有返回值'), SLIDE(2, '写一个 travel 接口，别的先不管')],
+      reply: '第 2 页：轴 5 —— `travel` 在第 2 页第一次出现，却没解释。',
+    });
+    const result = (await built.execute('call-1', { stageId: 'stage-x', fromOrder: 2 })) as {
+      content: { text: string }[];
+      details: { outOfScopeClaims: unknown[] };
+    };
+    expect(result.details.outOfScopeClaims).toEqual([]);
+    expect(result.content[0]!.text).not.toContain('机器复核');
+  });
+
+  it('★ 不误伤 1–4：没写"没解释"这类字样的引用条目，哪怕引了前文的词也原样留着', async () => {
+    const { built } = tool({
+      scenes: [SLIDE(1, 'void 表示没有返回值'), SLIDE(2, '写一个 travel 接口，别的先不管')],
+      reply: '第 2 页：轴 1 —— 这句话把 `void` 说成"返回空"，和它的实际含义矛盾。',
+    });
+    const result = (await built.execute('call-1', { stageId: 'stage-x', fromOrder: 2 })) as {
+      content: { text: string }[];
+      details: { outOfScopeClaims: unknown[] };
+    };
+    expect(result.details.outOfScopeClaims).toEqual([]);
+    expect(result.content[0]!.text).toContain('说成"返回空"');
+  });
+
+  it('★ 复合词按**首个内容块**定首现页（`System.out.println` 在库里是三个块）', () => {
+    const firstSeen = new Map<string, number>([
+      ['System', 4],
+      ['out', 4],
+      ['println', 4],
+      ['泛型方法', 46],
+    ]);
+    const claims = outOfScopeGapClaims(
+      '第 46 页：`System.out.println` 没解释。\n第 46 页：`泛型方法` 没解释。',
+      firstSeen,
+      44,
+    );
+    expect(claims.map((claim) => claim.term)).toEqual(['System.out.println']);
+    expect(claims[0]!.firstOrder).toBe(4);
+  });
+
+  it('★ 纯函数边界：没有"没解释"字样、或首现在本段之后 ⇒ 一条都不作废', () => {
+    const firstSeen = new Map<string, number>([
+      ['main', 1],
+      ['Stream', 60],
+    ]);
+    // 没有标记词 ⇒ 不看
+    expect(outOfScopeGapClaims('第 50 页：轴 1 —— `main` 那句话讲反了。', firstSeen, 44)).toEqual([]);
+    // 首现在本段**之后** ⇒ 那是"这一页之后才讲"，不该被机器抹掉
+    expect(outOfScopeGapClaims('第 50 页：`Stream` 没解释。', firstSeen, 44)).toEqual([]);
+    // 首现落在**本段之内** ⇒ 是候选，可能是真缺口
+    expect(outOfScopeGapClaims('第 50 页：`Stream` 没解释。', firstSeen, 60)).toEqual([]);
   });
 });
