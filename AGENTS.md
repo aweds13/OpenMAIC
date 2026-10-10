@@ -314,6 +314,27 @@ SELECT stage_id||' ord='||scene_order||' q='||
 FROM document_scenes WHERE data->>'type'='quiz' ORDER BY 1;   -- ★ 只有一列，ORDER BY 2 会报错
 ```
 
+**★★ `data/usage/*.jsonl` 的 token 口径（2026-10-10 实测，我先踩了）**：
+
+**上下文大小 = `inputTokens` 单独一个数。不要加 `cacheReadTokens`。**
+`cacheReadTokens` / `cacheCreationTokens` 是 `inputTokens` 的**明细拆分**，不是相加项。
+相加会把上下文**放大一倍**：同一时刻 `inputTokens` = **139,175**，相加 = **277,031**，
+而官方压缩读数（`agent_session_events` 里 `type='trace'` 的 `N -> M tokens`）是 **139,827** ✓。
+★ 我拿错的口径推出了**两个错结论**（"90 万没用上"/"压完还剩 2.7 倍"），
+是事件流里的官方数字把我拦下来的。**量之前先找一个已知值对表。**
+
+```sql
+-- 压缩的真实前后读数 —— 不用推断，这就是官方数字
+SELECT to_timestamp(ts/1000) AT TIME ZONE 'Asia/Shanghai', data->>'message'
+  FROM agent_session_events WHERE type='trace' AND data->>'message' LIKE '%compacted%'
+ ORDER BY ts DESC LIMIT 12;
+```
+
+**实测结论**（2026-10-10，1234 次 agent-runtime 调用）：中位 **120,899**、p90 221,520、
+最大 **444,038**；压缩**触发 ~140K → 压到 ~25K**（正常且激进）。
+触发线是 `.env.local` 的 `OPENMAIC_AGENT_COMPACTION_CONTEXT_BUDGET=150000`，
+而模型窗口是 **1,048,576** ⇒ **离上限还有 55 万，不紧张**。
+
 **中文 SQL 字面量的坑**：`psql.exe` 在 Git Bash 下会把字面量按 GBK 发出去 ⇒
 `invalid byte sequence for encoding "UTF8"`。两种绕法：
 
