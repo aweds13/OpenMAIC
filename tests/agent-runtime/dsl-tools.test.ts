@@ -1616,3 +1616,75 @@ describe('★★ grep_stage 截断时必须说"没扫完"', () => {
     expect(textOf(result)).not.toContain('没扫完');
   });
 });
+
+/**
+ * ★★ **小框改字：装不下就**不写**（2026-10-10，学习者转来 agent 的自述）。
+ *
+ * 「**小框（120–135px）改字必须等长或更短** —— 这门课里这种框很多，
+ *   **我这轮就先溢出再压缩过一次**。」
+ *
+ * 那次代价是**两次写入 + 一轮往返**。而这两件事**写之前就都知道**：
+ * 盒子多大、字号多大、新文字多长。`layout-check` 是**写完之后**的诊断，
+ * 挡不住这一次 —— 所以补这道**事前**的。
+ *
+ * ★ 拒绝信息必须给出路：**缩短到 ≤N 字，或加框 / 拆页**；
+ *   并且明说**不要压字号**（那正是"缩成灰块"那条老路）。
+ */
+describe('★★ patch_stage：小框改字装不下就不写', () => {
+  const smallBoxScene = (): Scene => {
+    const scene = slideScene();
+    const canvas = (scene.content as SlideContent).canvas;
+    canvas.elements[0] = {
+      ...(canvas.elements[0] as PPTTextElement),
+      left: 40, top: 40, width: 400, height: 128,   // ← 学习者点名的那种小框
+      content: '<p style="font-size: 16px;">短句。</p>',
+    } as PPTTextElement;
+    return scene;
+  };
+
+  it('★ 塞一段长文字进去 ⇒ **拒绝**，且说清"没写入"、给两条路、别压字号', async () => {
+    const current = state(course([smallBoxScene()]));
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('p', {
+      stageId: 'stage-test',
+      target: '/scenes/scene_slide',
+      intent: '改一句',
+      ops: [
+        {
+          op: 'str_replace',
+          path: '/content/canvas/elements/0/content',
+          oldText: '短句。',
+          newText: `<p style="font-size: 16px;">${'这句话很长，'.repeat(30)}</p>`,
+        },
+      ],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('溢出');
+    expect(text).toContain('没有写入');
+    expect(text).toContain('拆成两页');
+    expect(text).toContain('不要压字号');
+    // ★ 拒绝 ⇒ 页面没变（整批原子，不留半成品）
+    expect((current.get().scenes[0]!.content as SlideContent).canvas.elements[0]).toMatchObject({
+      height: 128,
+    });
+  });
+
+  it('★ 等长或更短的改法**照常放行**（不能把正常路挡住）', async () => {
+    const current = state(course([smallBoxScene()]));
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('p', {
+      stageId: 'stage-test',
+      target: '/scenes/scene_slide',
+      intent: '换个说法',
+      ops: [
+        {
+          op: 'str_replace',
+          path: '/content/canvas/elements/0/content',
+          oldText: '短句。',
+          newText: '<p style="font-size: 16px;">短。</p>',
+        },
+      ],
+    } as never);
+    expect(textOf(result)).not.toContain('溢出');
+  });
+});

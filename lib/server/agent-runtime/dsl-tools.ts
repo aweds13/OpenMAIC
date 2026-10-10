@@ -25,6 +25,7 @@ import { COURSE_STAGE_ID_DESCRIPTION } from './course-stage';
 import { planGate, planGateEnabled } from './plan-freeze';
 import { readPlanFreeze } from './plan-freeze-store';
 import { auditCourse, NOVEL_P90 } from '@/lib/quiz/course-audit';
+import { estimateTextHeightPx, maxFontSizePx } from '@/lib/quiz/layout-check';
 import { readReviewReceipt } from './plan-freeze-store';
 import type { SceneOutline } from '@/lib/types/generation';
 
@@ -600,6 +601,46 @@ type PatchOpResult =
   | { ok: true; value: Scene; details?: { op: string; path?: string; occurrences?: number } }
   | { ok: false; error: string };
 
+/**
+ * ★★ **写之前**先算"这段新文字装不装得下"（2026-10-10）。
+ *
+ * ── 由来（学习者转来的 agent 自述）──────────────────────────────
+ * 「**小框（120–135px）改字必须等长或更短** —— 这门课里这种框很多，
+ *   **我这轮就先溢出再压缩过一次**。」
+ *
+ * 那次代价是**两次写入 + 一轮往返**：先把字塞进去（溢出），再压回来。
+ * 而这两件事**写之前就都知道**：盒子多大、字号多大、新文字多长 —— 全可算。
+ *
+ * `layout-check` 是**写完之后**的诊断（要落盘后的页面），挡不住这一次；
+ * 这里补一道**事前**的：目标字段落在某个有尺寸的文字元素里时，先估一次高度。
+ *
+ * ★ 拒绝信息必须给出路（§1.1）：**缩短到 ≤N 字，或加一个框 / 拆成两页**。
+ *   只报"装不下"，模型会去压字号 —— 那正是"缩成灰块"那条老路。
+ */
+function textFitRefusal(scene: Scene, path: string, newText: string): string | undefined {
+  if (scene.content.type !== 'slide') return undefined;
+  const match = /^[/]content[/]canvas[/]elements[/](\d+)[/](content|code)$/.exec(path);
+  if (!match) return undefined;
+  const element = scene.content.canvas.elements[Number(match[1])] as
+    | { type?: string; width?: number; height?: number; fontSize?: number }
+    | undefined;
+  if (!element || element.type !== 'text') return undefined;
+  const { width, height } = element;
+  if (typeof width !== 'number' || typeof height !== 'number') return undefined;
+  const fontPx = maxFontSizePx(newText) ?? (typeof element.fontSize === 'number' ? element.fontSize : 16);
+  const needed = estimateTextHeightPx(newText, width, fontPx);
+  if (needed <= height + 1) return undefined;
+  const maxChars = Math.max(1, Math.floor((height / (fontPx * 1.6)) * (width / fontPx)));
+  return [
+    `这一改会**溢出**：目标文字框只有 ${Math.round(width)}×${Math.round(height)}px，`,
+    `新文字按 ${fontPx}px 估需要约 ${Math.round(needed)}px 高。`,
+    '这次**没有写入**（整批原子，不留半成品）。两条路：',
+    `· **缩短**到约 ${maxChars} 字以内（等长或更短最稳）；`,
+    '· 内容确实要加 ⇒ 用 `add_element` 在旁边加一个框，或**把这一页拆成两页**。',
+    '★ **不要压字号** —— 那会变成一团灰（这门课里 120–135px 的小框很多）。',
+  ].join(String.fromCharCode(10));
+}
+
 function applyPatchOp(scene: Scene, op: PatchParams['ops'][number]): PatchOpResult {
   if (op.op === 'add_element' || op.op === 'delete_element') {
     if (scene.content.type !== 'slide')
@@ -626,6 +667,9 @@ function applyPatchOp(scene: Scene, op: PatchParams['ops'][number]): PatchOpResu
           'str_replace path must start /content/ or /actions/; use edit_deck for scene metadata',
       };
     }
+    // ★ 先算"装不装得下" —— 拒绝就不写，整批原子（见 textFitRefusal 头部）
+    const refusal = textFitRefusal(scene, op.path, op.newText);
+    if (refusal) return { ok: false as const, error: refusal };
     const applied = applyStrReplace(scene, {
       path: op.path,
       oldText: op.oldText,
