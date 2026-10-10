@@ -1081,7 +1081,7 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
             },
             { reviewPage: deps.reviewPage },
           )
-        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, pageReviewText: '' };
+        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, layoutFindings: [], layoutText: '', pageReviewText: '' };
 
       deps.onCheckpoint({
         tool: 'patch_stage',
@@ -1103,7 +1103,7 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
       });
       return toolResult(
         `Updated scene "${next.title}": ${params.intent}` +
-          `${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.pageReviewText}`,
+          `${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.layoutText}${diagnostics.pageReviewText}`,
         {
           intent: params.intent,
           updated: { sceneId: next.id, order: next.order, type: next.type, ops: params.ops.length },

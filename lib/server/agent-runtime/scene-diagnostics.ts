@@ -33,6 +33,12 @@ import {
 } from '@/lib/quiz/coverage-gap';
 import { staticPageText } from '@/lib/quiz/page-text';
 import {
+  checkLayout,
+  formatLayoutFindings,
+  type LayoutElement,
+  type LayoutFinding,
+} from '@/lib/quiz/layout-check';
+import {
   checkPlanDependencies,
   formatPlanIssues,
   type PlanIssue,
@@ -84,6 +90,15 @@ export interface SceneWriteDiagnostics {
   planText: string;
   /** 机械可判的**字数带**（见下）；文本拼进工具回话。 */
   densityText: string;
+  /**
+   * ★★ **版面**（2026-10-10）：溢出 / 重叠 / 文字装不下 / 字号过小。
+   *
+   * agent **没有渲染预览**（`render_scene_preview` 要 `RENDER_SERVICE_URL`，本部署没配
+   * ⇒ 工具不注册）。所以它看不到画面 —— 而这几件事**不需要画面也能算**：元素带坐标。
+   * 见 `lib/quiz/layout-check.ts` 头部。
+   */
+  layoutFindings: LayoutFinding[];
+  layoutText: string;
   /** 这一页的可见正文字数（只看 slide）。 */
   bodyChars: number;
 }
@@ -160,6 +175,15 @@ export function sceneWriteDiagnostics(input: SceneWriteDiagnosticsInput): SceneW
     );
   }
 
+  // ★ 版面：**只有 slide 有 canvas**（别的类型的正文不在 canvas 里，同字数带那一条）。
+  const layoutFindings =
+    input.scene.type === 'slide'
+      ? checkLayout(
+          ((input.scene.content as { canvas?: { elements?: LayoutElement[] } } | undefined)?.canvas
+            ?.elements ?? []) as LayoutElement[],
+        )
+      : [];
+
   return {
     coverageGaps,
     coverageText: coverageGaps.length ? `\n\n${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}` : '',
@@ -169,6 +193,10 @@ export function sceneWriteDiagnostics(input: SceneWriteDiagnosticsInput): SceneW
       ? String.fromCharCode(10, 10) + densityNotes.map((note) => `· ${note}`).join(String.fromCharCode(10))
       : '',
     bodyChars,
+    layoutFindings,
+    layoutText: layoutFindings.length
+      ? String.fromCharCode(10, 10) + formatLayoutFindings(layoutFindings)
+      : '',
   };
 }
 

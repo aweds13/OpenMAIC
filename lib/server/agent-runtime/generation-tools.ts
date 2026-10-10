@@ -746,7 +746,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
               },
               { reviewPage: deps.reviewPage },
             )
-          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, pageReviewText: '' };
+          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, layoutFindings: [], layoutText: '', pageReviewText: '' };
       const mediaPlaceholders = collectUnresolvedMediaPlaceholders(persisted);
       deps.onCheckpoint({
         tool: 'generate_scene',
@@ -775,7 +775,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           skillViolations.length
             ? ` SKILL CONSTRAINT CHECK against "${skill?.id}": ${skillViolations.join('; ')}.`
             : ''
-        }${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.pageReviewText}${
+        }${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.layoutText}${diagnostics.pageReviewText}${
           mediaPlaceholders.length
             ? ` ${mediaPlaceholders.length} media placeholder(s) still render as skeletons.`
             : ''
