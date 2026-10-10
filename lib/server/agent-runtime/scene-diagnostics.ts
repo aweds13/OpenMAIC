@@ -34,7 +34,10 @@ import {
 import { staticPageText } from '@/lib/quiz/page-text';
 import {
   checkLayout,
+  formatLayoutDelta,
   formatLayoutFindings,
+  layoutDelta,
+  type LayoutDelta,
   type LayoutElement,
   type LayoutFinding,
 } from '@/lib/quiz/layout-check';
@@ -99,6 +102,16 @@ export interface SceneWriteDiagnostics {
    */
   layoutFindings: LayoutFinding[];
   layoutText: string;
+  /**
+   * ★★ **改前/改后差集**（2026-10-10）：这一轮**引入**了什么、修掉了什么、
+   * 哪些是**改前就有**的。只有 `patch_stage`（带 `previousScene`）才有内容。
+   *
+   * 为什么需要它：学习者原话「**新增两处盒子高度不足……都是既有问题，我的改动是等长的**」——
+   * 写入后诊断只在**写完**之后算一遍，所以它说得出"这页有 2 处装不下"，
+   * 说不出"**改前就有这 2 处**"。而这件事纯算术、不需要渲染、不需要人眼。
+   */
+  layoutDelta: LayoutDelta;
+  layoutDeltaText: string;
   /** 这一页的可见正文字数（只看 slide）。 */
   bodyChars: number;
 }
@@ -113,6 +126,13 @@ export interface SceneWriteDiagnosticsInput {
   scenes: readonly Scene[];
   /** 刚写下去的那一页。 */
   scene: Scene;
+  /**
+   * ★★ **改动之前**那一页（同一个 id 的旧版本）。只有 `patch_stage` 拿得到。
+   *
+   * 给了它才算得出「这次改动引入了什么 / 既有的是什么」；不给就只有"改后"的快照。
+   * `generate_scene` 写的是新页，天然没有前身。
+   */
+  previousScene?: Scene;
   /** 当前计划信封（可缺 —— 没有就跳过计划检查）。 */
   outline: AppDocumentOutline | undefined;
 }
@@ -176,13 +196,23 @@ export function sceneWriteDiagnostics(input: SceneWriteDiagnosticsInput): SceneW
   }
 
   // ★ 版面：**只有 slide 有 canvas**（别的类型的正文不在 canvas 里，同字数带那一条）。
-  const layoutFindings =
-    input.scene.type === 'slide'
-      ? checkLayout(
-          ((input.scene.content as { canvas?: { elements?: LayoutElement[] } } | undefined)?.canvas
-            ?.elements ?? []) as LayoutElement[],
-        )
+  const elementsOf = (scene: Scene | undefined): LayoutElement[] =>
+    scene?.type === 'slide'
+      ? (((scene.content as { canvas?: { elements?: LayoutElement[] } } | undefined)?.canvas
+          ?.elements ?? []) as LayoutElement[])
       : [];
+  const layoutFindings = checkLayout(elementsOf(input.scene));
+
+  /**
+   * ★★ 差集：**"是不是我改坏的"**。
+   *
+   * 只在两侧都是 slide 且给了 `previousScene` 时算。页面类型变了（slide → quiz 等）
+   * 时不算 —— 那不是"同一页的两版"，比差集没有意义。
+   */
+  const delta =
+    input.previousScene && input.previousScene.type === 'slide' && input.scene.type === 'slide'
+      ? layoutDelta(checkLayout(elementsOf(input.previousScene)), layoutFindings)
+      : undefined;
 
   return {
     coverageGaps,
@@ -197,6 +227,8 @@ export function sceneWriteDiagnostics(input: SceneWriteDiagnosticsInput): SceneW
     layoutText: layoutFindings.length
       ? String.fromCharCode(10, 10) + formatLayoutFindings(layoutFindings)
       : '',
+    layoutDelta: delta ?? { added: [], removed: [], kept: [] },
+    layoutDeltaText: delta ? formatLayoutDelta(delta) : '',
   };
 }
 

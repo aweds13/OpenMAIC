@@ -1121,11 +1121,13 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
             {
               scenes: afterPatch.scenes,
               scene: afterPatch.scenes.find((item) => item.id === next.id) ?? next,
+              // ★ 改动之前那一页 ⇒ 才算得出"这次引入了什么 / 哪些是既有的"。
+              previousScene: resolved.scene,
               outline: afterPatch.outline as AppDocumentOutline | undefined,
             },
             { reviewPage: deps.reviewPage },
           )
-        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, layoutFindings: [], layoutText: '', pageReviewText: '' };
+        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, layoutFindings: [], layoutText: '', layoutDelta: { added: [], removed: [], kept: [] }, layoutDeltaText: '', pageReviewText: '' };
 
       deps.onCheckpoint({
         tool: 'patch_stage',
@@ -1147,7 +1149,7 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
       });
       return toolResult(
         `Updated scene "${next.title}": ${params.intent}` +
-          `${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.layoutText}${diagnostics.pageReviewText}`,
+          `${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.layoutText}${diagnostics.layoutDeltaText}${diagnostics.pageReviewText}`,
         {
           intent: params.intent,
           updated: { sceneId: next.id, order: next.order, type: next.type, ops: params.ops.length },

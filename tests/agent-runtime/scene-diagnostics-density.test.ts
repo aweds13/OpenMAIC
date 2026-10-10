@@ -91,3 +91,60 @@ describe('★ 写入后带上下文再审一遍（LLM 那一半）', () => {
     expect(result.pageReviewText).toBe('');
   });
 });
+
+/**
+ * ★★ 版面的**改前/改后差集**（2026-10-10）。
+ *
+ * 学习者原话：「**新增两处盒子高度不足……都是既有问题，我的改动是等长的**」——
+ * 他在替工具做因果判断。`patch_stage` 现在把**改动前那一页**也传进来，
+ * 于是"这次引入了什么 / 哪些是既有的"变成回话里的一句话。
+ */
+describe('★★ 版面差集：patch_stage 才拿得到"改前那一页"', () => {
+  const page = (text: string, height: number): Scene =>
+    ({
+      id: 's1',
+      stageId: 'stage-test',
+      order: 1,
+      type: 'slide',
+      title: '一页',
+      content: {
+        type: 'slide',
+        canvas: { elements: [{ type: 'text', left: 0, top: 0, width: 400, height, content: text }] },
+      },
+      actions: [],
+    }) as unknown as Scene;
+  // 24 个汉字 @16px、可用宽 380 ⇒ 2 行 = 48px
+  const overflowing = `<p style="font-size: 16px;">${'字'.repeat(24)}</p>`;
+
+  it('★★ 改前就有（等长改动）⇒ 明说"不是这次改出来的"', () => {
+    const result = sceneWriteDiagnostics({
+      scenes: [page(overflowing, 30)],
+      scene: page(overflowing.replace('字', '文'), 30),
+      previousScene: page(overflowing, 30),
+      outline: undefined,
+    });
+    expect(result.layoutDeltaText).toContain('不是你这次改出来的');
+    expect(result.layoutDelta.added).toHaveLength(0);
+    expect(result.layoutDelta.kept).toHaveLength(1);
+  });
+
+  it('★ 这次改出来的 ⇒ 点名"新引入了"', () => {
+    const result = sceneWriteDiagnostics({
+      scenes: [page(overflowing, 30)],
+      scene: page(overflowing, 30),
+      previousScene: page('短句', 30),
+      outline: undefined,
+    });
+    expect(result.layoutDeltaText).toContain('新引入了 1 处');
+  });
+
+  it('★ 没给 previousScene（generate_scene 写新页）⇒ 一个字都不说', () => {
+    const result = sceneWriteDiagnostics({
+      scenes: [page(overflowing, 30)],
+      scene: page(overflowing, 30),
+      outline: undefined,
+    });
+    expect(result.layoutDeltaText).toBe('');
+    expect(result.layoutDelta).toEqual({ added: [], removed: [], kept: [] });
+  });
+});

@@ -746,7 +746,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
               },
               { reviewPage: deps.reviewPage },
             )
-          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, layoutFindings: [], layoutText: '', pageReviewText: '' };
+          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, layoutFindings: [], layoutText: '', layoutDelta: { added: [], removed: [], kept: [] }, layoutDeltaText: '', pageReviewText: '' };
       const mediaPlaceholders = collectUnresolvedMediaPlaceholders(persisted);
       deps.onCheckpoint({
         tool: 'generate_scene',

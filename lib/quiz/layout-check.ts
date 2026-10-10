@@ -86,6 +86,103 @@ export interface LayoutFinding {
     | 'no-headroom';
   /** 给人/模型看的一句话，必须点名是哪个元素。 */
   message: string;
+  /**
+   * 这一条挂在**第几个元素**上（0 基）。
+   *
+   * ★ 2026-10-10 加：**改前/改后要对得起来**。`message` 里带着估算出来的数字
+   *   （"约需 154px"），改一个字就会变 ⇒ 拿它当身份会把同一条问题报成"新增"。
+   *   页面级的检查（`no-headroom`）没有元素，留空。
+   */
+  elementIndex?: number;
+  /** 两元素类检查（`overlaps`）的第二个下标。 */
+  elementIndex2?: number;
+}
+
+/** 一条发现在**改前↔改后**里的身份。结构化，不去 parse message。 */
+export function layoutFindingKey(finding: LayoutFinding): string {
+  const at = finding.elementIndex === undefined ? '' : `:${finding.elementIndex}`;
+  const at2 = finding.elementIndex2 === undefined ? '' : `,${finding.elementIndex2}`;
+  return `${finding.code}${at}${at2}`;
+}
+
+export interface LayoutDelta {
+  /** 改**之后**才有的（这一轮引入的）。 */
+  added: LayoutFinding[];
+  /** 改**之前**有、改之后没有了（这一轮修掉的）。 */
+  removed: LayoutFinding[];
+  /** 两项都有（**既有问题**，不是这一轮引入的）。 */
+  kept: LayoutFinding[];
+}
+
+/**
+ * 把两次检查的发现对成**差集** —— 让"是不是我改坏的"变成可算的。
+ *
+ * ★★ 2026-10-10 加。学习者的原话：「**新增两处盒子高度不足……都是既有问题，
+ *   我的改动是等长的**」—— 他的力气本来不该花在这里：写入后诊断只在**写完**之后算一遍，
+ *   于是它说得出"这页有 2 处装不下"，说不出"**改前就有这 2 处**"。
+ *   而这件事纯算术、不需要渲染、不需要人眼。
+ *
+ * 身份用 `layoutFindingKey()`（`code` + 元素下标），**不用 message** ——
+ * 估算出来的数字改一个字就变，拿它当身份会把同一条报成"新增"。
+ */
+export function layoutDelta(
+  before: readonly LayoutFinding[],
+  after: readonly LayoutFinding[],
+): LayoutDelta {
+  const keyOf = (list: readonly LayoutFinding[]): Map<string, LayoutFinding> => {
+    const map = new Map<string, LayoutFinding>();
+    for (const finding of list) {
+      const key = layoutFindingKey(finding);
+      if (!map.has(key)) map.set(key, finding);
+    }
+    return map;
+  };
+  const beforeMap = keyOf(before);
+  const afterMap = keyOf(after);
+  const added: LayoutFinding[] = [];
+  const kept: LayoutFinding[] = [];
+  for (const [key, finding] of afterMap) {
+    if (beforeMap.has(key)) kept.push(finding);
+    else added.push(finding);
+  }
+  const removed: LayoutFinding[] = [];
+  for (const [key, finding] of beforeMap) {
+    if (!afterMap.has(key)) removed.push(finding);
+  }
+  return { added, removed, kept };
+}
+
+/**
+ * 差集的人话。**没变就直说"没变"** —— 那正是学习者想知道的那一句。
+ *
+ * 返回空串 = 这次改动既没引入、也没修掉任何版面问题（调用方就别多说话）。
+ */
+export function formatLayoutDelta(delta: LayoutDelta): string {
+  const { added, removed, kept } = delta;
+  if (added.length === 0 && removed.length === 0) {
+    if (kept.length === 0) return '';
+    return (
+      `${String.fromCharCode(10, 10)}★ **版面：这次改动没有引入新的问题。** ` +
+      `这一页改前就有 ${kept.length} 处（改后还是这 ${kept.length} 处）——` +
+      `**不是你这次改出来的**，别为了消掉它去动别的段落。`
+    );
+  }
+  const lines: string[] = [];
+  if (added.length > 0) {
+    lines.push(
+      `★ **这次改动新引入了 ${added.length} 处版面问题**（改前没有）：` +
+        added.map((finding) => finding.message).join('；'),
+    );
+  }
+  if (removed.length > 0) {
+    lines.push(
+      `✓ 这次改动修掉了 ${removed.length} 处：` + removed.map((finding) => finding.message).join('；'),
+    );
+  }
+  if (kept.length > 0) {
+    lines.push(`（另有 ${kept.length} 处是**改前就有**的，不算这次的账。）`);
+  }
+  return String.fromCharCode(10, 10) + lines.join(String.fromCharCode(10));
 }
 
 /** 从一段 HTML 里取最大的那个 `font-size`（正文按它算；取最大是因为标题不该触发"太小"）。 */
@@ -168,6 +265,7 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
     if (right > CANVAS_WIDTH + 0.5 || bottom > CANVAS_HEIGHT + 0.5 || rect.left < -0.5 || rect.top < -0.5) {
       findings.push({
         code: 'overflows-canvas',
+        elementIndex: index,
         message:
           `${label}超出画布：它的范围是 left ${Math.round(rect.left)} → ${Math.round(right)}、` +
           `top ${Math.round(rect.top)} → ${Math.round(bottom)}，而画布是 ${CANVAS_WIDTH}×${CANVAS_HEIGHT}。` +
@@ -202,6 +300,7 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
           const boundary = needed <= rect.height + oneLine;
           findings.push({
             code: 'text-does-not-fit',
+            elementIndex: index,
             message: boundary
               ? `${label}的文字**可能**装不下：按 ${fontPx}px、宽 ${Math.round(rect.width)}px 估，` +
                 `内容约需 ${Math.round(needed)}px 高，而盒子只有 ${Math.round(rect.height)}px。` +
@@ -217,6 +316,7 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
         if (fontPx < MIN_READABLE_FONT_PX) {
           findings.push({
             code: 'font-too-small',
+            elementIndex: index,
             message:
               `${label}的字号是 ${fontPx}px，低于可读下限 ${MIN_READABLE_FONT_PX}px —— ` +
               '屏幕上会是一团灰。要放更多内容就**加页**，不是缩字号。',
@@ -264,6 +364,8 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
       if (ratio < 0.15) continue;
       findings.push({
         code: 'overlaps',
+        elementIndex: a.index,
+        elementIndex2: b.index,
         message:
           `第 ${a.index + 1} 个与第 ${b.index + 1} 个元素**压在一起**` +
           `（重叠面积约 ${Math.round(area)}px²，占较小那个的 ${Math.round(ratio * 100)}%` +

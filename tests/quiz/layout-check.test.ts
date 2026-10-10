@@ -18,7 +18,10 @@ import {
   CANVAS_WIDTH,
   checkLayout,
   estimateTextHeightPx,
+  formatLayoutDelta,
   formatLayoutFindings,
+  layoutDelta,
+  layoutFindingKey,
   maxFontSizePx,
 } from '@/lib/quiz/layout-check';
 
@@ -207,5 +210,68 @@ describe('★★ 页面余量：满了但没溢出', () => {
   it('★ 只有一个元素时不报（单块内容占满是正常的，谈不上"没地方加"）', () => {
     const findings = checkLayout([{ type: 'text', left: 0, top: 0, width: 1000, height: 562.5 }]);
     expect(findings.some((f) => f.code === 'no-headroom')).toBe(false);
+  });
+});
+
+/**
+ * ★★ 改前/改后差集 —— **「是不是我改坏的」必须可算**（2026-10-10）。
+ *
+ * 学习者的原话：「**新增两处盒子高度不足……都是既有问题，我的改动是等长的**」。
+ * 写入后诊断只在**写完**之后算一遍，所以它说得出"这页有 2 处装不下"，
+ * 说不出"**改前就有这 2 处**"—— 而那句话纯算术、不需要渲染、不需要人眼。
+ */
+describe('★★ 版面差集：这次改动引入了什么 / 哪些是既有的', () => {
+  const box = (height: number, content: string) => ({
+    type: 'text', left: 0, top: 0, width: 400, height, content,
+  });
+  // 2 行 = 48px，盒高 30 ⇒ 边界（差额 18px < 一行 24px）
+  const overflowing = `<p style="font-size: 16px;">${'字'.repeat(24)}</p>`;
+  const fine = `<p style="font-size: 16px;">短句</p>`;
+
+  it('★★ 同一条问题（只是估算数字变了）⇒ 算【既有】，不算新增', () => {
+    const before = checkLayout([box(30, overflowing)]);
+    // 多一个字 ⇒ 估算数字会变，但它还是同一条问题、挂在同一个元素上
+    const after = checkLayout([box(30, overflowing.replace('</p>', '啊'.repeat(23) + '</p>'))]);
+    expect(before[0]!.message).not.toBe(after[0]!.message);
+    const delta = layoutDelta(before, after);
+    expect(delta.added).toHaveLength(0);
+    expect(delta.kept).toHaveLength(1);
+  });
+
+  it('★ 既有问题 ⇒ 人话直说"没有引入新的问题""不是你这次改出来的"', () => {
+    const before = checkLayout([box(30, overflowing)]);
+    const text = formatLayoutDelta(layoutDelta(before, checkLayout([box(30, overflowing)])));
+    expect(text).toContain('没有引入新的问题');
+    expect(text).toContain('不是你这次改出来的');
+  });
+
+  it('★ 新引入 ⇒ 点名"这次改动新引入了 N 处"', () => {
+    const delta = layoutDelta(checkLayout([box(30, fine)]), checkLayout([box(30, overflowing)]));
+    expect(delta.added).toHaveLength(1);
+    expect(formatLayoutDelta(delta)).toContain('新引入了 1 处');
+  });
+
+  it('★ 改好了 ⇒ 说"修掉了"，不说成新增', () => {
+    const delta = layoutDelta(checkLayout([box(30, overflowing)]), checkLayout([box(30, fine)]));
+    expect(delta.removed).toHaveLength(1);
+    expect(delta.added).toHaveLength(0);
+    expect(formatLayoutDelta(delta)).toContain('修掉了 1 处');
+  });
+
+  it('★ 换了一个元素出问题 ⇒ 是**新增**（身份带元素下标）', () => {
+    const before = checkLayout([box(30, overflowing), { type: 'text', left: 0, top: 200, width: 400, height: 30, content: fine }]);
+    const after = checkLayout([{ type: 'text', left: 0, top: 0, width: 400, height: 30, content: fine }, box(30, overflowing)]);
+    const delta = layoutDelta(before, after);
+    expect(delta.added.map((f) => f.elementIndex)).toEqual([1]);
+    expect(delta.removed.map((f) => f.elementIndex)).toEqual([0]);
+  });
+
+  it('★ 什么都没变 ⇒ 空串（调用方就别多说话）', () => {
+    expect(formatLayoutDelta(layoutDelta(checkLayout([box(30, fine)]), checkLayout([box(30, fine)])))).toBe('');
+  });
+
+  it('★ 页面级的发现（没有元素下标）身份就是 code 本身', () => {
+    expect(layoutFindingKey({ code: 'no-headroom', message: 'x' })).toBe('no-headroom');
+    expect(layoutFindingKey({ code: 'overlaps', message: 'x', elementIndex: 1, elementIndex2: 3 })).toBe('overlaps:1,3');
   });
 });
