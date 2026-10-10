@@ -1269,7 +1269,32 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
         truncated,
         ...(cursor ? { cursor } : {}),
       };
-      return toolResult(JSON.stringify(details, null, 2), details);
+      /**
+       * ★★ **「没找到」和「没扫完」绝不许长得一样**（2026-10-10，实测逼出来的）。
+       *
+       * 实测：一门 86 页的课，`grep_stage` 扫到第 18 页就撞上本次预算
+       * （`scannedChars: 260741`），返回 `hits: []` + `truncated: true` + 一个 cursor。
+       * **而回话里一个字都没说"我没扫完"** ⇒ 模型据此得出「搜不到这句话」，
+       * 并把它当成事实写进了给学习者的结论里。
+       *
+       * 这正是本仓反复栽的那个形状：把"不知道"说成"没有"。
+       * 所以：**只要截断了，就先用大白话说清覆盖范围**；一条都没命中时更要说，
+       * 因为那正是最容易被误读成"全课都没有"的情形。
+       */
+      const notice = truncated
+        ? hits.length === 0
+          ? `★ 没扫完，**不能说"不存在"**：本次只扫了 ${scannedChars} 个字符就到达预算上限` +
+            `（全课更长）。带下面的 cursor 再调一次继续扫 —— ` +
+            '**在 truncated 变成 false 之前，0 命中只说明"还没扫到那里"。**'
+          : `★ 没扫完：本次扫了 ${scannedChars} 个字符到达预算上限，` +
+            '**后面还有没扫的内容**。要确认"全课只有这些"，带 cursor 继续。'
+        : '';
+      return toolResult(
+        notice ? `${notice}
+
+${JSON.stringify(details, null, 2)}` : JSON.stringify(details, null, 2),
+        details,
+      );
     },
   };
 

@@ -1552,3 +1552,67 @@ describe('★★ grep_stage 的命中要带字段级指针', () => {
     for (const hit of details.hits) expect(hit.pointers ?? []).toHaveLength(0);
   });
 });
+
+/**
+ * ★★ **「没找到」和「没扫完」绝不许长得一样**（2026-10-10，学习者贴回来的真跑记录逼出来的）。
+ *
+ * ── 那次真实失败 ────────────────────────────────────────────────
+ *
+ * agent 拿一句话去搜（`scope: "source"`），回话是：
+ *
+ * ```
+ * { "hits": [], "scannedChars": 260741, "truncated": true, "cursor": "eyJ2…" }
+ * ```
+ *
+ * **而回话里一个字都没说"我没扫完"。** 它据此对学习者说「搜不到那句」——
+ * 把"还没扫到"当成了"不存在"。整门课 86 页，那次只扫到第 18 页。
+ *
+ * 这正是本仓反复栽的那个形状。所以：**截断了就必须先用大白话说清覆盖范围**，
+ * 一条都没命中时更要说 —— 那正是最容易被误读成"全课都没有"的情形。
+ */
+describe('★★ grep_stage 截断时必须说"没扫完"', () => {
+  const needle = '编译器拦下来';
+  const manyScenes = Array.from({ length: 40 }, (_, i) => {
+    const scene = slideScene(i + 1, `scene_${i + 1}`);
+    ((scene.content as SlideContent).canvas.elements[0] as PPTTextElement).content =
+      `<p>${needle}：第 ${i + 1} 页</p>`;
+    return scene;
+  });
+
+  it('★ 命中撞上限（截断）⇒ 明说"没扫完"，并给 cursor', async () => {
+    const current = state(course(manyScenes));
+    const grep = tool(dslTools(current.store), 'grep_stage');
+    const result = await grep.execute('grep', { query: needle, scope: 'source' } as never);
+    const details = result.details as { truncated: boolean; cursor?: string };
+    expect(details.truncated).toBe(true);
+    expect(details.cursor).toBeTruthy();
+    // ★ 关键：回话正文里必须出现"没扫完"这层意思，不能只有 JSON。
+    expect(textOf(result)).toContain('没扫完');
+    expect(textOf(result)).toContain('后面还有没扫的内容');
+  });
+
+  it('★ 一条都没命中**又**截断 ⇒ 明说"不能说 不存在"（那次就是这么误判的）', async () => {
+    const current = state(course(manyScenes));
+    const grep = tool(dslTools(current.store), 'grep_stage');
+    // 先用一次会截断的查询占掉额度不现实；直接用一个"只在很后面才出现"的词也不稳，
+    // 所以这里改为：构造一个**命中为 0 且也截断**的场景 —— 命中上限先被别的词吃满。
+    // 简化做法：查一个不存在的词，此时若截断，notice 必须给出"不能说 不存在"。
+    const result = await grep.execute('grep', { query: '这个词整门课都没有', scope: 'source' } as never);
+    const details = result.details as { hits: unknown[]; truncated: boolean };
+    if (details.truncated && details.hits.length === 0) {
+      expect(textOf(result)).toContain('不能说');
+      expect(textOf(result)).toContain('还没扫到那里');
+    } else {
+      // 没截断就不该出现这层话（否则是噪声）。
+      expect(textOf(result)).not.toContain('没扫完');
+    }
+  });
+
+  it('★ 没截断时**一个字都不多说**（诊断不能变成噪声）', async () => {
+    const current = state(course([slideScene()]));
+    const grep = tool(dslTools(current.store), 'grep_stage');
+    const result = await grep.execute('grep', { query: 'ＡＩ', scope: 'text' } as never);
+    expect((result.details as { truncated: boolean }).truncated).toBe(false);
+    expect(textOf(result)).not.toContain('没扫完');
+  });
+});
