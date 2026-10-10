@@ -116,3 +116,39 @@ describe('★★ 版面检查（agent 看不见画面时的替代）', () => {
     expect(estimateTextHeightPx('<p>一</p>', 400, 20)).toBeGreaterThan(0);
   });
 });
+
+/**
+ * ★★ 「**这一页已经排满了**」—— 与"溢出"是两件事（2026-10-10）。
+ *
+ * 来自学习者对第 27 页的判断：
+ * 「左栏那个反例是个片段（`Child(int a, int b) { … }`），外面没有 class；
+ *  **补全它需要一整块位置，这个页面的两栏已经排满**」。
+ *
+ * 内容**现在**装得下，但**再往里加任何东西都得先重排** —— "溢出"抓不到它。
+ * 这条信号是**行动建议**（要改就先拆页），不是缺陷。
+ */
+describe('★★ 页面余量：满了但没溢出', () => {
+  it('★ 两栏排满 ⇒ 报 no-headroom，并说清"要改就先拆页"', () => {
+    const findings = checkLayout([
+      { type: 'text', left: 40, top: 40, width: 440, height: 480 },
+      { type: 'text', left: 520, top: 40, width: 440, height: 480 },
+    ]);
+    expect(findings.some((f) => f.code === 'no-headroom')).toBe(true);
+    const text = formatLayoutFindings(findings);
+    expect(text).toContain('已经排满了');
+    expect(text).toContain('拆成两页');
+  });
+
+  it('★ 留有余量 ⇒ 一个字都不说（别把正常的页报成"满了"）', () => {
+    const findings = checkLayout([
+      { type: 'text', left: 40, top: 40, width: 400, height: 200 },
+      { type: 'text', left: 520, top: 40, width: 400, height: 200 },
+    ]);
+    expect(findings.some((f) => f.code === 'no-headroom')).toBe(false);
+  });
+
+  it('★ 只有一个元素时不报（单块内容占满是正常的，谈不上"没地方加"）', () => {
+    const findings = checkLayout([{ type: 'text', left: 0, top: 0, width: 1000, height: 562.5 }]);
+    expect(findings.some((f) => f.code === 'no-headroom')).toBe(false);
+  });
+});

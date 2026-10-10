@@ -54,7 +54,12 @@ export interface LayoutElement {
 
 export interface LayoutFinding {
   /** 机读的类别，供 SQL 统计（别让下游去 parse 人话）。 */
-  code: 'overflows-canvas' | 'overlaps' | 'text-does-not-fit' | 'font-too-small';
+  code:
+    | 'overflows-canvas'
+    | 'overlaps'
+    | 'text-does-not-fit'
+    | 'font-too-small'
+    | 'no-headroom';
   /** 给人/模型看的一句话，必须点名是哪个元素。 */
   message: string;
 }
@@ -206,6 +211,81 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
           '（★ 如果其中一个是**底板**、把内容整个装在它里面，那不算 —— 那是正常设计。）',
       });
     }
+  }
+
+  /**
+   * ⑤ **这一页还有没有余量** —— 与"溢出"是两件事。
+   *
+   * ★★ 2026-10-10 加，来自学习者对第 27 页的一个判断：
+   *   「左栏那个反例是个片段（`Child(int a, int b) { … }`），外面没有 class；
+   *     **补全它需要一整块位置，这个页面的两栏已经排满**」。
+   *
+   *   也就是说：内容**现在**装得下，但**再往里加任何东西都得先重排**。
+   *   "溢出"抓不到这种情况 —— 它没溢出，它只是**满了**。
+   *
+   *   这条信号是给 agent 的行动建议，不是缺陷：**要改就先拆页/重排，
+   *   别试着往缝里塞几个字**（那正是它自己说的"不是换几个字的事"）。
+   *
+   *   算法：把画布切成 40×24 的格子，标出被元素盖住的格，数空格占比。
+   *   粗，但**可算**，而且这里要的只是"有没有一整块空地"，不是精确面积。
+   */
+  const COLS = 40;
+  const ROWS = 24;
+  const covered = new Set<number>();
+  for (const { rect } of boxes) {
+    if (!rect) continue;
+    const x0 = Math.max(0, Math.floor((rect.left / CANVAS_WIDTH) * COLS));
+    const x1 = Math.min(COLS - 1, Math.ceil(((rect.left + rect.width) / CANVAS_WIDTH) * COLS) - 1);
+    const y0 = Math.max(0, Math.floor((rect.top / CANVAS_HEIGHT) * ROWS));
+    const y1 = Math.min(ROWS - 1, Math.ceil(((rect.top + rect.height) / CANVAS_HEIGHT) * ROWS) - 1);
+    for (let x = x0; x <= x1; x += 1) {
+      for (let y = y0; y <= y1; y += 1) covered.add(y * COLS + x);
+    }
+  }
+  /**
+   * ★★ **量的是"最大一块空地"，不是"空白面积占比"** —— 这一条被夹具当场纠正过。
+   *
+   * 我原来数空格占比（阈值 10%），结果"**两栏排满**"那页**没被报出来**：
+   * 它的空白有 **24%**（页边距 + 栏间距），可那些全是**细条**，
+   * 一条都放不下"补全一个片段"所需的一整块。
+   *
+   * 所以改成：在网格上求**最大的全空矩形**（柱状图最大矩形，40×24=960 格，很便宜），
+   * 再看它够不够放一块内容。
+   */
+  const heights = new Array<number>(COLS).fill(0);
+  let bestCells = 0;
+  for (let y = 0; y < ROWS; y += 1) {
+    for (let x = 0; x < COLS; x += 1) {
+      heights[x] = covered.has(y * COLS + x) ? 0 : (heights[x] ?? 0) + 1;
+    }
+    // 单调栈：以每一列为高的最大矩形
+    const stack: number[] = [];
+    for (let x = 0; x <= COLS; x += 1) {
+      const h = x === COLS ? 0 : (heights[x] ?? 0);
+      while (stack.length > 0 && (heights[stack[stack.length - 1]!] ?? 0) >= h) {
+        const top = stack.pop()!;
+        const width = stack.length === 0 ? x : x - stack[stack.length - 1]! - 1;
+        bestCells = Math.max(bestCells, (heights[top] ?? 0) * width);
+      }
+      stack.push(x);
+    }
+  }
+  const cellW = CANVAS_WIDTH / COLS;
+  const cellH = CANVAS_HEIGHT / ROWS;
+  const freeRatio = 1 - covered.size / (COLS * ROWS);
+  // ★ 一块"能放内容"的空地：至少 300×140px（约 12×6 格）—— 那是补一段说明/一个片段的最小尺寸。
+  const MIN_BLOCK_CELLS = Math.ceil(300 / cellW) * Math.ceil(140 / cellH);
+  if (boxes.length >= 2 && bestCells < MIN_BLOCK_CELLS) {
+    findings.push({
+      code: 'no-headroom',
+      message:
+        `这一页**已经排满了**：最大的一块空地只有约 ${Math.round(
+          Math.sqrt(bestCells) * cellW,
+        )}px 见方（空白总面积 ${Math.round(freeRatio * 100)}%，但都是页边距和栏间距那种细条）。` +
+        '现在没溢出，但**再往里加任何内容都得先动版面** —— ' +
+        '要补一块东西（补全一个片段、加一段说明），先把这一页**拆成两页**或重排，' +
+        '**别试着往缝里塞几个字**。',
+    });
   }
 
   return findings;
