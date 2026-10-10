@@ -764,6 +764,45 @@ function decodeCursor(raw: string): SearchCursor | null {
   }
 }
 
+/**
+ * 命中落在**哪个字段**里 —— 给 `patch_stage` 用的字段级 JSON 指针。
+ *
+ * ★★ 2026-10-10 补。在这之前 `grep_stage` 的命中只有 `scenePath: /scenes/<id>`
+ * （**页**级），而 `patch_stage` 的 `set` / `str_replace` 要的是
+ * **`/content/...` 这种字段级指针**。两者对不上 ⇒ 模型搜到了那句话，
+ * 却仍然得**把整页源码读出来**才知道它在哪个元素、哪个字段里
+ * （实测：第 35 页整页 4.2 万字符，只为改一句话）。
+ *
+ * 提示词里那句「for long content, prefer `grep_stage` over paging with offset」
+ * 因此是**半句空话** —— 搜得到，改不了。
+ *
+ * 做法：直接遍历**投影后**的对象（与 `source` scope 序列化的是同一份），
+ * 找出值里含这句话的字符串字段，返回它的 JSON 指针。不做偏移量换算 ——
+ * 那要在序列化文本与对象之间来回对齐，脆。这里只要"哪个字段"，够用。
+ */
+const MAX_FIELD_POINTERS = 4;
+function sourceFieldPointers(value: unknown, needle: string, base = '', depth = 0): string[] {
+  const out: string[] = [];
+  const walk = (node: unknown, path: string, level: number): void => {
+    if (out.length >= MAX_FIELD_POINTERS || level > 14) return;
+    if (typeof node === 'string') {
+      if (needle.length > 0 && node.includes(needle)) out.push(path);
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => walk(item, `${path}/${index}`, level + 1));
+      return;
+    }
+    if (node !== null && typeof node === 'object') {
+      for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+        walk(child, `${path}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`, level + 1);
+      }
+    }
+  };
+  walk(value, base, depth);
+  return out;
+}
+
 function grepText(scene: Scene, scope: 'text' | 'source'): string {
   // Source searches run over the SAME bounded projection `read_stage
   // detail:"source"` serves — large inline media bytes replaced by their
@@ -1099,7 +1138,11 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
     name: 'grep_stage',
     label: 'Search stage',
     description:
-      'Search case-insensitive, NFKC-normalized literal text across stage scenes. text searches the visible-text projection; source searches serialized scene JSON. Returns at most 10 hits per scene and 30 total; truncated results always include a continuation cursor.',
+      'Search case-insensitive, NFKC-normalized literal text across stage scenes. text searches the visible-text projection; source searches serialized scene JSON. Returns at most 10 hits per scene and 30 total; truncated results always include a continuation cursor. ' +
+      'With scope="source", each hit also carries `pointers`: the field-level JSON pointers ' +
+      '(/content/... or /actions/...) whose string contains your query. Pass one straight to ' +
+      'patch_stage (str_replace / set) instead of reading the whole scene source — a page can be ' +
+      '40k characters when you only need to change one sentence in it.',
     parameters: GREP_COURSE_SCHEMA,
     async execute(_id, params: GrepParams) {
       const loaded = await loadCourse(deps, params.stageId);
@@ -1167,12 +1210,21 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
           const endFolded = local + needle.length - 1;
           const end = offset + folded.originalEnds[endFolded]!;
           const { snippetStart, snippetEnd } = boundedSnippet(source, start, end);
+          /**
+           * ★ `source` scope 才给字段指针：`text` scope 搜的是**可见正文投影**，
+           *   它和源码字段不是一一对应，给出来的指针会是错的（宁可没有，不要给错）。
+           */
+          const pointers =
+            scope === 'source'
+              ? sourceFieldPointers(omitReadSceneMediaBytes(scene).value, params.query)
+              : [];
           hits.push({
             scenePath: `/scenes/${scene.id}`,
             order: scene.order,
             start,
             end,
             snippet: source.slice(snippetStart, snippetEnd),
+            ...(pointers.length > 0 ? { pointers } : {}),
           });
           sceneHits += 1;
           resumeOffset = Math.max(end, start + 1);

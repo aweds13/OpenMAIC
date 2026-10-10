@@ -1501,3 +1501,54 @@ it('allows unrelated text edits on a slide with imported chart formatting', asyn
   expect(result).not.toHaveProperty('isError');
   expect(current.putScene).toHaveBeenCalledTimes(1);
 });
+
+/**
+ * ★★ 命中要带**字段级指针** —— 这是 `grep_stage` → `patch_stage` 之间缺的那一环
+ * （2026-10-10，学习者实测逼出来的）。
+ *
+ * ── 由来 ──────────────────────────────────────────────────────
+ *
+ * 学习者原话：「**`patch_stage` 要逐字匹配，所以得先把那一页的源码读出来
+ * （第 35 页整页 4.2 万字符，我只要其中一句话）—— 它不能搜索关键字吗**」。
+ *
+ * 能搜（`grep_stage` 一直都在，提示词也写着 "prefer grep_stage over paging with offset"），
+ * **但搜出来的东西不够拿来改**：命中原来只有 `scenePath: /scenes/<id>`（**页**级），
+ * 而 `patch_stage` 的 `set` / `str_replace` 要的是 **`/content/...` 字段级指针**。
+ * 两者对不上 ⇒ 模型搜到了那句话，仍然得把整页源码读出来才知道它在哪个元素里。
+ * 提示词那句话因此是**半句空话**。
+ *
+ * 判据钉两件事：**source scope 给出指针** · **text scope 不给**（那搜的是可见正文投影，
+ * 与源码字段不是一一对应，给出来就是错的 —— 宁可没有，不要给错）。
+ */
+describe('★★ grep_stage 的命中要带字段级指针', () => {
+  it('★ scope=source 时给出可直达 patch_stage 的字段指针', async () => {
+    const scene = slideScene();
+    ((scene.content as SlideContent).canvas.elements[0] as PPTTextElement).content =
+      '<p>闰年判断：能被 4 整除</p>';
+    const current = state(course([scene]));
+    const grep = tool(dslTools(current.store), 'grep_stage');
+    const result = await grep.execute('grep', {
+      query: '闰年判断',
+      scope: 'source',
+    } as never);
+    const details = result.details as { hits: Array<{ pointers?: string[] }> };
+    const pointed = details.hits.filter((hit) => (hit.pointers ?? []).length > 0);
+    expect(pointed.length).toBeGreaterThanOrEqual(1);
+    // ★ 指针必须是**字段级**（不是 /scenes/<id> 那种页级），且落在 content 之下。
+    const pointer = pointed[0]!.pointers![0]!;
+    expect(pointer.startsWith('/content/')).toBe(true);
+    expect(pointer).toContain('/elements/');
+  });
+
+  it('★ scope=text **不给**指针（可见正文与源码字段不是一一对应，给出来就是错的）', async () => {
+    const scene = slideScene();
+    ((scene.content as SlideContent).canvas.elements[0] as PPTTextElement).content =
+      '<p>闰年判断：能被 4 整除</p>';
+    const current = state(course([scene]));
+    const grep = tool(dslTools(current.store), 'grep_stage');
+    const result = await grep.execute('grep', { query: '闰年判断', scope: 'text' } as never);
+    const details = result.details as { hits: Array<{ pointers?: string[] }> };
+    expect(details.hits.length).toBeGreaterThanOrEqual(1);
+    for (const hit of details.hits) expect(hit.pointers ?? []).toHaveLength(0);
+  });
+});
