@@ -230,3 +230,57 @@ describe('★ 交互页：报错要能照着改，而且要带结构化配置', 
     expect(block).toMatch(/invisible to every structural check/);
   });
 });
+
+/**
+ * ★★ 离线降级 shim：**不许把 CDN 全局换成非函数对象**（2026-10-10 实测）。
+ *
+ * 学习者转来的残留项说「故障提示那句『不影响做题，照常点运行』不成立」。量下来的结论
+ * 和他猜的不一样 —— **句子没撒谎，shim 才是 bug**。26 个 interactive 页在 jsdom 里
+ * 逐个离线跑（无网、CDN 全失败），**25 个的「运行」按钮都绑上了**；唯一死的是**第 56 页**，
+ * 而它恰好是唯一一个用 `CodeMirror(host, …)` 直呼形态的页：
+ *
+ * ```
+ * window.CodeMirror = {fromTextArea: fn}   ← shim 把全局换成了非函数对象
+ * if (window.CodeMirror) { … }             ← 对象是真值 ⇒ 守卫被骗过
+ * editor = CodeMirror(host, {...})         ← TypeError: CodeMirror is not a function
+ * runBtn.addEventListener('click', …)      ← 再也走不到；页面自己的 else 兜底也走不到
+ * ```
+ *
+ * 修法（已在 7 个页面上实测）：shim 保持**可调用**，真库在场时**一个字都不动**。
+ */
+describe('★ 离线降级：CDN 全局必须保持可调用（第 56 页就是这么死的）', () => {
+  const block = courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: true });
+
+  it('★★ 不许把全局换成非函数对象 —— 页面的 `if (window.X)` 守卫会被真值骗过', () => {
+    expect(block).toMatch(/non-callable object/);
+    expect(block).toMatch(/an object is truthy/);
+    expect(block).toMatch(/CodeMirror is not a function/);
+    // 后果要写清楚：不是"不好看"，是**按钮全不绑**。
+    expect(block).toMatch(/the click listener on the run button/);
+    expect(block).toMatch(/never reached/);
+  });
+
+  it('★ 降级物必须**可调用**，而且两种调用形态都要能用', () => {
+    expect(block).toMatch(/must stay \*\*callable\*\*/);
+    expect(block).toMatch(/fromTextArea` hung off it as a property/);
+    expect(block).toMatch(/CodeMirror\(host, opts\)/);
+    expect(block).toMatch(/CodeMirror\.fromTextArea\(ta, opts\)/);
+  });
+
+  it('★ 真库在场时**不许动全局**（否则自己变成那个 bug）', () => {
+    expect(block).toMatch(/do not touch the global at all/);
+  });
+
+  it('★★ 兜底对象要答上页面会调的每个方法（第 34 页 `editor.setSize` 就是这么抛的）', () => {
+    expect(block).toMatch(/setSize/);
+    expect(block).toMatch(/one missing name throws in exactly the same place/);
+  });
+
+  it('★ 结论带实测出处：26 页离线跑、25 个绑上、唯一死的是第 56 页', () => {
+    expect(block).toMatch(/all 26 interactive pages/);
+    expect(block).toMatch(/25 of 26 bind the/);
+    expect(block).toMatch(/page 56 is the only dead one/);
+    // 反面：不能把锅算在"那句提示"上 —— 那会让 6 个正常页变得悲观。
+    expect(block).toMatch(/the shim was\n?\s*the bug|the shim was/);
+  });
+});
