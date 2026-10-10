@@ -233,3 +233,37 @@ describe('★★ brief / description 是同一个字段的两个名字', () => {
     expect(text).not.toContain('用 description');
   });
 });
+
+/**
+ * ★★ 撞标题的拒绝信息**必须写出路**（2026-10-09，实测缺它会让模型绕着走）。
+ *
+ * ── 由来：一个真实的死路 ────────────────────────────────────────
+ *
+ * 实测第 35 页挂着练习页标题《改错：赋值与复合赋值…》，而设计里该放**讲解页**。
+ * 原来那句拒绝只给两条路：① 让页号顺延（会**挪动别的页**）；② **用同样的标题**重写
+ * （可你要写的偏不是那个标题）。**两条都是死路** ⇒ 模型断定这一页写不了。
+ *
+ * 而出路一直都在：**`revise` 的 `entries` 是覆盖写，没有这条守卫**（守卫只在 `add` 上）。
+ * 拒绝信息不写出路，等于把一件能做的事实说成不能做。
+ *
+ * ★ 还要说清 **`generate_scene` 不看标题** —— 否则模型会连生成都不敢试
+ *   （实测：它正是靠这一点在"标题不对"的页号上换页成功的）。
+ */
+describe('★★ add 撞标题时，拒绝信息要写出路', () => {
+  it('★ 要点名 `revise` 的 `entries` 是覆盖写、没有这条守卫', async () => {
+    const { call } = harness(outlineWith([[5, '条件语句'], [6, '循环']]));
+    const result = await call({
+      action: 'add',
+      entries: [{ order: 6, title: '完全不同的标题', type: 'slide', keyPoints: ['x'], unit: 'U1' }],
+    });
+    const out = textOf(result);
+    expect(out).toContain('add 被拒绝');
+    expect(out).toContain('三条路');
+    // ★ 出路本身必须在场。
+    expect(out).toContain('action: "revise"');
+    expect(out).toContain('没有这条守卫');
+    // ★ 以及"占位标题不挡生成"这一条 —— 否则它会连生成都不敢试。
+    expect(out).toContain('不检查标题');
+    expect(out).toContain('只挡 `add`');
+  });
+});
