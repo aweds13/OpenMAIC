@@ -160,7 +160,22 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
     }
   });
 
-  // ② 重叠：只报"实打实压住"的，贴边/小面积相交不算（那在版面上是正常的）
+  /**
+   * ② 重叠：**只有"两段字叠着"才算**。
+   *
+   * ★★ 2026-10-10 修 —— 这是本检查**第一次在真页面上跑就误报的那一条**。
+   *   学习者的反馈：「**第 27 页版式没问题，那批「重叠」果然只是「底板 + 文字」的套叠**」。
+   *
+   *   我原来的判据是"相交面积 ≥ 较小那个的 15%"，它**分不清两种套叠**：
+   *     · **底板 + 文字**（一个 shape 垫在下面装内容）—— 这是**正常设计**，
+   *       而且它本来就是**包含**关系（小的整个在大的人里）；
+   *     · **两段字叠着** —— 这才是缺陷。
+   *
+   *   所以改成按**包含 / 相交**分：
+   *     · 一个盒子**基本装下**另一个（≥90% 落在里面）⇒ **不算** —— 那是底板/容器；
+   *     · 两个都是**文字**元素且部分相交 ⇒ **报**（字压字，一定是坏的）；
+   *     · 文字与非文字**部分**相交 ⇒ **也报**（一块色块盖住半行字，同样是坏的）。
+   */
   for (let i = 0; i < boxes.length; i += 1) {
     for (let j = i + 1; j < boxes.length; j += 1) {
       const a = boxes[i]!;
@@ -168,17 +183,28 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
       if (!a.rect || !b.rect) continue;
       const area = overlapArea(a.rect, b.rect);
       if (area <= 0) continue;
-      const smaller = Math.min(a.rect.width * a.rect.height, b.rect.width * b.rect.height);
-      // ★ 阈值：压住对方 **15% 以上**才算。低于它多半是设计上的叠放（背景块 + 文字）。
-      if (smaller > 0 && area / smaller >= 0.15) {
-        findings.push({
-          code: 'overlaps',
-          message:
-            `第 ${a.index + 1} 个与第 ${b.index + 1} 个元素**压在一起**` +
-            `（重叠面积约 ${Math.round(area)}px²，占较小那个的 ${Math.round((area / smaller) * 100)}%）。` +
-            '学生看到的是两段字叠着。要么挪开，要么把其中一个删掉。',
-        });
-      }
+      const areaA = a.rect.width * a.rect.height;
+      const areaB = b.rect.width * b.rect.height;
+      const smaller = Math.min(areaA, areaB);
+      if (smaller <= 0) continue;
+      const ratio = area / smaller;
+      // ① 包含关系 ⇒ 底板装内容，正常。
+      if (ratio >= 0.9) continue;
+      const bothText = a.element.type === 'text' && b.element.type === 'text';
+      // ② 非文字之间的部分相交（两个色块/两张图）多半是装饰，不报；
+      //    只有"至少一个是文字"才是学生看得见的叠字。
+      const involvesText = a.element.type === 'text' || b.element.type === 'text';
+      if (!involvesText) continue;
+      if (ratio < 0.15) continue;
+      findings.push({
+        code: 'overlaps',
+        message:
+          `第 ${a.index + 1} 个与第 ${b.index + 1} 个元素**压在一起**` +
+          `（重叠面积约 ${Math.round(area)}px²，占较小那个的 ${Math.round(ratio * 100)}%` +
+          `${bothText ? '，且两个都是文字' : ''}）。` +
+          '学生看到的是字叠着字。要么挪开，要么把其中一个删掉。' +
+          '（★ 如果其中一个是**底板**、把内容整个装在它里面，那不算 —— 那是正常设计。）',
+      });
     }
   }
 

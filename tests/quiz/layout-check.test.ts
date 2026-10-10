@@ -50,17 +50,49 @@ describe('★★ 版面检查（agent 看不见画面时的替代）', () => {
     expect(findings.some((f) => f.code === 'font-too-small')).toBe(true);
   });
 
-  it('★ 重叠：压住 15% 以上才报，贴边不算（背景块 + 文字是正常设计）', () => {
-    const heavy = checkLayout([
-      { type: 'shape', left: 100, top: 100, width: 200, height: 100 },
-      { type: 'text', left: 110, top: 105, width: 200, height: 100 },
-    ]);
-    expect(heavy.some((f) => f.code === 'overlaps')).toBe(true);
+  it('★ 贴边不算重叠（刚好挨着是正常版面）', () => {
     const graze = checkLayout([
       { type: 'shape', left: 100, top: 100, width: 200, height: 100 },
-      { type: 'text', left: 295, top: 100, width: 200, height: 100 },
+      { type: 'text', left: 300, top: 100, width: 200, height: 100 },
     ]);
     expect(graze.some((f) => f.code === 'overlaps')).toBe(false);
+  });
+
+  it('★★ **「底板 + 文字」不算重叠** —— 这是本检查第一次真跑就误报的那条', () => {
+    // 学习者的反馈：「第 27 页版式没问题，那批「重叠」果然只是「底板 + 文字」的套叠」。
+    // 底板把内容**整个装在里面** —— 那是正常设计，不是叠字。
+    const panel = checkLayout([
+      { type: 'shape', left: 60, top: 80, width: 880, height: 400 },
+      { type: 'text', left: 90, top: 110, width: 820, height: 340 },
+    ]);
+    expect(panel.some((f) => f.code === 'overlaps')).toBe(false);
+  });
+
+  it('★★ 两个**文字**元素相交 ⇒ 报（字压字一定是坏的）', () => {
+    const stacked = checkLayout([
+      { type: 'text', left: 100, top: 100, width: 300, height: 120 },
+      { type: 'text', left: 140, top: 130, width: 300, height: 120 },
+    ]);
+    expect(stacked.some((f) => f.code === 'overlaps')).toBe(true);
+    expect(formatLayoutFindings(stacked)).toContain('两个都是文字');
+  });
+
+  it('★ 色块盖住半行字 ⇒ 报（至少一个是文字）', () => {
+    const covered = checkLayout([
+      { type: 'text', left: 100, top: 100, width: 300, height: 120 },
+      { type: 'shape', left: 200, top: 120, width: 300, height: 200 },
+    ]);
+    expect(covered.some((f) => f.code === 'overlaps')).toBe(true);
+  });
+
+  it('★ 两个**非文字**元素大面积相交 ⇒ 不报（装饰性叠放，学生不会看到"叠字"）', () => {
+    // ★ 相交必须够大（这里 56%）才走得到那条分支 —— 只交 1% 的话 15% 阈值先把它挡了，
+    //   测的就成了阈值而不是"非文字不报"。**变异测试当场抓到过这一点。**
+    const decor = checkLayout([
+      { type: 'shape', left: 100, top: 100, width: 200, height: 200 },
+      { type: 'image', left: 150, top: 150, width: 200, height: 200 },
+    ]);
+    expect(decor.some((f) => f.code === 'overlaps')).toBe(false);
   });
 
   it('★ 正常的页**一个字都不多说**（诊断不能变成噪声）', () => {
