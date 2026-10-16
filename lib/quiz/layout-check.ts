@@ -26,6 +26,8 @@
  *   不碰"好不好看" —— 那件事不可算，硬编一个阈值就是**编数据**。
  */
 
+import { TEXT_LINE_HEIGHT, TEXT_PADDING_PX } from '@/lib/slide/text-metrics';
+
 /** 画布尺寸 —— 与 `BaseCodeElement` 建立盒子时用的那套一致（1000×562.5）。 */
 export const CANVAS_WIDTH = 1000;
 export const CANVAS_HEIGHT = 562.5;
@@ -44,24 +46,31 @@ export const MIN_READABLE_FONT_PX = 14;
  *
  * ★★ 2026-10-10 实测更正（原来这里是写死的 **1.6**，**错了**）：
  *   · 真渲染器 `BaseTextElement.tsx` 读的是 `elementInfo.lineHeight`；
- *   · 而库里**绝大多数 text 元素没有这个字段** ⇒ 生效的是宿主 CSS 的值，
- *     即 Tailwind preflight 的 `html { line-height: 1.5 }`（`app/globals.css` 第一行
- *     `@import 'tailwindcss'`，`tailwindcss/preflight.css:30`）。
+ *   · 而库里**绝大多数 text 元素没有这个字段**（实测：1084 个里只有 **5** 个）⇒
+ *     生效的是渲染器自己那个回落值，即 Tailwind preflight 的 `html { line-height: 1.5 }`
+ *     （`app/globals.css` 第一行 `@import 'tailwindcss'`，`tailwindcss/preflight.css:30`）。
  *   · 1.6 比 1.5 高 **6.7%**，而 Day02 上 23 条 `text-does-not-fit` 里**几乎每一条
  *     都刚好"余 2px"** ⇒ 这 6.7% 足以把结论整体翻面。
  *   · 用**真 Edge** 量（`_tools/openmaic/diagnostics/measure-slide-fit.mjs`，
  *     注入渲染器自己的 `SLIDE_RENDERER_STYLES`）：23 条里真溢出的只有 **3 条**
  *     （第 50 页 el14 / 第 55 页 el10 / 第 74 页 el14）；按 1.6 判则 20 条"溢出"。
  *   ⇒ **精确率 3/23 ≈ 13%**，而假阳性的来源就是我们自己写错的一个常数。
+ *
+ * ★★ 2026-10-10（第二段）**这个数不再在这里定义** —— 它挪进了
+ *   `lib/slide/text-metrics.ts`，由渲染器**显式写进 DOM**、这里直接 import：
+ *   原先 class 里的 `leading-[1.5]` 与这里的常数是两个各自会漂的字面量。
  */
-const LINE_HEIGHT_RATIO = 1.5;
 
 /**
  * `.element-content` 的内边距（`box-sizing: border-box`）——
  * 可用宽度是 `width − 2 × 这个值`，不是盒子全宽。
  * 内容自带 insets（`<div style="…padding:…">`）时渲染器把内边距设为 0。
+ *
+ * ⚠️ 最后那句**是错的**（2026-10-10 实测）：`BaseTextElement` / `TextElement` 都是
+ *    **无条件**加这个内边距；而本部署 1084 个 text 元素里**没有一个**的内容自带
+ *    `padding` ⇒ `SELF_PADDED` 那条分支从来没生效过（存疑处见结论库）。值本身同
+ *    `TEXT_LINE_HEIGHT`，也在 `lib/slide/text-metrics.ts`。
  */
-const TEXT_PADDING_PX = 10;
 const SELF_PADDED = /^\s*<div\b[^>]*\bstyle\s*=\s*["'][^"']*\bpadding\s*:/i;
 
 export interface LayoutElement {
@@ -78,12 +87,7 @@ export interface LayoutElement {
 
 export interface LayoutFinding {
   /** 机读的类别，供 SQL 统计（别让下游去 parse 人话）。 */
-  code:
-    | 'overflows-canvas'
-    | 'overlaps'
-    | 'text-does-not-fit'
-    | 'font-too-small'
-    | 'no-headroom';
+  code: 'overflows-canvas' | 'overlaps' | 'text-does-not-fit' | 'font-too-small' | 'no-headroom';
   /** 给人/模型看的一句话，必须点名是哪个元素。 */
   message: string;
   /**
@@ -176,7 +180,8 @@ export function formatLayoutDelta(delta: LayoutDelta): string {
   }
   if (removed.length > 0) {
     lines.push(
-      `✓ 这次改动修掉了 ${removed.length} 处：` + removed.map((finding) => finding.message).join('；'),
+      `✓ 这次改动修掉了 ${removed.length} 处：` +
+        removed.map((finding) => finding.message).join('；'),
     );
   }
   if (kept.length > 0) {
@@ -198,19 +203,24 @@ export function maxFontSizePx(html: string): number | undefined {
  * ★ 参数**必须与渲染器同源**（2026-10-10 实测）：可用宽度扣掉 `.element-content` 的内边距，
  *   行高用元素自己的 `lineHeight`、没有才回落到宿主那个值。写死常数会整批误报。
  *
- * @param lineHeight 元素自己的 `lineHeight`；不给就用宿主生效值（1.5）。
+ * @param lineHeight 元素自己的 `lineHeight`；不给就用宿主生效值（`TEXT_LINE_HEIGHT`，1.5）。
  */
 export function estimateTextHeightPx(
   html: string,
   width: number,
   fontPx: number,
-  lineHeight: number = LINE_HEIGHT_RATIO,
+  lineHeight: number = TEXT_LINE_HEIGHT,
   selfPadded = false,
 ): number {
   // 去掉标记后按块统计：每个块算一行起，再按宽度折算换行。
   const blocks = html
     .split(/<\/(?:p|div|li|h[1-6])>/i)
-    .map((block) => block.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim())
+    .map((block) =>
+      block
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .trim(),
+    )
     .filter((text) => text.length > 0);
   if (blocks.length === 0) return 0;
   // 汉字按 1em、ASCII 按 0.6em 估宽（与等宽那组实测同源，但这是**正文**，取通用值）。
@@ -225,12 +235,23 @@ export function estimateTextHeightPx(
   return lines * fontPx * lineHeight;
 }
 
-function box(element: LayoutElement): { left: number; top: number; width: number; height: number } | null {
+function box(
+  element: LayoutElement,
+): { left: number; top: number; width: number; height: number } | null {
   const { left, top, width, height } = element;
-  if (![left, top, width, height].every((value) => typeof value === 'number' && Number.isFinite(value))) {
+  if (
+    ![left, top, width, height].every(
+      (value) => typeof value === 'number' && Number.isFinite(value),
+    )
+  ) {
     return null;
   }
-  return { left: left as number, top: top as number, width: width as number, height: height as number };
+  return {
+    left: left as number,
+    top: top as number,
+    width: width as number,
+    height: height as number,
+  };
 }
 
 function overlapArea(
@@ -257,12 +278,19 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
 
   boxes.forEach(({ index, element, rect }) => {
     if (!rect) return;
-    const label = element.type ? `${element.type} 元素（第 ${index + 1} 个）` : `第 ${index + 1} 个元素`;
+    const label = element.type
+      ? `${element.type} 元素（第 ${index + 1} 个）`
+      : `第 ${index + 1} 个元素`;
 
     // ① 溢出画布
     const right = rect.left + rect.width;
     const bottom = rect.top + rect.height;
-    if (right > CANVAS_WIDTH + 0.5 || bottom > CANVAS_HEIGHT + 0.5 || rect.left < -0.5 || rect.top < -0.5) {
+    if (
+      right > CANVAS_WIDTH + 0.5 ||
+      bottom > CANVAS_HEIGHT + 0.5 ||
+      rect.left < -0.5 ||
+      rect.top < -0.5
+    ) {
       findings.push({
         code: 'overflows-canvas',
         elementIndex: index,
@@ -280,10 +308,18 @@ export function checkLayout(elements: readonly LayoutElement[]): LayoutFinding[]
       if (fontPx !== undefined) {
         // ★ 参数从**元素身上**取（渲染器读什么，这里就读什么）—— 写死常数会整批误报。
         const ownLineHeight =
-          typeof element.lineHeight === 'number' && Number.isFinite(element.lineHeight) && element.lineHeight > 0
+          typeof element.lineHeight === 'number' &&
+          Number.isFinite(element.lineHeight) &&
+          element.lineHeight > 0
             ? element.lineHeight
-            : LINE_HEIGHT_RATIO;
-        const needed = estimateTextHeightPx(html, rect.width, fontPx, ownLineHeight, SELF_PADDED.test(html));
+            : TEXT_LINE_HEIGHT;
+        const needed = estimateTextHeightPx(
+          html,
+          rect.width,
+          fontPx,
+          ownLineHeight,
+          SELF_PADDED.test(html),
+        );
         if (needed > rect.height + 1) {
           /**
            * ★★ 会不会"装不下"，**在差额小于一行时估算说了不算**（2026-10-10 真 Edge 实测）。

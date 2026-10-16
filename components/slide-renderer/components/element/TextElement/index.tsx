@@ -5,6 +5,7 @@ import { debounce } from 'lodash';
 import { useCanvasStore } from '@/lib/store';
 import { useHistorySnapshot } from '@/lib/hooks/use-history-snapshot';
 import type { PPTTextElement } from '@openmaic/dsl';
+import { TEXT_LINE_HEIGHT, TEXT_PADDING_PX } from '@/lib/slide/text-metrics';
 import { useElementShadow } from '../hooks/useElementShadow';
 import { ElementOutline } from '../ElementOutline';
 import { ProsemirrorEditor } from '../ProsemirrorEditor';
@@ -182,14 +183,16 @@ export function TextElement({ elementInfo, selectElement }: TextElementProps) {
           opacity: elementInfo.opacity,
         }}
       >
+        {/* ★★ 行高/内边距显式写进 DOM（与 `BaseTextElement` 同一份来源，见 `@/lib/slide/text-metrics`）。 */}
         <div
           ref={elementRef}
-          className={`element-content relative p-[10px] leading-[1.5] break-words ${elementInfo.lock ? 'cursor-default' : 'cursor-move'}`}
+          className={`element-content relative break-words ${elementInfo.lock ? 'cursor-default' : 'cursor-move'}`}
           style={{
             width: elementInfo.vertical ? 'auto' : `${elementInfo.width}px`,
             height: elementInfo.vertical ? `${elementInfo.height}px` : 'auto',
+            padding: `${TEXT_PADDING_PX}px`,
             textShadow: shadowStyle,
-            lineHeight: elementInfo.lineHeight,
+            lineHeight: elementInfo.lineHeight ?? TEXT_LINE_HEIGHT,
             letterSpacing: `${elementInfo.wordSpace || 0}px`,
             color: elementInfo.defaultColor,
             fontFamily: elementInfo.defaultFontName,
