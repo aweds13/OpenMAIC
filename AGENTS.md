@@ -31,10 +31,11 @@
 这是 THU-MAIC **OpenMAIC** 的二开分支（`my-extensions`，基线 `57fbcc4`）。
 改动落在 `lib/` `app/` **`components/`** `tests/` `skills/`，外加 `next.config.ts` 与
 `package.json` / `pnpm-lock.yaml`（`jsdom` 进了 `dependencies`，见 §2 的 `page-text.ts`）。
-**以 `git diff --name-only 57fbcc4..HEAD` 为准**（`components/` 里有 7 个文件 ——
-reading-page 那套与批量下载对话框；漏看它就会以为"改动只在服务端"）。
-唯一**一行没动**的是 `packages/@openmaic/**` —— 那是上游，当只读用
-（`git diff --stat 57fbcc4..HEAD -- packages/@openmaic` 为空，可随时复验）。
+**以 `git diff --name-only 57fbcc4..HEAD` 为准**（**含 `components/`** —— 漏看就会以为
+"改动只在服务端"）。**2026-10-17 已合上游 1.2.0-rc.1（`b2ce2f4`）**：上游带来的文件不算本 fork 改动（`docs-map`
+按 `origin/main` 剔除）；逐处取舍见 **`复盘/上游合并清单.md`**。
+唯一**一行没动**的是 `packages/@openmaic/**`（上游，当只读用；
+`git diff --stat 57fbcc4..HEAD -- packages/@openmaic` 为空可复验）。
 
 使用者是**一个自学者**（天津大学计算机大一，备二面）。他对产物的要求是实测出来的，
 不是偏好：
@@ -163,7 +164,7 @@ reading-page 那套与批量下载对话框；漏看它就会以为"改动只在
 | `components/generation/self-study-button.tsx` | 首页那条链上的「自学」开关（经典路径，与工作台的 `study-mode.ts` 不同一条路） | 在工作台路径上搜不到 `selfStudy` |
 | `lib/quiz/code-block.ts` | **「这段文字该不该是 `code` 元素」两批规则**（`codeBlockVerdict`）+ **转换器**（`codeElementFromText`，几何不变、行首缩进保留） | 2026-10-09 复量：判据原来要求 `;` 是**最后一个字符** ⇒ **带行尾注释的真代码块整批落进第二批**（28 个候选里 **6** 个）。复现 `OPENMAIC_CODE_BLOCK_LIVE_TSV=<dump> TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/code-block-live.test.ts`。<br>★★ **转换时"几何不变"是个陷阱（实测栽过）**：`code` 元素的开销与 `text` 不同 —— 内边距 **24px**（`py-3 px-3`）、每行 **1.6 × fontSize**（14px ⇒ 22.4px）、边框 2px、等宽字符宽 **≈ 0.64em**（14px ⇒ ≈ 8.96px/字符）。照搬 `text` 的盒子 ⇒ 第 5 行的 `}` 看不见、最长一行右边被切。**盒子要按内容算，别照抄** |
 | `components/slide-renderer/components/element/CodeElement/BaseCodeElement.tsx` | 幻灯片上 `code` 元素**长什么样**（顶栏 / 行号 / 圆角 / 投影 / 内边距全在这里） | ★ 2026-10-09 用户否掉了原版（原话「**感觉这个代码块丑丑的**」），量出来不只是丑：仿 macOS 顶栏 **32px** 占盒子高度 **26%**、行号槽 **49px** 占宽度 **20%** ⇒ **纵向溢出 35px / 横向溢出 47px**。现在：**顶栏整条删掉**、**行号默认 `false`**、6px 圆角 + 1px 细边框 + **无投影**。判据 `tests/components/slide-renderer/code-element-chrome.test.ts`（5 条 + 三道变异） |
-| `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 没有渲染预览** —— `render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就**不注册这个工具**（§1.1），所以它看不到画面；而这几件事**不需要画面也能算**（元素本来就带坐标）。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 真跑第一次就误报：**「底板 + 文字」被当成重叠**（学习者：「第 27 页版式没问题，那批重叠只是底板+文字的套叠」）⇒ 判据改成**包含不算、涉及文字的部分相交才算**。<br>★★ **量余量要用「最大全空矩形」不是「空白面积占比」** —— 后者把"两栏排满"（空白 24%，但全是页边距那种细条）判成有余量，夹具当场纠正过。<br>★★★ **参数必须与渲染器同源**（2026-10-10 真 Edge 量）：行高 **1.6→1.5**（宿主是 Tailwind preflight）、可用宽度要扣 `.element-content` 的 `padding:10px`；差额 ≤ 一行时**不许冒充结论**。<br>★★★ **改前/改后差集**（`layoutDelta`）：`patch_stage` 会直说「这次引入了什么 / 哪些是**改前就有**的」—— **"是不是我改坏的"不用人眼**。读数与工具 → 结论库那条。<br>★★★ 两个常数见下表 |
+| `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 没有渲染预览** —— `render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就**不注册这个工具**（§1.1），所以它看不到画面；而这几件事**不需要画面也能算**（元素本来就带坐标）。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 真跑第一次就误报：**「底板 + 文字」被当成重叠**（学习者：「第 27 页版式没问题，那批重叠只是底板+文字的套叠」）⇒ 判据改成**包含不算、涉及文字的部分相交才算**。<br>★★ **量余量要用「最大全空矩形」不是「空白面积占比」** —— 后者把"两栏排满"（空白 24%，但全是页边距那种细条）判成有余量，夹具当场纠正过。<br>★★★ **参数必须与渲染器同源**（真 Edge 量；两个常数见 `lib/slide/text-metrics.ts`）；差额 ≤ 一行时**不许冒充结论**。<br>★★★ **改前/改后差集**（`layoutDelta`）：`patch_stage` 会直说「这次引入了什么 / 哪些是**改前就有**的」—— **"是不是我改坏的"不用人眼**。读数与工具 → 结论库那条。 |
 | `lib/slide/text-metrics.ts` | **文本框行高/内边距的唯一来源**：渲染器**写进 DOM**，`lib/quiz/layout-check.ts` 直接 import | ★ 原先是两处会各漂的字面量（class `leading-[1.5]` vs 检查器 `1.6`）⇒ 24 个盒子里 **19 条假阳性**；**库里 1084 个 text 元素只有 5 个带 `lineHeight`**（改这里=改所有页面的行高）。判据 `tests/components/slide-renderer/text-line-height-pin.test.ts`（6 条 + 三道变异） |
 | `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页的正文只在 `<script>` 里**（第 17/28/36/38/42/44/52/57 页）；实测第 28 页 48,080 字符 html → **34,952 字**正文。★ 与 `extractTaughtText` **方向相反**（那个故意少收、偏误报），只能共用 `stripMarkup`，别合并。★★ **三个已知缺口（2026-10-09 逐条核出来的，全都会变成审查的假阳性）**：① 收的是 jsdom 的 `body.textContent` ⇒ **内联 `<script>`/widget-config 的文字也进来**（第 34 页的 `type`/`code`/`language`/`description` 因此被判成"真缺口"）；② **配置写在 `<head>` 的那 1 页反而收不到提示**（20 个 interactive 页：head 配置 **1** / body 配置 **17** / 无配置 2 —— 第 32 页的提示因此被判成"全页没说"）；③ **压平了 `left`/`top`** ⇒ 审查会把**两栏**读成"挤在一行"（实测 6 条版面误报全出在这里） |
 | `lib/server/agent-runtime/page-review.ts` | **写入后带上下文再审一页**（`sceneWriteDiagnosticsWithReview()` 用的那半，6 条判据） | ★ **还没在真会话里跑过**（见交接卡"下一步"）；三条纪律有判据：结论进回话 / 抛错被吞掉写入照常 / 没传就一个字不加 |
@@ -218,14 +219,14 @@ npx eslint <改过的文件>                       # 必须 clean
 **新加的两处测试**（批量下载）：
 - `tests/export/batch-export.test.ts` —— 组合逻辑，注入假 deps，node 环境，快。
 - `tests/export/batch-export-real-builders.test.ts` —— **用真的三个 builder** 组装，
-  jsdom + `fake-indexeddb`。真 PPTX 是 CPU 密集的，所以它自己带 **30s** 超时；
-  5s 默认值在整包并行下会误红（同类假红）。
+  jsdom + `fake-indexeddb`。真 PPTX 是 CPU 密集的，自带 **30s** 超时（5s 默认值并跑会误红）。
 
 **一条既有的真红（不是本轮引入）**：`node scripts/check-i18n-keys.mjs`
-（`pnpm check:i18n-keys`）会报 **10 个语言各缺 2 个键**
+（`pnpm check:i18n-keys`）会报 **9 个语言各缺 2 个键**（18 个缺槽）
 （`toolbar.selfStudyModeHint` / `toolbar.selfStudyModeLabel`）。实测：这两个键在
-**HEAD 里也只存在于 en-US / zh-CN / zh-TW**，是自学模式那一轮留下的缺口，
-与后来的改动无关。要么补 10 份翻译，要么先别把这个脚本加进 CI —— 别以为是自己弄坏的。
+**HEAD 里也只存在于 en-US / zh-CN / zh-TW**（自学模式那轮留下的缺口）。要么补 9 份翻译，要么先别把这个脚本加进 CI —— 别以为是自己弄坏的。
+★ **本机三件环境噪声**（fake-IP DNS 让 SSRF 判据永拒 / Windows 无 `getuid` /
+`join()` 给反斜杠让路径判据空转）→ 结论库「本机环境」。
 
 **第二条既有的真红**：`tests/store/` 里有 3 条**一直**红（单跑也红，不是负载）——
 `settings-claude-web-search.test.ts`「falls back to the default provider when claude is
