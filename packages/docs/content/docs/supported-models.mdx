@@ -3,11 +3,47 @@ title: Supported Models
 description: Built-in model and provider lists for the open-source OpenMAIC edition.
 ---
 
-This page lists the provider registry built into the open-source OpenMAIC edition. Built-in providers can be configured through Settings, environment variables, or `server-providers.yml`; add custom OpenAI-compatible providers in Settings. Availability also depends on the provider account, region, and server configuration, and hosted instances may hide some built-in models with an allowlist.
+This page lists the providers and models built into the open-source OpenMAIC edition. In [`openmaic.yml`](./configuration.mdx) a provider names one of these as its `preset`, and the model settings of the web app offer the same catalogue. Availability also depends on the provider account, region and server configuration, and a provider's `models` list can narrow what the model settings offer.
+
+## Presets
+
+A preset is a built-in provider template: which vendor, which endpoint, and which capabilities one account covers. Every provider in `openmaic.yml` or in the model settings names a preset.
+
+**Single-capability presets** have the provider IDs of the tables below, one per capability: `openai` is OpenAI chat, while OpenAI images, speech and transcription are `openai-image`, `openai-tts` and `openai-whisper`. Three IDs differ from the registry ID because another preset already uses it: MiniMax web search is `minimax-search`, Doubao web search is `doubao-search`, and Lemonade image generation is `lemonade-image`.
+
+**Token plan presets** cover several capabilities with one key, each at the plan's own endpoint. Connecting one in **Settings → Token Plan** also fills the slots the plan recommends models for that are still unassigned.
+
+| Preset | Plan | Covers |
+| --- | --- | --- |
+| `minimax` | MiniMax | Chat, image, video, TTS, web search |
+| `tokendance` | TokenDance | Chat, image, video, TTS, web search |
+| `volcengine-ark` | Volcengine Ark Agent Plan | Chat, image, video, TTS, web search |
+| `kimi-coding-plan` | Kimi Coding Plan | Chat, web search, web fetch |
+
+Connecting Kimi Coding Plan in **Settings → Token Plan** recommends chat, web search and web fetch together, using the Coding Plan key and `https://api.kimi.com/coding/v1`. If web fetch only uses the implicit builtin default, connecting assigns Kimi directly without a conflict, even when keeping the current setup. Explicit workspace choices (including `null`) and deployment-configured non-builtin readers or `null` use the existing conflict choices. Disconnecting removes the plan's assignments and restores the server default (the builtin reader when no reader is configured); it does not restore a prior explicit workspace choice. Locked slots stay unchanged. Plans that do not declare web fetch leave it untouched.
+
+The first-run wizard leaves web fetch on the builtin reader; only connecting the plan through the Token Plan settings page applies its fetch recommendation.
+
+`openai-compatible` connects any OpenAI-compatible chat server: it needs a `baseUrl`, and its `models` list is what the model settings offer.
+
+All preset IDs:
+
+| Capability | Presets |
+| --- | --- |
+| Chat | `openai`, `azure`, `atlascloud`, `anthropic`, `bedrock`, `google`, `glm`, `qwen`, `deepseek`, `kimi`, `siliconflow`, `doubao`, `openrouter`, `grok`, `tencent-hunyuan`, `xiaomi`, `ollama`, `lemonade`, `openai-compatible`, and the token plans |
+| TTS | `openai-tts`, `azure-tts`, `glm-tts`, `qwen-tts`, `minimax-tts`, `voxcpm-tts`, `doubao-tts`, `elevenlabs-tts`, `google-tts`, `browser-native-tts`, `lemonade-tts` |
+| ASR | `openai-whisper`, `qwen-asr`, `azure-asr`, `browser-native`, `funasr-asr`, `lemonade-asr` |
+| Image | `seedream`, `openai-image`, `qwen-image`, `nano-banana`, `minimax-image`, `grok-image`, `comfyui-image`, `lemonade-image`, `openrouter-image` |
+| Video | `seedance`, `kling`, `veo`, `minimax-video`, `grok-video`, `happyhorse`, `openrouter-video` |
+| Web search | `tavily`, `exa`, `bocha`, `brave`, `baidu`, `claude`, `minimax-search`, `doubao-search`, `kimi`, `kimi-coding-plan`, `searxng` |
+| Web fetch | `builtin`, `kimi`, `kimi-coding-plan` |
+| Document parsing | `unpdf`, `mineru`, `mineru-cloud`, `alidocmind` |
+
+`azure`, `openai-compatible`, `searxng` and `mineru` need a `baseUrl`; `alidocmind` authenticates with `credentials` (a key pair). Self-hosted TTS, ASR, image, search and document presets, key-pair presets and Bedrock can only be configured in `openmaic.yml`; see [Configuration](./configuration.mdx).
 
 ## LLM models
 
-Use `provider:model-id` for models in `DEFAULT_MODEL` or YAML, for example `openai:gpt-5.6`, `qwen:qwen3.7-plus`, or `ollama:llama3.3`.
+In `openmaic.yml` a chat slot names `<provider id>:<model id>`, where the provider id is the one you declared under `providers`, for example `openai:gpt-5.6`, `qwen:qwen3.7-plus` or `ollama:llama3.3` when the provider ids match the preset ids.
 
 | Provider        | Provider ID       | Built-in models                                                                                                                                                                                                                                                                                                                                                                                                            |
 | --------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -39,6 +75,7 @@ Use `provider:model-id` for models in `DEFAULT_MODEL` or YAML, for example `open
 | Nano Banana (Gemini) | `nano-banana`   | Gemini 3.1 Flash Image (Nano Banana 2) (`gemini-3.1-flash-image-preview`)<br />Gemini 3 Pro Image (Nano Banana Pro) (`gemini-3-pro-image-preview`)<br />Gemini 2.5 Flash Image (Nano Banana) (`gemini-2.5-flash-image`)                                                                                                                                                                                                                                                                            |
 | MiniMax Image        | `minimax-image` | Image 01 (`image-01`)<br />Image 01 Live (`image-01-live`)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Grok Image           | `grok-image`    | Grok Imagine Image (`grok-imagine-image`)<br />Grok Imagine Image Pro (`grok-imagine-image-pro`)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| GLM Image (Zhipu)    | `glm-image`     | CogView-3-Flash (`cogview-3-flash`)<br />CogView-4 (`cogview-4`)                                                                                                                                                                                                                                                                                                                                   |
 | ComfyUI Image        | `comfyui-image` | No preset model ID; discovers and selects ComfyUI workflows from `public/` at runtime. |
 | Lemonade Image       | `lemonade`      | Qwen Image GGUF (`Qwen-Image-GGUF`)<br />Stable Diffusion (sd-cpp) (`sd-cpp`)                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -69,6 +106,7 @@ This table lists model selectors and self-hosted backends. It does not enumerate
 | Lemonade TTS       | `lemonade-tts`       | Kokoro v1 (`kokoro-v1`)                                                                                                                                                                                                                |
 | Doubao TTS 2.0     | `doubao-tts`         | No model selector. Uses Doubao TTS 2.0 voice IDs.                                                                                                                                                                                      |
 | ElevenLabs TTS     | `elevenlabs-tts`     | Multilingual v2 (`eleven_multilingual_v2`)<br />Flash v2.5 (`eleven_flash_v2_5`)<br />Flash v2 (`eleven_flash_v2`)                                                                                                                     |
+| Google Gemini TTS  | `google-tts`         | Gemini 3.1 Flash TTS Preview (`gemini-3.1-flash-tts-preview`)<br />Gemini 2.5 Flash Preview TTS (`gemini-2.5-flash-preview-tts`)<br />Gemini 2.5 Pro Preview TTS (`gemini-2.5-pro-preview-tts`)                                        |
 | Browser Native TTS | `browser-native-tts` | No model selector. Uses the browser and operating system voice catalog.                                                                                                                                                                |
 
 ## ASR models
@@ -93,7 +131,7 @@ This table lists model selectors and self-hosted backends. It does not enumerate
 
 ## Web Search providers
 
-Web Search providers have no model selector. SearXNG supports server-managed configuration only; configure an API key or Base URL for other providers as required.
+Most web search providers have no model selector, so slots usually name them by provider id alone (`webSearch: tavily`). SearXNG can only be configured in `openmaic.yml`; the other providers need an API key or a base URL as listed. The preset IDs of MiniMax and Doubao web search are `minimax-search` and `doubao-search`.
 
 | Provider     | Provider ID |
 | ------------ | ----------- |
@@ -103,5 +141,22 @@ Web Search providers have no model selector. SearXNG supports server-managed con
 | Brave Search | `brave`     |
 | Baidu        | `baidu`     |
 | MiniMax      | `minimax`   |
+| Kimi         | `kimi`      |
 | Doubao       | `doubao`    |
 | SearXNG      | `searxng`   |
+
+### Kimi web search
+
+The `kimi` preset (Moonshot Open Platform) and `kimi-coding-plan` preset both serve chat and web search with one API key and base URL. Assign `webSearch` to the same provider used for chat; no second key or search model is needed.
+
+Open Platform bases `https://api.moonshot.cn/v1` and `https://api.moonshot.ai/v1` use `/tools/search_pro`; result content joins page chunks, falling back to the snippet. Coding Plan bases `https://api.kimi.com/coding/v1` and `https://api.kimi.ai/coding/v1` use `/search` with page crawling enabled; result content prefers page content over the snippet. Each request returns at most 20 results.
+
+Chat credentials alone do not enable search in legacy configuration. Opt in with `WEB_SEARCH_KIMI_ENABLED=true` or an explicit `web-search.kimi` entry in `server-providers.yml`. In `openmaic.yml`, explicitly assign the `webSearch` slot. The wizard recommends search only for official account bases.
+
+Endpoint selection follows the base path: after removing trailing slashes, a path ending in `/coding/v1` uses `/search`; every other base uses `/tools/search_pro`. Custom proxies configured in `openmaic.yml` must preserve that path layout.
+
+When `openmaic.yml` is present, declare `providers.<id>: { preset: kimi }` and assign `slots.webSearch: <id>`; the legacy `WEB_SEARCH_KIMI_ENABLED` variable cannot assign that slot.
+
+## Web fetch
+
+The `webFetch` slot defaults to the keyless `builtin` reader (Readability and Turndown; PDFs still use `document`). Both `kimi` and `kimi-coding-plan` reuse their provider's key and API base for hosted extraction. Moonshot Open Platform uses `/tools/fetch`, while Coding Plan uses `/fetch`. There is no fallback. Choose the reader in Model Services / Course Model Config or assign `slots.webFetch` in `openmaic.yml`. The key is shared with chat. All readers retain local session and public-address checks and untrusted results.

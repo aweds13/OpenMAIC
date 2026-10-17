@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   } | null,
   roundtableProps: undefined as Record<string, unknown> | undefined,
   canvasProps: undefined as Record<string, unknown> | undefined,
-  piEnabled: true,
   coursewareReferenceEnabled: true,
   topicActive: false,
   engineMode: 'idle' as 'idle' | 'playing' | 'paused',
@@ -110,6 +109,7 @@ vi.mock('@/lib/store', () => {
     use: {
       failedOutlines: () => [],
       generationComplete: () => true,
+      generationInterrupted: () => false,
     },
     getState: () => stageState,
   });
@@ -122,7 +122,9 @@ vi.mock('@/lib/store/canvas', () => ({
       whiteboardOpen: () => mocks.whiteboardOpen,
       runtimeWhiteboardProjection: () => mocks.runtimeProjection,
       whiteboardClearing: () => false,
-      setWhiteboardOpenManually: () => vi.fn(),
+      setWhiteboardOpenManually: () => (open: boolean) => {
+        mocks.whiteboardOpen = open;
+      },
     },
     getState: () => ({
       whiteboardOpen: mocks.whiteboardOpen,
@@ -366,7 +368,6 @@ vi.mock('@/lib/orchestration/registry/store', () => ({
   ),
 }));
 vi.mock('@/lib/config/feature-flags', () => ({
-  isPiChatEnabled: () => mocks.piEnabled,
   isCoursewareReferenceEnabled: () => mocks.coursewareReferenceEnabled,
 }));
 
@@ -388,7 +389,6 @@ describe('PlaybackChromeRoot element-reference ownership', () => {
     mocks.sendMessage.mockResolvedValue(undefined);
     mocks.roundtableProps = undefined;
     mocks.canvasProps = undefined;
-    mocks.piEnabled = true;
     mocks.coursewareReferenceEnabled = true;
     mocks.topicActive = false;
     mocks.engineMode = 'idle';
@@ -535,6 +535,64 @@ describe('PlaybackChromeRoot element-reference ownership', () => {
     expect(container.querySelector('[data-testid="owner-pill"]')?.textContent).toContain('Page 1');
   });
 
+  describe('whiteboard transitions end an armed picker', () => {
+    const pickableBoard = () => ({
+      id: 'board',
+      viewportSize: 1000,
+      viewportRatio: 0.5625,
+      elements: [textElement as import('@openmaic/dsl').PPTElement],
+    });
+
+    it.each([
+      ['manual close', true, 'toggle'],
+      ['manual open', false, 'toggle'],
+      ['automatic close', true, 'store'],
+      ['automatic open', false, 'store'],
+    ] as const)('%s', async (_label, startsOpen, trigger) => {
+      stageState.stage.whiteboard = [pickableBoard()];
+      mocks.whiteboardOpen = startsOpen;
+      await renderOwner();
+      click('toggle-pick');
+      expect(mocks.canvasProps?.elementPickActive).toBe(true);
+
+      if (trigger === 'toggle') {
+        act(() => (mocks.canvasProps?.onWhiteboardClose as () => void)());
+      } else {
+        mocks.whiteboardOpen = !startsOpen;
+      }
+      await rerenderOwner();
+
+      expect(mocks.whiteboardOpen).toBe(!startsOpen);
+      // The destination surface is pickable, so only the transition cancels.
+      expect(mocks.roundtableProps?.canPickSlideElement).toBe(true);
+      expect(mocks.canvasProps?.elementPickActive).toBe(false);
+    });
+
+    it('keeps an armed picker across re-renders without a transition', async () => {
+      stageState.stage.whiteboard = [pickableBoard()];
+      await renderOwner();
+      click('toggle-pick');
+      await rerenderOwner();
+      expect(mocks.canvasProps?.elementPickActive).toBe(true);
+    });
+
+    it('keeps a selected whiteboard draft when the whiteboard closes', async () => {
+      stageState.stage.whiteboard = [pickableBoard()];
+      mocks.whiteboardOpen = true;
+      await renderOwner();
+      click('toggle-pick');
+      act(() =>
+        (mocks.canvasProps?.onPickWhiteboardElement as (element: unknown) => void)(textElement),
+      );
+      mocks.whiteboardOpen = false;
+      await rerenderOwner();
+      expect(mocks.canvasProps?.elementPickActive).toBe(false);
+      expect(container.querySelector('[data-testid="owner-pill"]')?.textContent).toContain(
+        'whiteboard.title · Text · First grounded fact',
+      );
+    });
+  });
+
   it('owns pick state, freezes one request snapshot, and clears only on an accepted receipt', async () => {
     await renderOwner();
 
@@ -641,24 +699,6 @@ describe('PlaybackChromeRoot element-reference ownership', () => {
       );
     },
   );
-
-  it('hides the entry and sends an ordinary unreferenced message when Pi is off', async () => {
-    mocks.piEnabled = false;
-    await renderOwner();
-
-    expect(mocks.roundtableProps).toMatchObject({
-      showElementReference: false,
-      canPickSlideElement: false,
-      elementPickActive: false,
-    });
-    expect(container.querySelector('[data-testid="toggle-pick"]')).toBeNull();
-
-    click('send');
-
-    expect(mocks.handleUserInterrupt).not.toHaveBeenCalled();
-    expect(mocks.sendMessage).toHaveBeenCalledOnce();
-    expect(mocks.sendMessage).toHaveBeenCalledWith('Explain this', undefined);
-  });
 
   it('keeps Pi messaging available while the independent reference gate clears its UI state', async () => {
     await renderOwner();

@@ -12,6 +12,7 @@ export type WebSearchProviderId =
   | 'brave'
   | 'baidu'
   | 'claude'
+  | 'kimi'
   | 'minimax'
   | 'doubao'
   | 'searxng'
@@ -33,9 +34,17 @@ export interface WebSearchProviderConfig {
   id: WebSearchProviderId;
   name: string;
   requiresApiKey: boolean;
+  /** Chat account whose server credentials also serve this search provider. */
+  sharedChatProviderId?: string;
+  /** Explicit legacy opt-in before shared chat credentials activate search. */
+  enableEnvVar?: string;
+  /** Official account bases accepted by search settings and client requests. */
+  officialBaseUrls?: readonly string[];
   /** Self-hosted instances need an explicit base URL (no public default). */
   requiresBaseUrl?: boolean;
   defaultBaseUrl?: string;
   endpointPath: string;
   icon?: string;
+  /** The models a provider that searches through a model offers, best first. */
+  models?: ReadonlyArray<{ id: string; name: string }>;
 }

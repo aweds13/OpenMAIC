@@ -25,6 +25,7 @@
  * near-identical handlers. The trade-off is a runtime switch on a
  * string, which is cheap and obvious.
  */
+import { modelAuthorizationResponse } from '@/lib/server/api-response';
 
 import type { NextRequest } from 'next/server';
 
@@ -39,8 +40,6 @@ import {
   runTaskEvaluation,
 } from '@/lib/pbl/v2/agents/evaluator';
 import type { PBLProjectV2 } from '@/lib/pbl/v2/types';
-
-export const maxDuration = 300;
 
 const log = createLogger('PBL v2 Evaluate API');
 
@@ -83,6 +82,8 @@ export async function POST(req: NextRequest) {
   try {
     resolved = await resolveModelFromRequest(req, body, 'pbl-v2-runtime:evaluate');
   } catch (err) {
+    const authorization = modelAuthorizationResponse(err);
+    if (authorization) return authorization;
     log.error('Model resolution failed:', err);
     return apiError('INVALID_REQUEST', 400, err instanceof Error ? err.message : String(err));
   }

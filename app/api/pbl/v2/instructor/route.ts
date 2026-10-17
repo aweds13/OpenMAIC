@@ -12,6 +12,7 @@
  * events. The client applies the patches to its own copy of
  * `scene.content.projectV2`.
  */
+import { modelAuthorizationResponse } from '@/lib/server/api-response';
 
 import type { NextRequest } from 'next/server';
 
@@ -23,8 +24,6 @@ import { createSSEResponse } from '@/lib/pbl/v2/api/sse';
 import { applyRequestLocaleToProject } from '@/lib/pbl/v2/api/locale';
 import { runInstructorTurn, type InstructorPhase } from '@/lib/pbl/v2/agents/instructor';
 import type { PBLProjectV2 } from '@/lib/pbl/v2/types';
-
-export const maxDuration = 300;
 
 const log = createLogger('PBL v2 Instructor API');
 
@@ -54,6 +53,8 @@ export async function POST(req: NextRequest) {
   try {
     resolved = await resolveModelFromRequest(req, body, 'pbl-v2-runtime:instructor');
   } catch (err) {
+    const authorization = modelAuthorizationResponse(err);
+    if (authorization) return authorization;
     log.error('Model resolution failed:', err);
     return apiError('INVALID_REQUEST', 400, err instanceof Error ? err.message : String(err));
   }

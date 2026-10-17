@@ -17,7 +17,6 @@ const interactionRoute: UserStageRoute = { model: 'minimax-m2.7' };
  * Stages intentionally not covered by any Course Model Config station. Each
  * exception is deliberate, not a missed knob:
  * - conversation-title: reuses the agent-driver connection, not a course stage;
- * - generate-classroom / maic-agent: mainline / legacy entry points;
  * - maic-agent-driver: operator-only. It is resolved exclusively from the
  *   operator's MODEL_ROUTES (with an explicit api dialect and contextWindow) in
  *   agent-runtime/agent-driver-model.ts, so the UI deliberately offers no
@@ -25,9 +24,11 @@ const interactionRoute: UserStageRoute = { model: 'minimax-m2.7' };
  */
 const STAGES_WITHOUT_A_STATION = [
   'conversation-title',
-  'generate-classroom',
-  'maic-agent',
   'maic-agent-driver',
+  // 二开加的 stage（对抗性内容审查 / 写入后同页复审）：刻意不单列站点 ——
+  // 它必须跟着**内容生成**那个模型走（`course.content`），审的人不如写的人
+  // 聪明就没意义；想要单独钉模型是另一件事，不由 UI 开这个口子。
+  'course-review',
 ] as const;
 
 /** 模拟 UI 写入：互动站点覆盖时整组键一起落同一个路由。 */
@@ -78,7 +79,6 @@ describe('classroom interaction override reaches every runtime stage (review P0)
   it.each([
     'chat-adapter',
     'quiz-grade',
-    'pbl-chat',
     'pbl-v2-runtime',
     'pbl-v2-runtime:instructor',
     'pbl-v2-runtime:open-task',

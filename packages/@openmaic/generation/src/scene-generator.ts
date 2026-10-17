@@ -15,7 +15,7 @@ import type {
   SlideBackground,
   WidgetType,
 } from '@openmaic/dsl';
-import { isWidgetType, normalizeElement } from '@openmaic/dsl';
+import { isWidgetType, normalizeElement, safeKatexOptions } from '@openmaic/dsl';
 import { MAX_VISION_IMAGES } from './constants.js';
 import {
   formatImageDescription,
@@ -77,6 +77,7 @@ export type SceneContentFailureCode = 'prompt-unavailable' | 'invalid-model-outp
 
 export interface SceneContentFailure {
   code: SceneContentFailureCode;
+  message?: string;
 }
 
 export interface SceneContentOptions {
@@ -578,11 +579,14 @@ function processLatexElements(
       }
 
       try {
-        const html = katex.renderToString(latexStr, {
-          throwOnError: false,
-          displayMode: true,
-          output: 'html',
-        });
+        const html = katex.renderToString(
+          latexStr,
+          safeKatexOptions({
+            throwOnError: false,
+            displayMode: true,
+            output: 'html',
+          }),
+        );
 
         return {
           ...el,
@@ -781,10 +785,19 @@ async function generateSlideContent(
     return null;
   }
 
+  const invalidRotation = findInvalidShapeRotation(generatedData.elements);
+  if (invalidRotation) {
+    log.error(invalidRotation);
+    onFailure?.({ code: 'invalid-model-output', message: invalidRotation });
+    return null;
+  }
+
   log.debug(`Got ${generatedData.elements.length} elements for: ${outline.title}`);
 
   // Debug: Log image elements before resolution
-  const imageElements = generatedData.elements.filter((el) => el.type === 'image');
+  const imageElements = generatedData.elements.filter(
+    (el) => el && typeof el === 'object' && el.type === 'image',
+  );
   if (imageElements.length > 0) {
     log.debug(
       `Image elements before resolution:`,
@@ -826,7 +839,12 @@ async function generateSlideContent(
   const processedElements: PPTElement[] = videoNormalizedElements.map((el) => ({
     ...el,
     id: `${el.type}_${nanoid(8)}`,
-    rotate: 0,
+    // Shape rotation is part of the model-facing geometry contract. Preserve
+    // finite angles while keeping the legacy zero default for other elements.
+    rotate:
+      el.type === 'shape' && typeof el.rotate === 'number' && Number.isFinite(el.rotate)
+        ? el.rotate
+        : 0,
   })) as PPTElement[];
 
   // Process background
@@ -847,6 +865,26 @@ async function generateSlideContent(
     background,
     remark: generatedData.remark || outline.description,
   };
+}
+
+function findInvalidShapeRotation(elements: GeneratedSlideData['elements']): string | undefined {
+  for (const [index, element] of elements.entries()) {
+    if (!element || typeof element !== 'object') {
+      continue;
+    }
+    if (element.type !== 'shape' || !Object.prototype.hasOwnProperty.call(element, 'rotate')) {
+      continue;
+    }
+
+    const rotate = element.rotate;
+    if (rotate === null || (typeof rotate === 'number' && Number.isFinite(rotate))) {
+      continue;
+    }
+
+    const received = typeof rotate === 'number' ? String(rotate) : JSON.stringify(rotate);
+    return `Invalid shape rotation at shape[${index}].rotate: expected a finite number in degrees or null, received ${received}`;
+  }
+  return undefined;
 }
 
 /**
@@ -938,12 +976,20 @@ export function findQuizOptionsContractFailure(questions: readonly QuizQuestion[
       return `${where}: choice question has no options`;
     }
 
+    const optionValues = new Set<string>();
+
     for (let optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
       const value = options[optionIndex]?.value;
       if (typeof value !== 'string' || !QUIZ_OPTION_VALUE.test(value)) {
         const shown = JSON.stringify(value);
         return `${where}: option ${optionIndex + 1} value ${shown} is not a single letter A-Z`;
       }
+
+      if (optionValues.has(value)) {
+        return `${where}: option ${optionIndex + 1} repeats value ${JSON.stringify(value)}`;
+      }
+
+      optionValues.add(value);
     }
 
     const answer = question.answer;
@@ -951,9 +997,8 @@ export function findQuizOptionsContractFailure(questions: readonly QuizQuestion[
       return `${where}: answer key does not reference an option value`;
     }
 
-    const values = new Set(options.map((option) => option.value));
     for (const entry of answer) {
-      if (!values.has(entry)) {
+      if (!optionValues.has(entry)) {
         return `${where}: answer ${JSON.stringify(entry)} does not match an option value`;
       }
     }

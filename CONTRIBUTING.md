@@ -26,6 +26,7 @@ To avoid duplicate effort, please **comment on an issue** to claim it before you
 
 - [Node.js](https://nodejs.org/) >= 22.19.0
 - [pnpm](https://pnpm.io/) (latest)
+- [Docker](https://docs.docker.com/get-docker/) for the local PostgreSQL database (`pnpm db:up`), or any PostgreSQL 16 you can point `DATABASE_URL` at
 - A copy of `.env.local` — see [`.env.example`](.env.example) for reference
 
 ## Getting Started
@@ -42,9 +43,23 @@ pnpm install
 cp .env.example .env.local
 # Edit .env.local with your API keys
 
-# Start the development server
+# Start the local development database (a separate PostgreSQL on 127.0.0.1:5432,
+# shared by every checkout on this machine;
+# set OPENMAIC_DB_PORT for another port), then uncomment the local
+# DATABASE_URL line in .env.local:
+#   DATABASE_URL=postgres://openmaic:openmaic-dev@127.0.0.1:5432/openmaic
+pnpm db:up
+
+# Start the development server (it refuses to start without DATABASE_URL)
 pnpm dev
 ```
+
+`pnpm db:down` stops the development database and keeps its data. The E2E
+suite (`pnpm test:e2e`) also needs `DATABASE_URL`.
+
+`pnpm dev` also builds the standalone HTML player (`lib/standalone-player`,
+used by "Export as HTML") once at startup. It is not rebuilt on change: after
+editing the player, run `pnpm build:standalone-player` before exporting again.
 
 ## Development Workflow
 
@@ -158,6 +173,8 @@ PRs built with AI tools (Codex, Claude, Cursor, etc.) are welcome! We just ask f
 - **Mark it** — note in the PR title or description that the PR is AI-assisted
 - **AI-review your own code first** — before requesting maintainer review, run an AI code review (e.g. Claude, Codex, Copilot) on your changes and address the findings. This is **required** for AI-assisted PRs to avoid dumping large amounts of unreviewed generated code on maintainers.
 - **You are responsible for what you submit** — understand the code, not just the prompt.
+
+Every non-draft PR also gets an automated Codex review on each push. Treat its findings as advisory: fix what is valid, or reply with your reasoning. A maintainer still makes the final review and merge decision.
 
 AI-assisted PRs are held to the same quality standard as any other PR. Community members are also encouraged to leave constructive feedback on any PR — peer review helps everyone improve.
 

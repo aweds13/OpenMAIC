@@ -16,7 +16,12 @@ import {
   MINERU_IMAGE_MIMES,
 } from '@/lib/document/mime';
 import { createLogger } from '@/lib/logger';
-import { providerFetch } from '@/lib/server/provider-fetch';
+import {
+  isRejectedRedirectError,
+  providerFetch,
+  resolveAllowLocalNetworks,
+  type ProviderFetchPolicy,
+} from '@/lib/server/provider-fetch';
 import {
   findUnsafeNetworkTargetError,
   UnsafeNetworkTargetError,
@@ -70,7 +75,28 @@ const MIME_MAP: Record<string, string> = (() => {
 // zip. Kept in lockstep with MIME_MAP by deriving from the same source.
 const IMAGE_EXTENSION_RE = new RegExp(`\\.(${Object.keys(MIME_MAP).join('|')})$`, 'i');
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+
+/** A request's own timeout, ended early when the caller stops waiting. */
+function requestSignal(timeoutMs: number, caller: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return caller ? AbortSignal.any([timeout, caller]) : timeout;
+}
 
 function extToMime(ext: string): string {
   return MIME_MAP[ext.toLowerCase()] ?? 'application/octet-stream';
@@ -84,7 +110,7 @@ function isRetryable(err: unknown): boolean {
   // the request was configured to reject that, so a retry re-issues the same
   // rejected request. Undici reports it as `TypeError: fetch failed` with an
   // `Error('unexpected redirect')` cause, which must not look retryable.
-  if (isRedirectRefusal(err)) return false;
+  if (isRejectedRedirectError(err)) return false;
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
   return ['fetch failed', 'econnreset', 'etimedout', 'timeout', 'aborted'].some((s) =>
@@ -92,29 +118,24 @@ function isRetryable(err: unknown): boolean {
   );
 }
 
-/** Follow the `cause` chain looking for undici's rejected-redirect error. */
-function isRedirectRefusal(err: unknown): boolean {
-  const seen = new Set<unknown>();
-  let current: unknown = err;
-  while (current && typeof current === 'object' && !seen.has(current)) {
-    seen.add(current);
-    const message = (current as { message?: unknown }).message;
-    if (typeof message === 'string' && /unexpected redirect/i.test(message)) return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
-}
-
-async function fetchWithRetry<T>(fn: () => Promise<T>, context: string, attempts = 4): Promise<T> {
+async function fetchWithRetry<T>(
+  fn: () => Promise<T>,
+  context: string,
+  attempts = 4,
+  signal?: AbortSignal,
+): Promise<T> {
   let lastErr: unknown;
   for (let i = 1; i <= attempts; i++) {
+    signal?.throwIfAborted();
     try {
       return await fn();
     } catch (err) {
+      // The caller stopped waiting: not a transport failure to retry.
+      signal?.throwIfAborted();
       lastErr = err;
       if (!isRetryable(err) || i === attempts) break;
       log.warn(`[MinerU Cloud] ${context} — retry ${i}/${attempts}:`, err);
-      await sleep(400 * i);
+      await sleep(400 * i, signal);
     }
   }
   // Preserve an address-policy refusal as its original typed error so callers
@@ -178,17 +199,22 @@ async function readMinerUJson<T>(res: Response, context: string): Promise<T> {
   try {
     json = JSON.parse(text) as MinerUEnvelope<T>;
   } catch {
-    throw new Error(
-      `MinerU Cloud ${context}: invalid JSON (HTTP ${res.status}): ${text.slice(0, 500)}`,
+    // Never quote the body: it is logged here and kept out of caller-facing
+    // errors (the parse routes relay error messages).
+    log.warn(
+      `[MinerU Cloud] ${context}: non-JSON body (HTTP ${res.status}): ${text.slice(0, 500)}`,
     );
+    throw new Error(`MinerU Cloud ${context}: invalid JSON response (HTTP ${res.status})`);
   }
+  // The envelope's `msg` is the endpoint's own text: log it, never relay it.
   if (!res.ok) {
-    throw new Error(
-      `MinerU Cloud ${context}: HTTP ${res.status} — ${json.msg || text.slice(0, 300)}`,
-    );
+    log.warn(`[MinerU Cloud] ${context}: HTTP ${res.status}: ${String(json?.msg).slice(0, 500)}`);
+    throw new Error(`MinerU Cloud ${context}: HTTP ${res.status}`);
   }
-  if (json.code !== 0) {
-    throw new Error(`MinerU Cloud ${context}: ${json.msg || 'unknown error'} (code ${json.code})`);
+  if (json?.code !== 0) {
+    log.warn(`[MinerU Cloud] ${context}: code ${json?.code}: ${String(json?.msg).slice(0, 500)}`);
+    const code = Number.isInteger(json?.code) ? ` (code ${json.code})` : '';
+    throw new Error(`MinerU Cloud ${context}: request rejected${code}`);
   }
   return json.data;
 }
@@ -289,7 +315,7 @@ function assertZipEntryBudget(zip: JSZip): void {
   }
 }
 
-async function parseMinerUZip(zipUrl: string): Promise<ParsedPdfContent> {
+async function parseMinerUZip(zipUrl: string, signal?: AbortSignal): Promise<ParsedPdfContent> {
   await assertPublicHttpsResponseUrl(zipUrl, 'ZIP download');
   log.info('[MinerU Cloud] Downloading result ZIP...');
 
@@ -297,16 +323,16 @@ async function parseMinerUZip(zipUrl: string): Promise<ParsedPdfContent> {
     () =>
       providerFetch(
         zipUrl,
-        { signal: AbortSignal.timeout(TIMEOUTS.zip) },
+        { signal: requestSignal(TIMEOUTS.zip, signal) },
         { allowLocalNetworks: false, requireHttps: true },
       ),
     'ZIP download',
+    4,
+    signal,
   );
   if (!zipRes.ok) {
-    const text = await readBoundedBody(zipRes, MAX_JSON_BYTES, 'ZIP download')
-      .then((buf) => buf.toString('utf8'))
-      .catch(() => zipRes.statusText);
-    throw new Error(`MinerU Cloud ZIP download failed (${zipRes.status}): ${text.slice(0, 300)}`);
+    await zipRes.body?.cancel().catch(() => undefined);
+    throw new Error(`MinerU Cloud ZIP download failed (${zipRes.status})`);
   }
 
   const zipBuf = await readBoundedBody(zipRes, MAX_ZIP_BYTES, 'ZIP download');
@@ -475,42 +501,51 @@ export async function parseWithMinerUCloud(
   const apiRoot = (config.baseUrl || MINERU_CLOUD_DEFAULT_BASE).replace(/\/+$/, '');
   const uploadFileName = sanitizeFileName(sourceFileName);
 
-  // The API root is a configured provider endpoint — a server-managed/default
-  // endpoint or a self-hosted URL the operator opted into with
-  // ALLOW_LOCAL_NETWORKS. It always runs under the operator policy (the
-  // transport falls back to the env opt-in when `allowLocalNetworks` is
-  // undefined); only the response-supplied upload and ZIP URLs are held to the
-  // strict public policy.
-  const firstHopPolicy = { allowLocalNetworks: undefined };
+  // The API root is a configured provider endpoint. A caller-supplied or
+  // default root runs under the operator policy (the transport falls back to
+  // the env opt-in when `allowLocalNetworks` is undefined); a server-managed
+  // root is operator configuration and may reach a local network without it.
+  // Redirects from the root are followed, but every hop is validated and
+  // pinned under the operator policy even when the root is managed: the
+  // operator chose the root, not where it redirects. Only the
+  // response-supplied upload and ZIP URLs are held to the strict public policy.
+  const firstHopPolicy: ProviderFetchPolicy = config.managed
+    ? { allowLocalNetworks: true, redirectAllowLocalNetworks: resolveAllowLocalNetworks() }
+    : { allowLocalNetworks: undefined };
 
   log.info(`[MinerU Cloud] Starting parse: ${uploadFileName} (${documentBuffer.byteLength} bytes)`);
 
   // Step 1: Create batch — request presigned upload URL
-  const batchData = await fetchWithRetry(async () => {
-    const res = await providerFetch(
-      `${apiRoot}/file-urls/batch`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
+  const batchData = await fetchWithRetry(
+    async () => {
+      const res = await providerFetch(
+        `${apiRoot}/file-urls/batch`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            files: [{ name: uploadFileName }],
+            enable_formula: true,
+            enable_table: true,
+            model_version: 'vlm',
+            language: 'ch',
+          }),
+          signal: requestSignal(TIMEOUTS.batch, config.signal),
         },
-        body: JSON.stringify({
-          files: [{ name: uploadFileName }],
-          enable_formula: true,
-          enable_table: true,
-          model_version: 'vlm',
-          language: 'ch',
-        }),
-        signal: AbortSignal.timeout(TIMEOUTS.batch),
-      },
-      firstHopPolicy,
-    );
-    return readMinerUJson<{ batch_id: string; file_urls?: string[]; files?: string[] }>(
-      res,
-      'file-urls/batch',
-    );
-  }, 'create batch');
+        firstHopPolicy,
+      );
+      return readMinerUJson<{ batch_id: string; file_urls?: string[]; files?: string[] }>(
+        res,
+        'file-urls/batch',
+      );
+    },
+    'create batch',
+    4,
+    config.signal,
+  );
 
   const uploadUrls = batchData.file_urls ?? batchData.files;
   if (!batchData.batch_id || !uploadUrls?.length) {
@@ -533,7 +568,7 @@ export async function parseWithMinerUCloud(
               documentBuffer.byteOffset + documentBuffer.byteLength,
             ) as ArrayBuffer,
           ]),
-          signal: AbortSignal.timeout(TIMEOUTS.upload),
+          signal: requestSignal(TIMEOUTS.upload, config.signal),
           // No Content-Type — presigned OSS URLs are sensitive to headers in the signature
         },
         // A presigned URL identifies one exact destination: a 3xx answer is a
@@ -542,16 +577,15 @@ export async function parseWithMinerUCloud(
       ),
     'presigned upload',
     5,
+    config.signal,
   );
   if (!putRes.ok) {
-    const text = await readBoundedBody(putRes, MAX_JSON_BYTES, 'presigned upload')
-      .then((buf) => buf.toString('utf8'))
-      .catch(() => putRes.statusText);
-    throw new Error(`MinerU Cloud upload failed (${putRes.status}): ${text.slice(0, 400)}`);
+    await putRes.body?.cancel().catch(() => undefined);
+    throw new Error(`MinerU Cloud upload failed (${putRes.status})`);
   }
 
   // Give the backend a moment to register the upload
-  await sleep(1_500);
+  await sleep(1_500, config.signal);
 
   // Step 3: Poll for completion
   log.info(`[MinerU Cloud] Upload complete, polling for results...`);
@@ -565,7 +599,7 @@ export async function parseWithMinerUCloud(
           `${apiRoot}/extract-results/batch/${batchData.batch_id}`,
           {
             headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-            signal: AbortSignal.timeout(TIMEOUTS.poll),
+            signal: requestSignal(TIMEOUTS.poll, config.signal),
           },
           firstHopPolicy,
         );
@@ -576,6 +610,7 @@ export async function parseWithMinerUCloud(
       },
       'poll batch',
       3,
+      config.signal,
     );
 
     const rows = statusData.extract_result;
@@ -586,7 +621,7 @@ export async function parseWithMinerUCloud(
       list[0];
 
     if (!row?.state) {
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(POLL_INTERVAL_MS, config.signal);
       continue;
     }
 
@@ -596,17 +631,17 @@ export async function parseWithMinerUCloud(
     }
 
     if (row.state === 'failed') {
-      throw new Error(`MinerU Cloud parsing failed: ${row.err_msg || 'unknown error'}`);
+      log.warn(`[MinerU Cloud] Batch ${batchData.batch_id} failed: ${row.err_msg ?? ''}`);
+      throw new Error('MinerU Cloud parsing failed');
     }
 
     if (row.state === 'done' && row.full_zip_url) {
-      return parseMinerUZip(row.full_zip_url);
+      return parseMinerUZip(row.full_zip_url, config.signal);
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    await sleep(POLL_INTERVAL_MS, config.signal);
   }
 
-  throw new Error(
-    `MinerU Cloud timed out after ${POLL_MAX_MS / 1000}s (batch: ${batchData.batch_id})`,
-  );
+  log.warn(`[MinerU Cloud] Batch ${batchData.batch_id} timed out`);
+  throw new Error(`MinerU Cloud timed out after ${POLL_MAX_MS / 1000}s`);
 }

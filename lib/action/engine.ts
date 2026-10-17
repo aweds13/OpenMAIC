@@ -54,6 +54,7 @@ import {
   wbClearMs,
 } from '@/lib/choreography';
 import katex from 'katex';
+import { safeKatexOptions } from '@openmaic/dsl';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('ActionEngine');
@@ -571,11 +572,14 @@ export class ActionEngine {
     if (!wb.success || !wb.data) return;
 
     try {
-      const html = katex.renderToString(action.latex, {
-        throwOnError: false,
-        displayMode: true,
-        output: 'html',
-      });
+      const html = katex.renderToString(
+        action.latex,
+        safeKatexOptions({
+          throwOnError: false,
+          displayMode: true,
+          output: 'html',
+        }),
+      );
 
       this.stageAPI.whiteboard.addElement(
         {
@@ -786,9 +790,9 @@ export class ActionEngine {
       case 'replace_lines': {
         if (!action.lineIds?.length) return;
         const replaceIds = action.lineIds;
-        const firstIdx = lines.findIndex((l) => l.id === replaceIds[0]);
-        if (firstIdx === -1) return;
         const deleteSet = new Set(replaceIds);
+        const firstIdx = lines.findIndex((l) => deleteSet.has(l.id));
+        if (firstIdx === -1) return;
         lines = lines.filter((l) => !deleteSet.has(l.id));
         const newLines = newContentLines.map((content, i) => ({
           id: i < replaceIds.length ? replaceIds[i] : newLineIds[i],

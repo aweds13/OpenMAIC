@@ -89,6 +89,11 @@ export interface CourseToolDeps {
   onCheckpoint: (info: CheckpointInfo) => void;
   /** The session id, recorded on the document as the producer reference. */
   sessionId?: string;
+  /**
+   * The owner recorded on the run's durable session. Media the run generates is
+   * allocated in this owner's asset partition.
+   */
+  ownerId?: string;
   /** Cancel generation, preview, and synthesis when the run stops. */
   abortSignal?: AbortSignal;
   /** Test seam for the neutral TTS path. */
@@ -373,7 +378,7 @@ export interface CoursePromptBlocks {
   materialsLibrary?: string;
   /** Policy boundary for content fetched from session-observed URLs. */
   untrustedContent?: string;
-  /** fetch_url usage guidance (the tool is always registered). */
+  /** fetch_url usage guidance, present only when fetching is enabled. */
   fetch?: string;
   /** Compatibility guidance for installed legacy skills and resumed transcripts. */
   dslTools?: string;

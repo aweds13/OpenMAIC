@@ -273,22 +273,18 @@ function installAgentShell(
 }
 
 describe('PPT element reference Route → Director → real call_agent L2', () => {
-  const piFlag = 'NEXT_PUBLIC_PI_CHAT_ENABLED';
   const coursewareReferenceFlag = 'NEXT_PUBLIC_COURSEWARE_REFERENCE_ENABLED';
   const nativeFlag = 'OPENMAIC_ENABLE_PI_NATIVE_CHILD_RUNTIME';
-  let originalPiFlag: string | undefined;
   let originalCoursewareReferenceFlag: string | undefined;
   let originalNativeFlag: string | undefined;
 
   beforeEach(() => {
-    originalPiFlag = process.env[piFlag];
     originalCoursewareReferenceFlag = process.env[coursewareReferenceFlag];
     originalNativeFlag = process.env[nativeFlag];
-    process.env[piFlag] = 'true';
     process.env[coursewareReferenceFlag] = 'true';
     delete process.env[nativeFlag];
     vi.resetModules();
-    vi.stubEnv('NEXT_PUBLIC_PERSISTENCE', '0');
+    vi.stubEnv('DATABASE_URL', '');
     mocks.persistenceProvider.mockReset().mockResolvedValue({ runtimeStore: {} });
     mocks.buildAgent.mockReset();
     mocks.streamLLM.mockReset();
@@ -308,8 +304,6 @@ describe('PPT element reference Route → Director → real call_agent L2', () =
 
   afterEach(() => {
     vi.unstubAllEnvs();
-    if (originalPiFlag === undefined) delete process.env[piFlag];
-    else process.env[piFlag] = originalPiFlag;
     if (originalCoursewareReferenceFlag === undefined) delete process.env[coursewareReferenceFlag];
     else process.env[coursewareReferenceFlag] = originalCoursewareReferenceFlag;
     if (originalNativeFlag === undefined) delete process.env[nativeFlag];
@@ -797,6 +791,151 @@ describe('PPT element reference Route → Director → real call_agent L2', () =
     );
   });
 
+  function tableElement(base: Record<string, unknown>) {
+    return {
+      ...base,
+      type: 'table',
+      outline: {},
+      colWidths: [1],
+      cellMinHeight: 20,
+      data: [[{ id: 'cell-1', text: '<p>Cell</p>', colspan: 1, rowspan: 1 }]],
+    };
+  }
+
+  function codeElement(base: Record<string, unknown>) {
+    return { ...base, type: 'code', language: 'ts', lines: [{ id: 'L1', content: 'let x = 1' }] };
+  }
+
+  type ElementBuilder = (base: Record<string, unknown>) => Record<string, unknown>;
+
+  function withReferencedElement(kind: 'whiteboard' | 'slide', build: ElementBuilder) {
+    const body = kind === 'whiteboard' ? whiteboardBody() : makeBody();
+    const owner =
+      kind === 'whiteboard'
+        ? body.storeState.stage.whiteboard[0]
+        : body.storeState.scenes[0].content.canvas;
+    Object.assign(owner, { elements: [build(owner.elements[0])] });
+    return body;
+  }
+
+  describe.each(['whiteboard', 'slide'] as const)('%s table and code projection', (kind) => {
+    const malformed: Record<string, ElementBuilder> = {
+      'object table data': (base) => ({ ...tableElement(base), data: {} }),
+      'null table row': (base) => ({ ...tableElement(base), data: [null] }),
+      'null table cell': (base) => ({ ...tableElement(base), data: [[null]] }),
+      'missing table colWidths': (base) => ({ ...tableElement(base), colWidths: undefined }),
+      'object table rowHeights': (base) => ({ ...tableElement(base), rowHeights: {} }),
+      'object code lines': (base) => ({ ...codeElement(base), lines: {} }),
+      'null code line': (base) => ({ ...codeElement(base), lines: [null] }),
+    };
+
+    it.each(Object.keys(malformed))('rejects %s with 400 before any model call', async (shape) => {
+      const { POST } = await import('@/app/api/chat/pi/route');
+      const response = await POST(makeRequest(withReferencedElement(kind, malformed[shape])));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ errorCode: 'INVALID_REQUEST' });
+      expect(response.headers.has('X-OpenMAIC-Element-Reference-Accepted')).toBe(false);
+      expect(mocks.resolveModel).not.toHaveBeenCalled();
+      expect(mocks.buildAgent).not.toHaveBeenCalled();
+      expect(mocks.streamLLM).not.toHaveBeenCalled();
+    });
+
+    // Shapes outside the #1711 list that resolved before keep resolving.
+    it.each([
+      ['a table without optional rowHeights', tableElement],
+      ['a code element', codeElement],
+      ['a table with null rowHeights', (base) => ({ ...tableElement(base), rowHeights: null })],
+      ['a table with an object row', (base) => ({ ...tableElement(base), data: [{}] })],
+      ['a table with string colWidths', (base) => ({ ...tableElement(base), colWidths: '' })],
+      ['a table with string rowHeights', (base) => ({ ...tableElement(base), rowHeights: '' })],
+      ['a code element with string lines', (base) => ({ ...codeElement(base), lines: '' })],
+    ] as Array<[string, ElementBuilder]>)('still accepts %s', async (_label, build) => {
+      installAgentShell('Mock projection answer.');
+      const { POST } = await import('@/app/api/chat/pi/route');
+      const response = await POST(makeRequest(withReferencedElement(kind, build)));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('X-OpenMAIC-Element-Reference-Accepted')).toBe('1');
+      await response.text();
+    });
+  });
+
+  it.each(['null scene member', 'missing scene content', 'missing scene canvas'] as const)(
+    'rejects a slide reference with a %s with 400 before any model call',
+    async (shape) => {
+      const body = makeBody();
+      const scenes: unknown[] = body.storeState.scenes;
+      if (shape === 'null scene member') scenes.push(null);
+      if (shape === 'missing scene content')
+        Object.assign(scenes[0] as object, { content: undefined });
+      if (shape === 'missing scene canvas')
+        Object.assign(body.storeState.scenes[0].content, { canvas: undefined });
+
+      const { POST } = await import('@/app/api/chat/pi/route');
+      const response = await POST(makeRequest(body));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ errorCode: 'INVALID_REQUEST' });
+      expect(response.headers.has('X-OpenMAIC-Element-Reference-Accepted')).toBe(false);
+      expect(mocks.resolveModel).not.toHaveBeenCalled();
+      expect(mocks.buildAgent).not.toHaveBeenCalled();
+      expect(mocks.streamLLM).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['interactive reference', 'first', false],
+    ['interactive reference', 'last', false],
+    ['ordinary chat', 'first', false],
+    ['ordinary chat', 'first', true],
+    ['ordinary chat', 'last', false],
+  ] as const)(
+    'rejects a %s request with a null scene %s (native child=%s) with 400 before any model call',
+    async (kind, position, nativeChild) => {
+      if (nativeChild) process.env.OPENMAIC_ENABLE_PI_NATIVE_CHILD_RUNTIME = 'true';
+      const body = kind === 'interactive reference' ? makeInteractiveBody() : makeBody();
+      if (kind === 'ordinary chat') {
+        delete (body as { elementReference?: unknown }).elementReference;
+      }
+      const scenes = body.storeState.scenes as unknown[];
+      if (position === 'first') scenes.unshift(null);
+      else scenes.push(null);
+
+      const { POST } = await import('@/app/api/chat/pi/route');
+      const response = await POST(makeRequest(body));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        errorCode: 'INVALID_REQUEST',
+        error: 'storeState.scenes members must be objects',
+      });
+      expect(response.headers.has('X-OpenMAIC-Element-Reference-Accepted')).toBe(false);
+      expect(mocks.resolveModel).not.toHaveBeenCalled();
+      expect(mocks.buildAgent).not.toHaveBeenCalled();
+      expect(mocks.streamLLM).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['a primitive', 7],
+    ['a string', 'scene-x'],
+    ['an array', []],
+  ] as const)(
+    'rejects a slide reference whose scenes contain %s member with 400 before any model call',
+    async (_label, member) => {
+      const body = makeBody();
+      (body.storeState.scenes as unknown[]).push(member);
+      const { POST } = await import('@/app/api/chat/pi/route');
+      const response = await POST(makeRequest(body));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        errorCode: 'INVALID_REQUEST',
+        error: 'storeState.scenes members must be objects',
+      });
+      expect(response.headers.has('X-OpenMAIC-Element-Reference-Accepted')).toBe(false);
+      expect(mocks.resolveModel).not.toHaveBeenCalled();
+      expect(mocks.buildAgent).not.toHaveBeenCalled();
+      expect(mocks.streamLLM).not.toHaveBeenCalled();
+    },
+  );
+
   it('does not relabel unexpected resolver exceptions as invalid snapshot errors', async () => {
     const references = await import('@/lib/chat/pi/element-reference');
     const resolver = vi.spyOn(references, 'resolveElementReference').mockImplementation(() => {
@@ -886,8 +1025,8 @@ describe('PPT element reference Route → Director → real call_agent L2', () =
     },
   );
 
-  it('resolves the request snapshot without accessing persistence even when enabled', async () => {
-    vi.stubEnv('NEXT_PUBLIC_PERSISTENCE', '1');
+  it('resolves the request snapshot without accessing persistence even with a database', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgres://element-reference-test/openmaic');
     installAgentShell('Snapshot answer.');
     const { POST } = await import('@/app/api/chat/pi/route');
     const response = await POST(makeRequest(whiteboardBody()));

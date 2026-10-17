@@ -115,4 +115,21 @@ describe('generate image — client-supplied base URL guard applies in every env
       expect.anything(),
     );
   });
+
+  it("applies the request's model to the server's default provider, as before slots", async () => {
+    vi.stubEnv('IMAGE_OPENAI_API_KEY', 'server-key');
+    vi.stubEnv('IMAGE_OPENAI_MODELS', 'gpt-image-1');
+    const { POST } = await import('@/app/api/generate/image/route');
+
+    const res = await POST(imageRequest({ 'x-image-model': 'gpt-image-1' }));
+    expect(res.status).toBe(200);
+    expect(mocks.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'openai-image', model: 'gpt-image-1' }),
+      expect.anything(),
+    );
+
+    // Without a request model, the explicitly listed default is used.
+    const missing = await POST(imageRequest());
+    expect(missing.status).toBe(200);
+  });
 });

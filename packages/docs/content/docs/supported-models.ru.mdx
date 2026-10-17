@@ -3,11 +3,47 @@ title: Поддерживаемые модели
 description: Встроенные модели и список провайдеров в открытой версии OpenMAIC.
 ---
 
-На этой странице перечислен реестр провайдеров, встроенных в открытую версию OpenMAIC вместе с кодом. Встроенные провайдеры можно настроить через настройки, переменные окружения или конфигурацию `server-providers.yml`; пользовательские провайдеры, совместимые с OpenAI, добавляются в настройках. Конкретная доступность зависит от аккаунта провайдера, региона и конфигурации сервера; в управляемых инстансах некоторые встроенные модели могут быть скрыты через белый список.
+На этой странице перечислены провайдеры и модели, встроенные в открытую версию OpenMAIC. В [`openmaic.yml`](./configuration.mdx) провайдер указывает один из них как свой `preset`, а настройки моделей в веб-приложении предлагают тот же каталог. Доступность также зависит от аккаунта провайдера, региона и конфигурации сервера, а список `models` провайдера может сузить выбор в настройках моделей.
+
+## Пресеты
+
+Пресет — встроенный шаблон провайдера: какой вендор, какой адрес и какие возможности покрывает одна учётная запись. Каждый провайдер в `openmaic.yml` или в настройках моделей указывает пресет.
+
+**Пресеты одной возможности** используют id провайдеров из таблиц ниже, по одному на возможность: `openai` — это чат OpenAI, а изображения, синтез и распознавание речи OpenAI — `openai-image`, `openai-tts` и `openai-whisper`. Три id отличаются от id реестра, потому что его уже занимает другой пресет: веб-поиск MiniMax — `minimax-search`, веб-поиск Doubao — `doubao-search`, генерация изображений Lemonade — `lemonade-image`.
+
+**Пресеты Token Plan** покрывают несколько возможностей одним ключом, каждую — по собственному адресу тарифа. Подключение такого пресета в **Настройки → Token Plan** также заполняет ещё не назначенные слоты, для которых тариф рекомендует модели.
+
+| Пресет | Тариф | Покрывает |
+| --- | --- | --- |
+| `minimax` | MiniMax | Чат, изображения, видео, TTS, веб-поиск |
+| `tokendance` | TokenDance | Чат, изображения, видео, TTS, веб-поиск |
+| `volcengine-ark` | Volcengine Ark Agent Plan | Чат, изображения, видео, TTS, веб-поиск |
+| `kimi-coding-plan` | Kimi coding plan | Чат, веб-поиск, загрузка веб-страниц |
+
+Подключение Kimi Coding Plan в **Настройки → Token Plan** рекомендует чат, веб-поиск и загрузку веб-страниц с общим ключом тарифа и адресом `https://api.kimi.com/coding/v1`. Если загрузка использует только неявный встроенный ридер по умолчанию, подключение сразу назначает Kimi без подтверждения конфликта, даже при сохранении текущих настроек. Явные назначения рабочего пространства (включая `null`), а также невстроенный ридер или `null`, заданные развёртыванием, обрабатываются через существующий выбор при конфликте. Отключение удаляет назначения тарифа и восстанавливает серверное значение по умолчанию (встроенный ридер, если другой не настроен), но не прежний явный выбор рабочего пространства. Закреплённые слоты не меняются. Тарифы, не объявляющие загрузку веб-страниц, не меняют этот слот.
+
+Мастер первого запуска оставляет загрузку веб-страниц на встроенном ридере; рекомендация тарифа для загрузки применяется только при подключении через страницу настроек Token Plan.
+
+`openai-compatible` подключает любой OpenAI-совместимый чат-сервер: ему нужен `baseUrl`, а настройки моделей предлагают его список `models`.
+
+Все id пресетов:
+
+| Возможность | Пресеты |
+| --- | --- |
+| Чат | `openai`, `azure`, `atlascloud`, `anthropic`, `bedrock`, `google`, `glm`, `qwen`, `deepseek`, `kimi`, `siliconflow`, `doubao`, `openrouter`, `grok`, `tencent-hunyuan`, `xiaomi`, `ollama`, `lemonade`, `openai-compatible` и пресеты Token Plan |
+| TTS | `openai-tts`, `azure-tts`, `glm-tts`, `qwen-tts`, `minimax-tts`, `voxcpm-tts`, `doubao-tts`, `elevenlabs-tts`, `google-tts`, `browser-native-tts`, `lemonade-tts` |
+| ASR | `openai-whisper`, `qwen-asr`, `azure-asr`, `browser-native`, `funasr-asr`, `lemonade-asr` |
+| Изображения | `seedream`, `openai-image`, `qwen-image`, `nano-banana`, `minimax-image`, `grok-image`, `comfyui-image`, `lemonade-image`, `openrouter-image` |
+| Видео | `seedance`, `kling`, `veo`, `minimax-video`, `grok-video`, `happyhorse`, `openrouter-video` |
+| Веб-поиск | `tavily`, `exa`, `bocha`, `brave`, `baidu`, `claude`, `minimax-search`, `doubao-search`, `kimi`, `kimi-coding-plan`, `searxng` |
+| Загрузка веб-страниц | `builtin`, `kimi`, `kimi-coding-plan` |
+| Разбор документов | `unpdf`, `mineru`, `mineru-cloud`, `alidocmind` |
+
+`azure`, `openai-compatible`, `searxng` и `mineru` требуют `baseUrl`; `alidocmind` аутентифицируется через `credentials` (пару ключей). Собственные (self-hosted) пресеты TTS, ASR, изображений, поиска и документов, пресеты с парой ключей и Bedrock настраиваются только в `openmaic.yml`; см. [Конфигурацию](./configuration.mdx).
 
 ## LLM модели
 
-`DEFAULT_MODEL` или запись модели в YAML имеет формат `provider:model-id`, например `openai:gpt-5.6`, `qwen:qwen3.7-plus`, `ollama:llama3.3`.
+В `openmaic.yml` чат-слот указывает `<id провайдера>:<id модели>`, где id провайдера — тот, что объявлен в `providers`. Если id провайдеров совпадают с id пресетов, это, например, `openai:gpt-5.6`, `qwen:qwen3.7-plus` или `ollama:llama3.3`.
 
 | Провайдер       | Provider ID       | Встроенные модели                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | --------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -39,6 +75,7 @@ description: Встроенные модели и список провайде�
 | Nano Banana (Gemini) | `nano-banana`   | Gemini 3.1 Flash Image (Nano Banana 2) (`gemini-3.1-flash-image-preview`)<br />Gemini 3 Pro Image (Nano Banana Pro) (`gemini-3-pro-image-preview`)<br />Gemini 2.5 Flash Image (Nano Banana) (`gemini-2.5-flash-image`)                                                                                                                                                                                                                                                                              |
 | MiniMax Image        | `minimax-image` | Image 01 (`image-01`)<br />Image 01 Live (`image-01-live`)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Grok Image           | `grok-image`    | Grok Imagine Image (`grok-imagine-image`)<br />Grok Imagine Image Pro (`grok-imagine-image-pro`)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| GLM Image (Zhipu)    | `glm-image`     | CogView-3-Flash (`cogview-3-flash`)<br />CogView-4 (`cogview-4`)                                                                                                                                                                                                                                                                                                                                   |
 | ComfyUI Image        | `comfyui-image` | Нет предустановленных ID моделей; во время работы обнаруживает и выбирает workflow ComfyUI из `public/`.                                                                                                                                                                                                                                                                                                                                                                                          |
 | Lemonade Image       | `lemonade`      | Qwen Image GGUF (`Qwen-Image-GGUF`)<br />Stable Diffusion (sd-cpp) (`sd-cpp`)                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -69,6 +106,7 @@ description: Встроенные модели и список провайде�
 | Lemonade TTS      | `lemonade-tts`       | Kokoro v1 (`kokoro-v1`)                                                                                                                                                                                                                        |
 | Doubao TTS 2.0 | `doubao-tts`         | Нет селектора моделей, используется ID голосов Doubao TTS 2.0.                                                                                                                                                                                  |
 | ElevenLabs TTS    | `elevenlabs-tts`     | Multilingual v2 (`eleven_multilingual_v2`)<br />Flash v2.5 (`eleven_flash_v2_5`)<br />Flash v2 (`eleven_flash_v2`)                                                                                                                             |
+| Google Gemini TTS | `google-tts`         | Gemini 3.1 Flash TTS Preview (`gemini-3.1-flash-tts-preview`)<br />Gemini 2.5 Flash Preview TTS (`gemini-2.5-flash-preview-tts`)<br />Gemini 2.5 Pro Preview TTS (`gemini-2.5-pro-preview-tts`)                                                |
 | Браузерный нативный TTS | `browser-native-tts` | Нет селектора моделей, используется список голосов, предоставляемый браузером и операционной системой.                                                                                                                                         |
 
 ## ASR модели
@@ -93,7 +131,7 @@ description: Встроенные модели и список провайде�
 
 ## Провайдеры веб-поиска
 
-Провайдеры веб-поиска не имеют селектора моделей. SearXNG поддерживает только серверную конфигурацию; другие провайдеры требуют настройки API ключа или базового URL согласно их требованиям.
+У большинства провайдеров веб-поиска нет выбора модели, поэтому слоты обычно указывают только id провайдера (`webSearch: tavily`). SearXNG настраивается только в `openmaic.yml`; остальным провайдерам нужен API-ключ или Base URL, как указано в таблице. Id пресетов веб-поиска MiniMax и Doubao — `minimax-search` и `doubao-search`.
 
 | Провайдер       | Provider ID |
 | --------------- | ----------- |
@@ -103,5 +141,22 @@ description: Встроенные модели и список провайде�
 | Brave Search    | `brave`     |
 | Baidu           | `baidu`     |
 | MiniMax         | `minimax`   |
+| Kimi         | `kimi`      |
 | Doubao          | `doubao`    |
 | SearXNG         | `searxng`   |
+
+### Веб-поиск Kimi
+
+Пресеты `kimi` (Moonshot Open Platform) и `kimi-coding-plan` используют один API-ключ и базовый URL для чата и веб-поиска. Назначьте `webSearch` тому же провайдеру, что и чат: отдельный ключ или модель поиска не нужны.
+
+Базовые URL Open Platform `https://api.moonshot.cn/v1` и `https://api.moonshot.ai/v1` используют `/tools/search_pro`. Текст результата собирается из фрагментов страницы; если их нет, используется краткое описание. Базовые URL coding plan `https://api.kimi.com/coding/v1` и `https://api.kimi.ai/coding/v1` используют `/search` с включённой загрузкой страниц. Предпочтение отдаётся тексту страницы, затем краткому описанию. Один запрос возвращает не более 20 результатов.
+
+В старой конфигурации учётные данные чата сами по себе не включают поиск. Установите `WEB_SEARCH_KIMI_ENABLED=true` или явно добавьте запись `web-search.kimi` в `server-providers.yml`. В `openmaic.yml` явно назначьте слот `webSearch`. Мастер настройки рекомендует поиск только для аккаунтов с официальным базовым URL.
+
+Эндпоинт выбирается по пути базового URL: после удаления завершающих косых черт путь, оканчивающийся на `/coding/v1`, использует `/search`; все остальные используют `/tools/search_pro`. Пользовательские прокси, настроенные в `openmaic.yml`, должны сохранять эту структуру пути.
+
+Если есть `openmaic.yml`, объявите `providers.<id>: { preset: kimi }` и задайте `slots.webSearch: <id>`: переменная старой конфигурации `WEB_SEARCH_KIMI_ENABLED` не назначает этот слот.
+
+## Загрузка веб-страниц
+
+По умолчанию слот `webFetch` использует `builtin` без ключа (Readability и Turndown; PDF по-прежнему используют `document`). `kimi` и `kimi-coding-plan` повторно используют ключ и базовый URL API своего провайдера для размещённого извлечения. Moonshot Open Platform использует `/tools/fetch`, Coding Plan — `/fetch`. Резервного сервиса нет. Выберите сервис в настройках сервисов моделей или моделей курса либо задайте `slots.webFetch` в `openmaic.yml`. Ключ общий с чатом. Все сервисы сохраняют локальные проверки сеанса и публичных адресов и возвращают недоверенные данные.

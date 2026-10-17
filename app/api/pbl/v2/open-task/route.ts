@@ -11,6 +11,7 @@
  * just dispatches it differently (no learner message to record,
  * Instructor's reply is the only message that lands).
  */
+import { modelAuthorizationResponse } from '@/lib/server/api-response';
 
 import type { NextRequest } from 'next/server';
 
@@ -23,8 +24,6 @@ import { applyRequestLocaleToProject } from '@/lib/pbl/v2/api/locale';
 import { runInstructorTurn } from '@/lib/pbl/v2/agents/instructor';
 import { applyQuizSignalsToProject } from '@/lib/pbl/v2/operations/runtime/quiz-snapshot';
 import type { PBLProjectV2, PriorQuizResult } from '@/lib/pbl/v2/types';
-
-export const maxDuration = 300;
 
 const log = createLogger('PBL v2 OpenTask API');
 
@@ -56,6 +55,8 @@ export async function POST(req: NextRequest) {
   try {
     resolved = await resolveModelFromRequest(req, body, 'pbl-v2-runtime:open-task');
   } catch (err) {
+    const authorization = modelAuthorizationResponse(err);
+    if (authorization) return authorization;
     log.error('Model resolution failed:', err);
     return apiError('INVALID_REQUEST', 400, err instanceof Error ? err.message : String(err));
   }

@@ -3,11 +3,47 @@ title: 支援模型
 description: 開源版 OpenMAIC 的內建模型與 provider 清單。
 ---
 
-本頁列出開源版 OpenMAIC 程式碼中內建的 provider registry。內建 provider 可以透過設定、環境變數或 `server-providers.yml` 設定；自訂 OpenAI 相容 provider 請在設定中新增。實際可用性也取決於 provider 帳號、所在地區和伺服器端設定；託管實例也可能透過白名單隱藏部分內建模型。
+本頁列出開源版 OpenMAIC 內建的供應商和模型。在 [`openmaic.yml`](./configuration.mdx) 中，供應商透過 `preset` 指定其中之一；Web 端的模型設定提供同一份目錄。實際可用性也取決於供應商帳號、所在地區和伺服器端設定，供應商的 `models` 清單也可以縮小模型設定中提供的選項。
+
+## 範本
+
+範本（preset）是內建的供應商樣板：哪家廠商、哪個端點，以及一個帳號涵蓋哪些能力。`openmaic.yml` 或模型設定中的每個供應商都要指定一個範本。
+
+**單一能力範本**使用下方各表中的 provider ID，每種能力一個：`openai` 是 OpenAI 對話，OpenAI 的圖像、語音合成和語音辨識分別是 `openai-image`、`openai-tts` 和 `openai-whisper`。有三個 ID 因為已被其他範本占用而與 registry ID 不同：MiniMax 網路搜尋是 `minimax-search`，豆包網路搜尋是 `doubao-search`，Lemonade 圖像生成是 `lemonade-image`。
+
+**Token Plan 範本**用一把 key 涵蓋多種能力，每種能力使用該方案自己的端點。在 **設定 → Token Plan** 中連接這類供應商時，也會為方案推薦了模型且仍未指派的插槽填入模型。
+
+| 範本 | 方案 | 涵蓋能力 |
+| --- | --- | --- |
+| `minimax` | MiniMax | 對話、圖像、影片、TTS、網路搜尋 |
+| `tokendance` | TokenDance | 對話、圖像、影片、TTS、網路搜尋 |
+| `volcengine-ark` | 火山方舟 Agent Plan | 對話、圖像、影片、TTS、網路搜尋 |
+| `kimi-coding-plan` | Kimi 程式設計方案 | 對話、網路搜尋、網頁擷取 |
+
+在**設定 → Token Plan** 中連接 Kimi Coding Plan，會同時推薦對話、網路搜尋和網頁擷取，共用方案金鑰和 `https://api.kimi.com/coding/v1`。如果網頁擷取僅使用隱含的內建預設值，連接會直接指定 Kimi，不顯示衝突確認，即使選擇保留目前設定也是如此。工作區的明確選擇（包括 `null`）以及部署設定的非內建讀取器或 `null` 仍按現有衝突選項處理。中斷連接會移除方案的指定值，恢復伺服器預設值（未設定讀取器時為內建讀取器），不會恢復先前工作區的明確選擇。鎖定的欄位保持不變，未宣告網頁擷取的方案不會修改該欄位。
+
+首次設定精靈會將網頁擷取保留為內建讀取器；只有透過 Token Plan 設定頁面連接方案，才會套用方案的擷取建議設定。
+
+`openai-compatible` 用於連接任何 OpenAI 相容的對話服務：需要填寫 `baseUrl`，模型設定中提供的就是它的 `models` 清單。
+
+全部範本 ID：
+
+| 能力 | 範本 |
+| --- | --- |
+| 對話 | `openai`、`azure`、`atlascloud`、`anthropic`、`bedrock`、`google`、`glm`、`qwen`、`deepseek`、`kimi`、`siliconflow`、`doubao`、`openrouter`、`grok`、`tencent-hunyuan`、`xiaomi`、`ollama`、`lemonade`、`openai-compatible`，以及各 Token Plan |
+| TTS | `openai-tts`、`azure-tts`、`glm-tts`、`qwen-tts`、`minimax-tts`、`voxcpm-tts`、`doubao-tts`、`elevenlabs-tts`、`google-tts`、`browser-native-tts`、`lemonade-tts` |
+| ASR | `openai-whisper`、`qwen-asr`、`azure-asr`、`browser-native`、`funasr-asr`、`lemonade-asr` |
+| 圖像 | `seedream`、`openai-image`、`qwen-image`、`nano-banana`、`minimax-image`、`grok-image`、`comfyui-image`、`lemonade-image`、`openrouter-image` |
+| 影片 | `seedance`、`kling`、`veo`、`minimax-video`、`grok-video`、`happyhorse`、`openrouter-video` |
+| 網路搜尋 | `tavily`、`exa`、`bocha`、`brave`、`baidu`、`claude`、`minimax-search`、`doubao-search`、`kimi`、`kimi-coding-plan`、`searxng` |
+| 網頁擷取 | `builtin`、`kimi`、`kimi-coding-plan` |
+| 文件解析 | `unpdf`、`mineru`、`mineru-cloud`、`alidocmind` |
+
+`azure`、`openai-compatible`、`searxng` 和 `mineru` 需要 `baseUrl`；`alidocmind` 使用 `credentials`（金鑰對）驗證。自架的 TTS、ASR、圖像、搜尋和文件範本、金鑰對範本以及 Bedrock 只能在 `openmaic.yml` 中設定，請見[設定說明](./configuration.mdx)。
 
 ## LLM 模型
 
-`DEFAULT_MODEL` 或 YAML 中的模型寫法是 `provider:model-id`，例如 `openai:gpt-5.6`、`qwen:qwen3.7-plus`、`ollama:llama3.3`。
+在 `openmaic.yml` 中，對話插槽寫作 `<供應商 ID>:<模型 ID>`，其中供應商 ID 是你在 `providers` 下宣告的 ID。供應商 ID 與範本 ID 相同時，例如 `openai:gpt-5.6`、`qwen:qwen3.7-plus`、`ollama:llama3.3`。
 
 | 供應商          | Provider ID       | 內建模型                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | --------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -39,6 +75,7 @@ description: 開源版 OpenMAIC 的內建模型與 provider 清單。
 | Nano Banana (Gemini) | `nano-banana`   | Gemini 3.1 Flash Image (Nano Banana 2) (`gemini-3.1-flash-image-preview`)<br />Gemini 3 Pro Image (Nano Banana Pro) (`gemini-3-pro-image-preview`)<br />Gemini 2.5 Flash Image (Nano Banana) (`gemini-2.5-flash-image`)                                                                                                                                                                                                                                                                            |
 | MiniMax Image        | `minimax-image` | Image 01 (`image-01`)<br />Image 01 Live (`image-01-live`)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Grok Image           | `grok-image`    | Grok Imagine Image (`grok-imagine-image`)<br />Grok Imagine Image Pro (`grok-imagine-image-pro`)                                                                                                                                                                                                                                                                                                                                                                                                   |
+| GLM 圖片（智譜）     | `glm-image`     | CogView-3-Flash (`cogview-3-flash`)<br />CogView-4 (`cogview-4`)                                                                                                                                                                                                                                                                                                                                   |
 | ComfyUI Image        | `comfyui-image` | 無預設模型 ID；執行時從 `public/` 中發現並選擇 ComfyUI workflow。                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Lemonade Image       | `lemonade`      | Qwen Image GGUF (`Qwen-Image-GGUF`)<br />Stable Diffusion (sd-cpp) (`sd-cpp`)                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -69,6 +106,7 @@ description: 開源版 OpenMAIC 的內建模型與 provider 清單。
 | Lemonade TTS   | `lemonade-tts`       | Kokoro v1 (`kokoro-v1`)                                                                                                                                                                                                                |
 | Doubao TTS 2.0 | `doubao-tts`         | 無模型選擇器，使用 Doubao TTS 2.0 音色 ID。                                                                                                                                                                                            |
 | ElevenLabs TTS | `elevenlabs-tts`     | Multilingual v2 (`eleven_multilingual_v2`)<br />Flash v2.5 (`eleven_flash_v2_5`)<br />Flash v2 (`eleven_flash_v2`)                                                                                                                     |
+| Google Gemini TTS | `google-tts`         | Gemini 3.1 Flash TTS Preview (`gemini-3.1-flash-tts-preview`)<br />Gemini 2.5 Flash Preview TTS (`gemini-2.5-flash-preview-tts`)<br />Gemini 2.5 Pro Preview TTS (`gemini-2.5-pro-preview-tts`)                                        |
 | 瀏覽器原生 TTS | `browser-native-tts` | 無模型選擇器，使用瀏覽器和作業系統提供的音色清單。                                                                                                                                                                                     |
 
 ## ASR 模型
@@ -93,7 +131,7 @@ description: 開源版 OpenMAIC 的內建模型與 provider 清單。
 
 ## Web Search 供應商
 
-Web Search provider 沒有模型選擇器。SearXNG 僅支援伺服器端託管設定；其他 provider 可依各自需求設定 API key 或 Base URL。
+大多數網路搜尋供應商沒有模型選擇器，因此插槽通常只寫供應商 ID（`webSearch: tavily`）。SearXNG 只能在 `openmaic.yml` 中設定；其他供應商依表中要求提供 API key 或 Base URL。MiniMax 和豆包網路搜尋的範本 ID 分別是 `minimax-search` 和 `doubao-search`。
 
 | 供應商       | Provider ID |
 | ------------ | ----------- |
@@ -103,5 +141,22 @@ Web Search provider 沒有模型選擇器。SearXNG 僅支援伺服器端託管�
 | Brave Search | `brave`     |
 | Baidu        | `baidu`     |
 | MiniMax      | `minimax`   |
+| Kimi         | `kimi`      |
 | Doubao       | `doubao`    |
 | SearXNG      | `searxng`   |
+
+### Kimi 網路搜尋
+
+`kimi` 範本（Moonshot Open Platform）和 `kimi-coding-plan` 範本都支援使用同一個 API key 和 Base URL 進行對話與網路搜尋。將 `webSearch` 指向對話使用的同一供應商，不需要額外的金鑰或搜尋模型。
+
+Open Platform 的 `https://api.moonshot.cn/v1` 和 `https://api.moonshot.ai/v1` 使用 `/tools/search_pro`，搜尋結果內文由頁面片段串接而成，沒有內文時改用摘要。程式設計方案的 `https://api.kimi.com/coding/v1` 和 `https://api.kimi.ai/coding/v1` 使用 `/search` 並啟用頁面擷取，優先使用頁面內文，其次使用摘要。每次請求最多傳回 20 筆結果。
+
+在舊版設定中，僅設定對話金鑰不會啟用搜尋。請設定 `WEB_SEARCH_KIMI_ENABLED=true`，或在 `server-providers.yml` 中明確加入 `web-search.kimi`。使用 `openmaic.yml` 時，需要明確指定 `webSearch` 插槽。首次執行精靈僅為使用官方 Base URL 的帳戶建議搜尋。
+
+端點依 Base URL 的路徑選擇：移除結尾斜線後，以 `/coding/v1` 結尾的路徑使用 `/search`，其他路徑使用 `/tools/search_pro`。在 `openmaic.yml` 中設定的自訂代理必須保留這個端點路徑結構。
+
+存在 `openmaic.yml` 時，必須宣告 `providers.<id>: { preset: kimi }` 並指定 `slots.webSearch: <id>`；舊版環境變數 `WEB_SEARCH_KIMI_ENABLED` 無法為該插槽指定供應商。
+
+## 網頁擷取
+
+`webFetch` 插槽預設使用不需金鑰的 `builtin` 讀取服務（Readability 和 Turndown；PDF 仍使用 `document`）。`kimi` 和 `kimi-coding-plan` 都重用對應供應商的金鑰和 API 基底網址進行託管擷取。Moonshot 開放平台使用 `/tools/fetch`，Coding Plan 使用 `/fetch`。沒有備援服務。可在模型服務或課程模型設定中選擇讀取服務，也可在 `openmaic.yml` 中指定 `slots.webFetch`。金鑰與對話共用。所有讀取服務都保留本機工作階段授權、公開位址檢查和不可信結果邊界。

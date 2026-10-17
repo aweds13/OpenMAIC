@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { beforeEach } from 'vitest';
 
 // ★ 阶段冻结的状态文件必须**不能**落到真实 data/plan-freeze/ —— 否则测试会读写真实文件，
 //   破坏 hermetic（见 AGENTS.md §3.1）。指到临时目录，测试之间互不影响。
@@ -47,3 +48,10 @@ if (process.env.TEST_LOAD_LOCAL_ENV === '1') {
     // .env.local not found, skip
   }
 }
+
+// The deployment's model configuration is loaded once per process and kept on
+// globalThis (lib/server/model-config/runtime.ts), which vi.resetModules does
+// not clear. Each test starts without it, so it is read from that test's env.
+beforeEach(() => {
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('openmaic.model-config.deployment')];
+});

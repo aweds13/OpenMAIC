@@ -88,15 +88,43 @@ a browser.
   (`validateStage` / `validateScene`) so schema drift fails loud. The outline is
   an opaque, app-owned snapshot carried alongside — persisted verbatim, neither
   validated nor migrated.
-- **Server document ownership.** A document id is a read capability. Binding a
-  `PgDocumentStore` with `store.forOwner(ownerId)` filters listings and protects
-  writes while leaving direct reads addressable by id. Deployments that need
-  stronger lifecycle rules can add an ownership metadata decorator.
+- **Server document ownership lives in the host's relation.** A document id is
+  a read capability. `document_stages` records no owner: a host keeps ownership
+  in a table of its own (one row per owned document, usually beside visibility
+  and tombstones) and names it with `documentOwnership: { table, stageIdColumn,
+  ownerIdColumn, tombstoneColumn?, claimOnCreate? }`. A store bound with
+  `store.forOwner(ownerId)` then lists the owner's live documents and refuses
+  writes and deletes to anyone else's through that relation, while direct
+  reads stay addressable by id. The relation's ownership row is written by the
+  host inside the store's transaction (its `withTransaction`), or by the store
+  when `claimOnCreate` is set; a concurrent create of the same id by another
+  owner is rolled back. The relation must cascade with the document rows
+  (`REFERENCES document_stages(id) ON DELETE CASCADE`) or be cleaned alongside
+  them: a leftover ownership row keeps the id reserved for its owner. An
+  owner-bound store must set `documentOwnership`. `false` turns document
+  scoping off entirely, so an owner-bound store would list, write and delete
+  every owner's documents; it is accepted only with
+  `allowCrossOwnerDocumentAccess: true` (a single-owner deployment, or a host
+  that gates every document call itself), never just to bind an owner for
+  folders. A store that is not bound is tenant-agnostic and lists every
+  document. Re-keying an owner (for
+  example when an anonymous visitor signs in) is then one update in one place.
 - **Owner-scoped folders.** An owner-bound `PgDocumentStore` also implements
   `DocumentFolderStore`: folders are durable entities, so empty folders are
   representable, while `folder_id` membership on stage rows makes filtered
   document listings indexed and keeps folder names independent from documents.
-  Folder APIs take no owner parameter; the bound store is the trust boundary.
+  Folder ids are unique per owner, so membership is read and written through
+  the ownership relation too. Folder APIs take no owner parameter; the bound
+  store is the trust boundary. A host that provisions its own tables without
+  folders sets `folders: false`: `folder_id` is then never read, and the
+  folder methods throw.
+- **Columns a host must provide.** `document_stages (id, name, description,
+  interactive_mode, task_engine_mode, created_at, updated_at, data)`, plus
+  `folder_id` unless `folders: false`; `document_scenes`, `document_outlines`
+  and the revision companion tables as `DOCUMENT_PG_SCHEMA` defines them. No
+  ownership column. An installation provisioned before 0.34.0 keeps a nullable
+  `document_stages.owner_id` that the store no longer reads or writes; it is
+  dropped in the next release, so copy it into your ownership relation first.
 - **Generic over scene type.** `DocumentStore<TScene>` defaults to the DSL
   `Scene` (universal `slide` / `quiz`). An app that widens `Scene` with its own
   kinds (`interactive` / `pbl`, content the DSL does not own) parameterizes the
@@ -121,6 +149,94 @@ a browser.
   cascades through.
 - `deleteAllRuntime` clears every runtime session and record for explicit
   whole-cache reset flows.
+- **Merging owners.** A host that moves one owner's data to another (claiming
+  anonymous work into an account) gets a primitive per PostgreSQL store, each
+  runnable inside the host's own transaction by pinning the store to it
+  (`withTransaction: (body) => body(tx)`) so the whole merge commits or rolls
+  back as one: `PgRuntimeStore.reassignLearner` (a plain re-key that does not
+  re-validate stored sessions; `mergeLearner` is the validating form),
+  `PgAgentSessionStore.mergeOwner`, `PgUserSkillStore.mergeOwner` (a live
+  handle the target already uses is renamed to the first numeric suffix
+  neither side holds), `PgAssetStore.reassignPrincipal` (takes both principals'
+  write locks; quota is not re-checked), and
+  `reassignDocumentFolders(tx, { fromOwnerId, toOwnerId, documentOwnership })`
+  (run before the ownership rows move: a same-named folder merges into the
+  target's, a colliding id is renumbered, filing follows). The primitives take
+  their own store-local locks only; ordering them against the host's other
+  writes (an identity lock) is the host's. Stores that create owner-keyed rows
+  take a hook run as the create transaction's first statement --
+  `resolveFinalOwner(tx, ownerId)` on `PgAgentSessionStore` and
+  `PgUserSkillStore`, `resolveFinalLearner(tx, learnerKey)` on
+  `PgRuntimeStore` -- where a host takes its identity lock and forwards or
+  refuses a retired owner.
+- **Policy errors over HTTP.** Every handler (runtime, documents, assets)
+  answers a `DocumentWriteRefusedError` thrown by a store as `403` with its
+  code, and a `StorageBusyError(code, message, retryAfterSeconds)` as `503`
+  with its code and `Retry-After`: a write that could not run now and may be
+  retried as it is. Both are recognized across copies of the package by name
+  and shape (`isDocumentWriteRefusedError`, `isStorageBusyError`).
+
+## PostgreSQL schema migrations
+
+Each PostgreSQL backend is a *store* with an ordered list of versioned
+migrations (`DOCUMENT_PG_MIGRATIONS`, `RUNTIME_PG_MIGRATIONS`,
+`ASSET_PG_MIGRATIONS`, `AGENT_SESSION_PG_MIGRATIONS`,
+`AGENT_SESSION_MATERIAL_PG_MIGRATIONS`, `USER_SKILL_PG_MIGRATIONS`). The
+`ensure*Schema` functions apply the pending ones with `applySchemaMigrations`
+(`@openmaic/storage/pg-migrations`) and are safe to call on every start:
+
+- Version 1 is the baseline, the idempotent DDL earlier releases ran on every
+  start, so it upgrades a database any earlier release created in place. It
+  runs statement by statement, outside a transaction, so it takes the same
+  short locks the earlier bootstrap took, and it is recorded only after its
+  last statement succeeded; a start that dies part-way runs it again.
+  One-time and destructive steps are later versions, each in one transaction
+  with its record, and run once per database.
+- What ran is recorded in `openmaic_schema_migrations (store, version, name,
+  checksum, applied_at)`, in the first schema of the `search_path`. A table-name
+  override is a store of its own (`user-skill:<table>`, ...).
+- A run takes a session-level advisory lock for its whole duration, waiting at
+  most `lockTimeoutMs` (default five minutes) before failing with
+  `SchemaLockTimeoutError`, so instances starting together apply each
+  migration once. This needs a direct or session-pooled connection; a pooler
+  in transaction mode (PgBouncer `pool_mode = transaction`) is not supported.
+- A database that records a newer version of a store than the code knows is
+  refused with `SchemaVersionAheadError`: it was upgraded by a newer release.
+  `verifySchemaMigrations(queryable, sets)` makes the same check read-only,
+  creating nothing, for a host that refuses such a database at startup.
+- A recorded checksum that differs from the code's is a
+  `SchemaMigrationChecksumError` outside production and a warning under
+  `NODE_ENV=production`, where the migration has already run and stopping the
+  service would change nothing.
+- Pass a pool (one connection is checked out for the run), a checked-out pool
+  client, a connected `pg.Client`, or PGlite. A connection inside an open
+  transaction is refused with `SchemaMigrationInTransactionError`, because the
+  runner's own transactions would commit or roll back the caller's work.
+
+**Adding a migration.** Append `{ version: <last + 1>, name, up }` to the
+store's list, with `up` as SQL (split into statements, PGlite-compatible) or an
+async function of the queryable. Never edit, reorder or remove a migration that
+has shipped; its checksum is recorded on every database it ran on. A migration
+that cannot run in a transaction (`CREATE INDEX CONCURRENTLY`) sets
+`transaction: false` and must be idempotent statement by statement, because a
+failure leaves it unrecorded and it runs again on the next start.
+
+**Hosts that provision with their own tooling.** The `*_PG_SCHEMA` constants are
+every migration's SQL concatenated. A host that ran them itself should still
+call the `ensure*Schema` functions: on a database with no versions recorded
+they run every migration again, which is idempotent on such a database, and
+record them.
+
+**Going back to an older release.** An older release that knows versioned
+migrations refuses a database a newer one has recorded higher versions on.
+Restoring a backup taken before the upgrade is the safe way back; a release
+note may name extra steps a particular rollback needs (data the newer release
+writes differently), and those apply either way. If the newer versions are
+known to be compatible with the older code, an operator may
+instead delete their rows (`DELETE FROM openmaic_schema_migrations WHERE store
+= '<store>' AND version > <highest the older release knows>`); the schema
+changes they made are not undone, and the newer release applies them again
+when it next starts.
 
 ## Upgrading from 0.1.x
 
@@ -170,8 +286,9 @@ adding a caller-configurable allocation path.
       data persists through `KVStore`, legacy `localStorage` keys are ignored
       (not migrated) and best-effort purged, and a user reconfigures once on
       upgrade
-- [ ] wire the app's third `persist` store (`agent-registry-storage`), still on
-      zustand's default `localStorage`
+- [x] the app's third `persist` store (`agent-registry-storage`) is retired:
+      custom agents are stored on the server (`/api/agents`), built-in agents
+      are code, and the old key is imported once
 - [ ] wire the app's remaining ad-hoc `localStorage` keys through `KVStore`
 - [ ] a hydration gate the app actually consumes — **required before an
       `account` scope can be served remotely**. With the browser backend,

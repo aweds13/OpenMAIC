@@ -1,3 +1,4 @@
+import { setDeploymentConfigForTests } from '@/lib/server/model-config/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TTSRequestTimeoutError } from '@/lib/audio/tts-providers';
@@ -20,11 +21,14 @@ vi.mock('undici', async (importOriginal) => {
   return { ...actual, fetch: mocks.fetch };
 });
 
-vi.mock('@/lib/server/provider-config', () => ({
-  getServerTTSProviders: mocks.providers,
-  resolveTTSApiKey: () => 'sk-test',
-  resolveTTSBaseUrl: () => 'https://gw.example.com/v1',
+vi.mock('@/lib/server/provider-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/server/provider-config')>()),
   resolveTTSModel: () => '',
+}));
+// The tts slot resolves to a managed OpenAI TTS provider at a gateway.
+vi.mock('@/lib/server/model-config/media', async (original) => ({
+  ...(await original<typeof import('@/lib/server/model-config/media')>()),
+  serverMediaConnection: async () => mocks.providers(),
 }));
 
 vi.mock('@/lib/server/classroom-media-bytes', () => ({
@@ -77,10 +81,29 @@ function courseDoc(): CourseDocument {
 
 describe('TTS abort propagation and per-request timeout', () => {
   beforeEach(() => {
+    setDeploymentConfigForTests({
+      layer: {
+        source: 'deployment',
+        config: {
+          providers: {
+            'openai-tts': { preset: 'openai-tts', apiKey: 'sk-test', models: ['gpt-4o-mini-tts'] },
+          },
+        },
+      },
+      legacy: false,
+      notices: [],
+    });
     mocks.providers.mockReset();
     mocks.persist.mockReset();
     mocks.fetch.mockReset();
-    mocks.providers.mockReturnValue({ 'openai-tts': { disabled: false } });
+    mocks.providers.mockReturnValue({
+      providerId: 'openai-tts',
+      apiKey: 'sk-test',
+      baseUrl: 'https://gw.example.com/v1',
+      managed: true,
+      userEndpoint: false,
+      origin: 'configuration',
+    });
     mocks.persist.mockResolvedValue('https://openmaic.test/audio.mp3');
   });
 

@@ -4,6 +4,7 @@
  * POST: Receives a text question + user answer, calls LLM for scoring and feedback.
  * Used for short-answer (text) questions that cannot be graded locally.
  */
+import { modelAuthorizationResponse } from '@/lib/server/api-response';
 
 import { NextRequest } from 'next/server';
 import { callLLM } from '@/lib/ai/llm';
@@ -44,11 +45,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Resolve model from request headers/body
-    const { model: languageModel, thinkingConfig } = await resolveModelFromRequest(
-      req,
-      body,
-      'quiz-grade',
-    );
+    const {
+      model: languageModel,
+      thinkingConfig,
+      serverManaged,
+    } = await resolveModelFromRequest(req, body, 'quiz-grade');
 
     const isZh = language === 'zh-CN';
 
@@ -77,6 +78,7 @@ ${commentPrompt ? `Grading guidance: ${commentPrompt}\n` : ''}Student answer: ${
       'quiz-grade',
       undefined,
       thinkingConfig,
+      { serverManaged },
     );
 
     // Parse the LLM response as JSON
@@ -104,6 +106,8 @@ ${commentPrompt ? `Grading guidance: ${commentPrompt}\n` : ''}Student answer: ${
 
     return apiSuccess({ ...gradeResult });
   } catch (error) {
+    const authorization = modelAuthorizationResponse(error);
+    if (authorization) return authorization;
     log.error(
       `Quiz grading failed [question="${questionSnippet ?? 'unknown'}...", points=${resolvedPoints ?? 'unknown'}]:`,
       error,

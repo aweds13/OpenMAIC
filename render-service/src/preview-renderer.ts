@@ -15,6 +15,7 @@ import type {
 } from '@openmaic/dsl';
 import puppeteer from 'puppeteer-core';
 import type { Browser, Frame, HTTPRequest, Page } from 'puppeteer-core';
+import { katexPreviewStylesheet } from './preview-katex.js';
 import { UNTRUSTED_HTML_CSP, injectUntrustedHtmlCsp } from './untrusted-html-csp.js';
 
 export type PreviewScene = Scene<
@@ -58,9 +59,10 @@ function escapeAttribute(value: string): string {
     .replaceAll('>', '&gt;');
 }
 
-function htmlDocument(body: string, scene: PreviewScene): string {
+/** The stylesheet text is trusted (read from the installed KaTeX package). */
+function htmlDocument(body: string, scene: PreviewScene, headStyles = ''): string {
   return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}</style></head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}</style>${headStyles ? `<style data-preview-katex>${headStyles}</style>` : ''}</head>
 <body data-scene-id="${escapeAttribute(scene.id)}">${body}</body></html>`;
 }
 
@@ -242,7 +244,8 @@ export function buildPreviewHtml(
       : scene.type === 'interactive'
         ? interactivePreviewMarkup(scene, viewport)
         : coverPreviewMarkup(scene, stage, viewport);
-  return htmlDocument(markup, scene);
+  // Slides typeset formulas as KaTeX HTML, which needs KaTeX's CSS and fonts.
+  return htmlDocument(markup, scene, scene.type === 'slide' ? katexPreviewStylesheet() : '');
 }
 
 let slideClientBundle: Promise<string> | undefined;
@@ -259,7 +262,7 @@ export function buildSlideClientBundle(builder: SlideBundleBuilder = build): Pro
         import React from 'react';
         import { flushSync } from 'react-dom';
         import { createRoot } from 'react-dom/client';
-        import { SlideCanvas } from '@openmaic/renderer';
+        import { SlideCanvas, completeInlineMath } from '@openmaic/renderer';
 
         const props = window.__OPENMAIC_PREVIEW_PROPS__;
         const root = document.getElementById('preview-slide-root');
@@ -290,6 +293,9 @@ export function buildSlideClientBundle(builder: SlideBundleBuilder = build): Pro
           style: { width: renderedWidth + 'px', height: renderedHeight + 'px' },
         }, canvasNode));
         flushSync(() => createRoot(root).render(frame));
+        // The live renderer typesets inline formulas within a per-pass budget
+        // and leaves the rest to idle time; a capture needs all of them now.
+        completeInlineMath(root);
         window.__OPENMAIC_PREVIEW_MOUNTED__ = true;
       `,
     },
@@ -476,7 +482,9 @@ async function launchWithAbort(launch: Promise<Browser>, signal: AbortSignal): P
     return await raceWithAbort(launch, signal);
   } catch (error) {
     if (signal.aborted) {
-      void launch
+      // Keep the caller's execution permit until the launch settles and any
+      // browser it returns is closed; abort must not start background Chromiums.
+      await launch
         .then(async (browser) => {
           forceKillBrowser(browser);
           await closeBrowserBounded(browser);
@@ -533,6 +541,8 @@ export class ChromiumPreviewRenderer implements PreviewRenderer {
       this.browserLauncher.launch({
         executablePath,
         headless: true,
+        signal: request.signal,
+        timeout: request.deadlineMs,
         protocolTimeout: request.deadlineMs + PREVIEW_PROTOCOL_TIMEOUT_BUFFER_MS,
         args: ['--no-sandbox', '--disable-dev-shm-usage'],
       }),

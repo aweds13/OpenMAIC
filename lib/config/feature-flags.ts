@@ -11,10 +11,6 @@ function readBoolean(envValue: string | undefined): boolean {
   return envValue === 'true' || envValue === '1';
 }
 
-function readDefaultOnBoolean(envValue: string | undefined): boolean {
-  return envValue === undefined || envValue === '' || readBoolean(envValue);
-}
-
 /**
  * Server-only gate for durable background agent execution. This is evaluated
  * at process runtime and is never exposed to the browser bundle.
@@ -40,6 +36,9 @@ export function isAgentRuntimeConfigured(): boolean {
  * route resolves an owner for every request and the owner-bound document store
  * records one for every course, so those facts exist whether or not the runtime
  * is enabled.
+ *
+ * The course library and folder routes (`/api/stages/**`, `/api/folders/**`)
+ * gate on this too: they need the database and nothing the runtime adds.
  */
 export function isServerPersistenceConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL?.trim());
@@ -84,17 +83,6 @@ export function isPlaybackRendererEnabled(): boolean {
  */
 export function isEditorRendererEnabled(): boolean {
   return readBoolean(process.env.NEXT_PUBLIC_MAIC_EDITOR_RENDERER_ENABLED);
-}
-
-/**
- * Pi-based classroom chat runtime. Default ON. The same public flag selects
- * the client runtime and gates the corresponding server route. Operators can
- * set it to `false` or `0` and rebuild to roll back to the legacy runtime.
- * next.config.ts pins the default too, so runtime-only overrides cannot split
- * the built client's choice from the server route gate.
- */
-export function isPiChatEnabled(): boolean {
-  return readDefaultOnBoolean(process.env.NEXT_PUBLIC_PI_CHAT_ENABLED);
 }
 
 /**

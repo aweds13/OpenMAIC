@@ -242,11 +242,20 @@ describe('PgAssetStore registry behavior with PGlite', () => {
     });
   }
 
-  test('schema is idempotent and has one PGlite-compatible statement per entry', async () => {
-    const statements: string[] = [];
-    await ensureAssetSchema(recordingQueryable(db, statements));
-    await ensureAssetSchema(recordingQueryable(db, statements));
-    expect(statements).toEqual([...ASSET_PG_SCHEMA, ...ASSET_PG_SCHEMA].map(normalizeSql));
+  test('schema is applied once and has one PGlite-compatible statement per entry', async () => {
+    const fresh = new PGlite();
+    await fresh.waitReady;
+    const schema = new Set(ASSET_PG_SCHEMA.map(normalizeSql));
+    const first: string[] = [];
+    const second: string[] = [];
+    await ensureAssetSchema(recordingQueryable(fresh, first));
+    await ensureAssetSchema(recordingQueryable(fresh, second));
+    await fresh.close();
+    expect(first.filter((statement) => schema.has(statement))).toEqual(
+      ASSET_PG_SCHEMA.map(normalizeSql),
+    );
+    // Recorded as applied: a later start issues no schema statement at all.
+    expect(second.filter((statement) => schema.has(statement))).toEqual([]);
     expect(ASSET_PG_SCHEMA).toHaveLength(15);
     expect(ASSET_PG_SCHEMA.every((statement) => !statement.includes(';'))).toBe(true);
   });
@@ -952,6 +961,49 @@ describe('PgAssetStore registry behavior with PGlite', () => {
     }
     expect(collectorError).toBeInstanceOf(Error);
     await expectNoDigestSubstring(String(collectorError), data);
+  });
+});
+
+describe('PgAssetStore.reassignPrincipal with PGlite', () => {
+  let db: PGlite;
+  let store: PgAssetStore;
+
+  beforeEach(async () => {
+    db = new PGlite();
+    await db.waitReady;
+    await ensureAssetSchema(db);
+    store = new PgAssetStore(db, options(db, new PgAssetByteStore(db), { quotaBytes: 8 }));
+  });
+
+  afterEach(async () => {
+    await db.close();
+  });
+
+  test('moves every entry to the target, which then reads and removes them as its own', async () => {
+    const first = await store.put(PRINCIPAL, blob('abcd'));
+    const second = await store.put(PRINCIPAL, blob('efgh'));
+    const theirs = await store.put(OTHER_PRINCIPAL, blob('ijkl'));
+
+    await expect(store.reassignPrincipal(PRINCIPAL.key, OTHER_PRINCIPAL.key)).resolves.toBe(2);
+
+    await expect(store.resolve(PRINCIPAL, first)).resolves.toBeNull();
+    for (const id of [first, second, theirs]) {
+      await expect(store.resolve(OTHER_PRINCIPAL, id)).resolves.not.toBeNull();
+    }
+    // The merge does not refuse on quota (12 bytes against 8): the target
+    // keeps everything and cannot allocate until it is back under.
+    await expect(store.put(OTHER_PRINCIPAL, blob('m'))).rejects.toBeInstanceOf(
+      AssetQuotaExceededError,
+    );
+    await store.remove(OTHER_PRINCIPAL, first);
+    await expect(store.resolve(OTHER_PRINCIPAL, first)).resolves.toBeNull();
+    await expect(store.reassignPrincipal(PRINCIPAL.key, OTHER_PRINCIPAL.key)).resolves.toBe(0);
+  });
+
+  test('is a no-op for the same principal and refuses empty keys', async () => {
+    await store.put(PRINCIPAL, blob('abcd'));
+    await expect(store.reassignPrincipal(PRINCIPAL.key, PRINCIPAL.key)).resolves.toBe(0);
+    await expect(store.reassignPrincipal('', PRINCIPAL.key)).rejects.toThrow(/non-empty/);
   });
 });
 

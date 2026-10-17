@@ -25,13 +25,17 @@ import { planFreezeDir } from '@/lib/server/agent-runtime/plan-freeze-store';
 import { scratchpadDir } from '@/lib/server/agent-runtime/scratch-tools';
 import { practiceRoot } from '@/lib/server/agent-runtime/practice-tools';
 import { getOwnerScopedDocumentStore } from '@/lib/server/agent-runtime/owner-scoped-documents';
-import { withRequestOwnerId } from '@/lib/server/agent-runtime/with-owner';
+import { withRequestOwner } from '@/lib/server/identity/with-owner';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  return withRequestOwnerId(req, async (ownerId, responseHeaders) => {
+  // 上游 1.2.0 把匿名 owner 这套换成了统一的 identity 层（OwnerPrincipal +
+  // withRequestOwner）：拿到的不是裸 ownerId，而是带 kind / roles 的 principal。
+  // 这里只用它的 ownerId（作用域键），语义与合前的 resolveRequestOwnerId 一致。
+  return withRequestOwner(req, async (principal, responseHeaders) => {
+    const ownerId = principal.ownerId;
     let stages: { id: string; name: string; sceneCount: number }[] = [];
     let error: string | null = null;
     try {

@@ -19,12 +19,14 @@
 
 import crypto from 'crypto';
 import type {
+  MediaProviderFetch,
   VideoGenerationConfig,
   VideoGenerationOptions,
   VideoGenerationResult,
 } from '../types';
+import { mediaFetchFor } from '../media-fetch';
 import { probeAuth } from '../probe-auth';
-import { runPolledTask } from '../polled-task';
+import { runPolledTask, type PolledTaskControl } from '../polled-task';
 import { assertNotRedirected } from '../redirect-guard';
 import { requireModel } from '../require-model';
 
@@ -131,17 +133,26 @@ export async function testKlingConnectivity(
   config: VideoGenerationConfig,
 ): Promise<{ success: boolean; message: string }> {
   const baseUrl = config.baseUrl || DEFAULT_BASE_URL;
+  // A malformed key is a local configuration error, reported as such before
+  // any request (the probe's transport failures are reported generically).
+  let token: string;
+  try {
+    const { accessKey, secretKey } = parseApiKey(config.apiKey);
+    token = generateJWT(accessKey, secretKey);
+  } catch (err) {
+    return {
+      success: false,
+      message: `Kling connectivity error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
   return probeAuth({
     providerName: 'Kling',
-    request: () => {
-      const { accessKey, secretKey } = parseApiKey(config.apiKey);
-      const token = generateJWT(accessKey, secretKey);
-      return fetch(`${baseUrl}/v1/videos/text2video/connectivity-test`, {
+    request: () =>
+      mediaFetchFor(config)(`${baseUrl}/v1/videos/text2video/connectivity-test`, {
         method: 'GET',
         redirect: 'manual',
         headers: { Authorization: `Bearer ${token}` },
-      });
-    },
+      }),
   });
 }
 
@@ -150,6 +161,7 @@ export async function testKlingConnectivity(
 // ---------------------------------------------------------------------------
 
 async function submitTask(
+  fetchImpl: MediaProviderFetch,
   baseUrl: string,
   token: string,
   model: string,
@@ -165,7 +177,7 @@ async function submitTask(
   if (options.duration) body.duration = String(options.duration);
   if (options.aspectRatio) body.aspect_ratio = options.aspectRatio;
 
-  const response = await fetch(`${baseUrl}/v1/videos/text2video`, {
+  const response = await fetchImpl(`${baseUrl}/v1/videos/text2video`, {
     method: 'POST',
     redirect: 'manual',
     headers: {
@@ -198,11 +210,12 @@ async function submitTask(
 // ---------------------------------------------------------------------------
 
 async function pollTask(
+  fetchImpl: MediaProviderFetch,
   baseUrl: string,
   token: string,
   taskId: string,
 ): Promise<KlingPollResponse['data']> {
-  const response = await fetch(`${baseUrl}/v1/videos/text2video/${taskId}`, {
+  const response = await fetchImpl(`${baseUrl}/v1/videos/text2video/${taskId}`, {
     method: 'GET',
     redirect: 'manual',
     headers: { Authorization: `Bearer ${token}` },
@@ -230,6 +243,7 @@ async function pollTask(
 export async function generateWithKling(
   config: VideoGenerationConfig,
   options: VideoGenerationOptions,
+  control?: PolledTaskControl,
 ): Promise<VideoGenerationResult> {
   const model = requireModel(config.model, 'Kling');
   const baseUrl = config.baseUrl || DEFAULT_BASE_URL;
@@ -239,10 +253,10 @@ export async function generateWithKling(
   return runPolledTask<VideoGenerationResult>({
     submit: async () => ({
       status: 'submitted',
-      taskId: await submitTask(baseUrl, token, model, options),
+      taskId: await submitTask(mediaFetchFor(config), baseUrl, token, model, options),
     }),
     poll: async (taskId) => {
-      const result = await pollTask(baseUrl, token, taskId);
+      const result = await pollTask(mediaFetchFor(config), baseUrl, token, taskId);
 
       if (result.task_status === 'succeed') {
         const video = result.task_result?.videos?.[0];
@@ -273,6 +287,7 @@ export async function generateWithKling(
     intervalMs: POLL_INTERVAL_MS,
     maxAttempts: MAX_POLL_ATTEMPTS,
     label: 'Kling video generation',
+    control,
     formatTimeout: ({ taskId, elapsedMs }) =>
       `Kling video generation timed out after ${elapsedMs / 1000}s (task: ${taskId})`,
   });

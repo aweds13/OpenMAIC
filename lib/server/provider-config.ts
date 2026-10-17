@@ -1,3 +1,14 @@
+import { presetIdFor } from '@/lib/config/preset-ids';
+import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search/constants';
+import {
+  assertDeploymentModelAuthorized,
+  selectsUpstreamModel,
+  deploymentAuthorizedModels,
+  deploymentDefaultModel,
+  ModelAuthorizationError,
+} from '@/lib/server/model-config/model-authorization';
+import { deploymentConfig } from '@/lib/server/model-config/runtime';
+import type { SlotCapability } from '@/lib/config/model-slots';
 /**
  * Server-side Provider Configuration
  *
@@ -22,7 +33,7 @@ const log = createLogger('ServerProviderConfig');
 // Types
 // ---------------------------------------------------------------------------
 
-interface ServerProviderEntry {
+export interface ServerProviderEntry {
   apiKey: string;
   baseUrl?: string;
   models?: string[];
@@ -39,7 +50,7 @@ interface ServerProviderEntry {
   enabled?: boolean;
 }
 
-interface ServerConfig {
+export interface ServerConfig {
   providers: Record<string, ServerProviderEntry>;
   tts: Record<string, ServerProviderEntry>;
   asr: Record<string, ServerProviderEntry>;
@@ -94,6 +105,7 @@ const TTS_ENV_MAP: Record<string, string> = {
   TTS_DOUBAO: 'doubao-tts',
   TTS_ELEVENLABS: 'elevenlabs-tts',
   TTS_MINIMAX: 'minimax-tts',
+  TTS_GOOGLE: 'google-tts',
   TTS_LEMONADE: 'lemonade-tts',
 };
 
@@ -118,6 +130,7 @@ const IMAGE_ENV_MAP: Record<string, string> = {
   IMAGE_NANO_BANANA: 'nano-banana',
   IMAGE_MINIMAX: 'minimax-image',
   IMAGE_GROK: 'grok-image',
+  IMAGE_GLM: 'glm-image',
   IMAGE_LEMONADE: 'lemonade',
   IMAGE_OPENROUTER: 'openrouter-image',
 };
@@ -182,7 +195,10 @@ const DISABLE_ENV_MAPS: Record<CapabilitySection, Record<string, string>> = {
     IMAGE_COMFYUI: 'comfyui-image',
   },
   video: { ...VIDEO_ENV_MAP },
-  webSearch: { ...WEB_SEARCH_ENV_MAP },
+  webSearch: {
+    ...WEB_SEARCH_ENV_MAP,
+    WEB_SEARCH_KIMI: 'kimi',
+  },
 };
 
 /** YAML section key per capability (web-search is hyphenated in YAML). */
@@ -452,7 +468,8 @@ function applyOpenAIImageFallback(
     apiKey,
     baseUrl:
       yamlOpenAIImage?.baseUrl || process.env.IMAGE_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL,
-    models: yamlOpenAIImage?.models,
+    models:
+      splitModels(process.env.IMAGE_OPENAI_MODELS) ?? normalizeModelList(yamlOpenAIImage?.models),
     proxy: yamlOpenAIImage?.proxy,
   };
   return imageConfig;
@@ -493,7 +510,10 @@ function applyBedrockProviderConfig(
   providers[BEDROCK_PROVIDER_ID] = {
     apiKey: envApiKey || yamlBedrock?.apiKey || providers[BEDROCK_PROVIDER_ID]?.apiKey || '',
     baseUrl: envBaseUrl || yamlBedrock?.baseUrl || providers[BEDROCK_PROVIDER_ID]?.baseUrl,
-    models: envModels || yamlBedrock?.models || providers[BEDROCK_PROVIDER_ID]?.models,
+    models:
+      envModels ||
+      normalizeModelList(yamlBedrock?.models) ||
+      providers[BEDROCK_PROVIDER_ID]?.models,
     proxy: yamlBedrock?.proxy || providers[BEDROCK_PROVIDER_ID]?.proxy,
   };
 
@@ -514,6 +534,30 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     yamlData.providers,
   );
 
+  const webSearch = loadEnvSection(WEB_SEARCH_ENV_MAP, yamlData['web-search'], {
+    keylessProviders: new Set(['brave', 'searxng']),
+  });
+  for (const provider of Object.values(WEB_SEARCH_PROVIDERS)) {
+    if (!provider.sharedChatProviderId) continue;
+    const explicit = yamlData['web-search']?.[provider.id];
+    const optIn = provider.enableEnvVar && process.env[provider.enableEnvVar];
+    if (!explicit && !(optIn?.trim() && parseBooleanEnv(optIn))) continue;
+    const shared = providers[provider.sharedChatProviderId];
+    const configured = webSearch[provider.id];
+    const apiKey = configured?.apiKey || shared?.apiKey;
+    // Append shared accounts after existing search providers, including when
+    // their explicit YAML entry was loaded earlier, preserving default order.
+    delete webSearch[provider.id];
+    if (!apiKey) continue;
+    webSearch[provider.id] = {
+      apiKey,
+      baseUrl: configured?.baseUrl ?? explicit?.baseUrl ?? shared?.baseUrl,
+      proxy: configured?.proxy ?? explicit?.proxy ?? shared?.proxy,
+      // Search has no model selector; chat pins must stay on the chat account.
+      models: undefined,
+    };
+  }
+
   return {
     providers,
     tts: loadEnvSection(TTS_ENV_MAP, yamlData.tts, {
@@ -531,9 +575,7 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     ),
     image,
     video: loadEnvSection(VIDEO_ENV_MAP, yamlData.video),
-    webSearch: loadEnvSection(WEB_SEARCH_ENV_MAP, yamlData['web-search'], {
-      keylessProviders: new Set(['brave', 'searxng']),
-    }),
+    webSearch,
     disabled: collectDisabledProviders(yamlData),
   };
 }
@@ -561,7 +603,13 @@ function getConfig(): ServerConfig {
 
   const yamlData = loadYamlFile(DEFAULT_FILENAME);
   const config = buildConfig(yamlData);
-  logConfig(config, DEFAULT_FILENAME);
+  // Environment variables are always read; the file only when it has content.
+  logConfig(
+    config,
+    Object.keys(yamlData).length > 0
+      ? `${DEFAULT_FILENAME} and environment variables`
+      : 'environment variables',
+  );
   _configs.set('', config);
   return config;
 }
@@ -580,9 +628,22 @@ function getConfig(): ServerConfig {
 
 type ProviderSection = 'providers' | 'tts' | 'asr' | 'pdf' | 'image' | 'video' | 'webSearch';
 
+/**
+ * The operator's entry for a provider, or undefined. Provider ids come from
+ * requests, so only the section's own keys count: an id such as `constructor`
+ * or `__proto__` must not resolve to an inherited object property.
+ */
+function serverEntry(
+  section: ProviderSection,
+  providerId: string,
+): ServerProviderEntry | undefined {
+  const entries = getConfig()[section];
+  return Object.hasOwn(entries, providerId) ? entries[providerId] : undefined;
+}
+
 /** Whether the operator configured this provider in the given section. */
 export function isServerConfiguredProvider(section: ProviderSection, providerId: string): boolean {
-  return !!getConfig()[section][providerId];
+  return serverEntry(section, providerId) !== undefined;
 }
 
 /** Whether the operator force-disabled this provider in the given capability section (server precedence). */
@@ -609,7 +670,7 @@ function resolveSectionApiKey(
   providerId: string,
   clientKey?: string,
 ): string {
-  const entry = getConfig()[section][providerId];
+  const entry = serverEntry(section, providerId);
   if (entry) return entry.apiKey || ''; // managed: server key is authoritative
   return clientKey || ''; // unmanaged: client-supplied key only
 }
@@ -619,7 +680,7 @@ function resolveSectionBaseUrl(
   providerId: string,
   clientBaseUrl?: string,
 ): string | undefined {
-  const entry = getConfig()[section][providerId];
+  const entry = serverEntry(section, providerId);
   if (entry) return entry.baseUrl; // managed: server base URL is authoritative
   return clientBaseUrl; // unmanaged: client-supplied base URL only
 }
@@ -627,6 +688,15 @@ function resolveSectionBaseUrl(
 // ---------------------------------------------------------------------------
 // Public API — LLM
 // ---------------------------------------------------------------------------
+
+/**
+ * The resolved server provider configuration (YAML plus environment, with the
+ * operator's force-off switches), for translating it into the model
+ * configuration of RFC #1701. Read-only: callers must not mutate it.
+ */
+export function getServerProviderConfig(): Readonly<ServerConfig> {
+  return getConfig();
+}
 
 /**
  * Returns server-configured LLM providers. Exposes only the allowed model list
@@ -655,7 +725,7 @@ export function resolveBaseUrl(providerId: string, clientBaseUrl?: string): stri
 
 /** Resolve proxy URL for a provider (server config only) */
 export function resolveProxy(providerId: string): string | undefined {
-  return getConfig().providers[providerId]?.proxy;
+  return serverEntry('providers', providerId)?.proxy;
 }
 
 // ---------------------------------------------------------------------------
@@ -705,7 +775,7 @@ export function resolveTTSBaseUrl(providerId: string, clientBaseUrl?: string): s
 
 /** Resolve the server-only Qwen VC model override without exposing env values to clients. */
 export function resolveQwenVoiceCloneModel(): string {
-  return process.env.TTS_QWEN_VOICE_CLONE_MODEL || DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL;
+  return process.env.TTS_QWEN_VOICE_CLONE_MODEL?.trim() || DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL;
 }
 
 export class TTSModelNotAllowedError extends Error {
@@ -719,19 +789,37 @@ export class TTSModelNotAllowedError extends Error {
 }
 
 /**
- * Resolve the TTS model. A managed provider may pin its model server-side
- * (`${PREFIX}_MODELS`, first entry) — authoritative like its key/baseUrl, since
- * the managed-provider UI does not expose a model field. Otherwise the client
- * model wins.
+ * The TTS model of a configured slot: its own model, with only the voice
+ * compatibility rules of `resolveTTSModel` applied (a cloned voice speaks
+ * through the clone model, a catalog voice never does). Legacy server pins do
+ * not apply.
  */
+export function slotTTSModel(
+  providerId: string,
+  modelId: string | undefined,
+  voiceId?: string,
+): string | undefined {
+  return ttsModelFor(providerId, [], modelId, voiceId);
+}
+
+/** Resolve a TTS model authorized by the deployment, or the BYOK client's choice. */
 export function resolveTTSModel(
   providerId: string,
   clientModel?: string,
   voiceId?: string,
 ): string | undefined {
-  const entry = getConfig().tts[providerId];
-  const pinnedModels = entry?.models?.filter(Boolean) ?? [];
+  const requested = resolveManagedMediaModel('tts', providerId, clientModel);
+  const model = ttsModelFor(providerId, [], requested, voiceId);
+  // Voice compatibility may change the wire model; it still needs authorization.
+  return resolveManagedMediaModel('tts', providerId, model);
+}
 
+function ttsModelFor(
+  providerId: string,
+  pinnedModels: string[],
+  clientModel?: string,
+  voiceId?: string,
+): string | undefined {
   if (providerId === 'qwen-tts') {
     const vcModel = resolveQwenVoiceCloneModel();
     const requestedIsVCSentinel = !!clientModel && isQwenVoiceCloneModel(clientModel, vcModel);
@@ -799,18 +887,9 @@ export function resolveServerASRProviderId(): string | undefined {
   return Object.keys(cfg.asr).find((id) => !cfg.disabled.asr.has(id));
 }
 
-/**
- * Resolve the ASR model. When the operator pinned models server-side
- * (`ASR_<PREFIX>_MODELS`), the allowlisted client choice wins and the first
- * entry is the managed default; otherwise the client model wins.
- */
+/** Resolve the asr model, refusing unlisted models on server-managed credentials. */
 export function resolveASRModel(providerId: string, clientModel?: string): string | undefined {
-  const serverModels = getConfig().asr[providerId]?.models;
-  if (serverModels?.length) {
-    if (clientModel && serverModels.includes(clientModel)) return clientModel;
-    return serverModels[0];
-  }
-  return clientModel;
+  return resolveManagedMediaModel('asr', providerId, clientModel);
 }
 
 // ---------------------------------------------------------------------------
@@ -875,18 +954,9 @@ export function resolveServerImageProviderId(): string | undefined {
   return Object.keys(getConfig().image).find((id) => !disabled.has(id));
 }
 
-/**
- * Resolve the image model. When the operator pinned models server-side
- * (`IMAGE_<PREFIX>_MODELS`), the allowlisted client choice wins and the first
- * entry is the managed default; otherwise the client model wins.
- */
+/** Resolve the image model, refusing unlisted models on server-managed credentials. */
 export function resolveImageModel(providerId: string, clientModel?: string): string | undefined {
-  const serverModels = getConfig().image[providerId]?.models;
-  if (serverModels?.length) {
-    if (clientModel && serverModels.includes(clientModel)) return clientModel;
-    return serverModels[0];
-  }
-  return clientModel;
+  return resolveManagedMediaModel('image', providerId, clientModel);
 }
 
 // ---------------------------------------------------------------------------
@@ -934,18 +1004,9 @@ export function resolveServerVideoProviderId(): string | undefined {
   return Object.keys(getConfig().video).find((id) => !disabled.has(id));
 }
 
-/**
- * Resolve the video model. When the operator pinned models server-side
- * (`VIDEO_<PREFIX>_MODELS`), the allowlisted client choice wins and the first
- * entry is the managed default; otherwise the client model wins.
- */
+/** Resolve the video model, refusing unlisted models on server-managed credentials. */
 export function resolveVideoModel(providerId: string, clientModel?: string): string | undefined {
-  const serverModels = getConfig().video[providerId]?.models;
-  if (serverModels?.length) {
-    if (clientModel && serverModels.includes(clientModel)) return clientModel;
-    return serverModels[0];
-  }
-  return clientModel;
+  return resolveManagedMediaModel('video', providerId, clientModel);
 }
 
 // ---------------------------------------------------------------------------
@@ -988,18 +1049,12 @@ export function resolveWebSearchBaseUrl(
   return resolveSectionBaseUrl('webSearch', providerId, clientBaseUrl);
 }
 
-/**
- * Resolve the web-search model for model-based providers (currently Claude).
- * A managed provider may pin its model server-side (`${PREFIX}_MODELS`, first
- * entry) — authoritative like its key/baseUrl. Otherwise the client model wins.
- */
+/** Resolve a model-based search provider's authorized model, or the BYOK client's choice. */
 export function resolveWebSearchModel(
   providerId: string,
   clientModel?: string,
 ): string | undefined {
-  const entry = getConfig().webSearch[providerId];
-  if (entry?.models && entry.models.length > 0) return entry.models[0];
-  return clientModel;
+  return resolveManagedMediaModel('webSearch', providerId, clientModel);
 }
 
 export function resolveServerWebSearchProviderId(preferredProviderId?: string): string | undefined {
@@ -1035,4 +1090,44 @@ export function getParallelSceneConcurrency(): number {
   const raw = Number.parseInt(process.env.PARALLEL_SCENE_CONCURRENCY ?? '', 10);
   if (!Number.isFinite(raw) || raw <= 0) return 0;
   return Math.min(raw, 10);
+}
+
+/** Legacy media requests may use only this deployment's capability models. */
+function resolveManagedMediaModel(
+  section: 'tts' | 'asr' | 'image' | 'video' | 'webSearch',
+  providerId: string,
+  clientModel?: string,
+): string | undefined {
+  clientModel = clientModel?.trim() || undefined;
+  const entry = serverEntry(section, providerId);
+  const id = presetIdFor(section as SlotCapability, providerId);
+  if (!entry?.apiKey || !selectsUpstreamModel(id, section)) return clientModel;
+  const deployment = deploymentConfig();
+  if (!deployment.legacy) throw new ModelAuthorizationError();
+  const config = deployment.layer?.config;
+  const model = clientModel ?? deploymentAuthorizedModels(config, id, section)[0];
+  if (model !== undefined) assertDeploymentModelAuthorized(config, id, model, section);
+  else if (clientModel !== undefined || deploymentDefaultModel(id, section))
+    throw new ModelAuthorizationError();
+  return model;
+}
+
+/** The exact legacy setting to declare a provider's authorized model ids. */
+export function providerModelsSetting(
+  section: keyof Omit<ServerConfig, 'disabled'>,
+  providerId: string,
+): string {
+  const maps = {
+    providers: LLM_ENV_MAP,
+    tts: TTS_ENV_MAP,
+    asr: ASR_ENV_MAP,
+    image: IMAGE_ENV_MAP,
+    video: VIDEO_ENV_MAP,
+    webSearch: WEB_SEARCH_ENV_MAP,
+    pdf: PDF_ENV_MAP,
+  };
+  const prefix = Object.entries(maps[section]).find(([, id]) => id === providerId)?.[0];
+  return prefix
+    ? `${prefix}_MODELS or server-providers.yml ${section}.${providerId}.models`
+    : `server-providers.yml ${section}.${providerId}.models`;
 }

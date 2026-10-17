@@ -1,3 +1,4 @@
+import { setDeploymentConfigForTests } from '@/lib/server/model-config/runtime';
 /**
  * Runner-level pins for capability-registered `web_search` wiring.
  *
@@ -15,7 +16,7 @@
 import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core';
 import { InMemorySessionRepo, Session } from '@earendil-works/pi-agent-core';
 import type { AgentSessionMaterial, ClaimedAgentSession } from '@openmaic/storage';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   randomUUID: vi.fn(() => 'runner-test-uuid'),
@@ -148,7 +149,7 @@ function makeStore(meta: ClaimedAgentSession) {
     clearCancel: vi.fn(async () => undefined),
     finishSession: vi.fn(async () => true),
     getSession: vi.fn(async () => ({ ...meta, lease: { workerId: WORKER_ID } })),
-    hasSessionRunHistory: vi.fn(async () => false),
+    readEventsAfter: vi.fn(async () => []),
     heartbeat: vi.fn(async () => true),
     getCancelRequestedAt: vi.fn(async () => null),
     isCancelRequested: vi.fn(async () => false),
@@ -205,6 +206,7 @@ interface BuildAgentOptions {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setDeploymentConfigForTests({ layer: null, legacy: false, notices: [] });
   mocks.listSessionMaterials.mockResolvedValue([]);
   mocks.resolveAgentDriverModel.mockResolvedValue({
     connection: { model: undefined, thinkingConfig: undefined },
@@ -246,6 +248,26 @@ async function runToBuildAgent(): Promise<BuildAgentOptions> {
 }
 
 describe('web_search runner registration', () => {
+  it.each([true, false, undefined])(
+    'passes the resolved model vision capability (%s) to the transport',
+    async (vision) => {
+      mocks.resolveWebSearchCapability.mockReturnValue(null);
+      mocks.resolveAgentDriverModel.mockResolvedValue({
+        connection: {
+          model: {},
+          modelInfo: vision === undefined ? null : { capabilities: { vision } },
+        },
+        piModel: { api: 'openai-completions', provider: 'openai', id: 'driver-model' },
+        wireMaxOutputTokens: undefined,
+        reservedOutputTokens: 8192,
+      });
+      await runToBuildAgent();
+      expect(mocks.createCallLlmStreamFn).toHaveBeenCalledWith(
+        expect.objectContaining({ supportsToolImages: vision }),
+      );
+    },
+  );
+
   it('registers both tools and the web-search prompt block when a backend is configured', async () => {
     mocks.resolveWebSearchCapability.mockReturnValue({
       providerId: 'searxng',
@@ -455,4 +477,19 @@ describe('web_search runner registration', () => {
     expect(options.systemPrompt).toContain('## Session materials');
     expect(mocks.listSessionMaterials).not.toHaveBeenCalled();
   });
+});
+
+afterEach(() => setDeploymentConfigForTests());
+it('omits fetch_url and its prompt when the webFetch slot is disabled', async () => {
+  mocks.resolveWebSearchCapability.mockResolvedValue(null);
+  setDeploymentConfigForTests({
+    layer: { source: 'deployment', config: { slots: { webFetch: null } } },
+    legacy: false,
+    notices: [],
+  });
+  const options = await runToBuildAgent();
+  expect(options.tools.map((tool) => tool.name)).not.toContain('fetch_url');
+  expect(options.allowedToolNames?.has('fetch_url')).toBe(false);
+  expect(options.systemPrompt).not.toContain('## Fetch URL');
+  expect(options.systemPrompt).not.toContain('`fetch_url`');
 });

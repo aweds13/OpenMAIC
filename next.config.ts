@@ -1,6 +1,5 @@
 import type { NextConfig } from 'next';
-
-const isVercelBuild = Boolean(process.env.VERCEL);
+import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 
 const nextConfig: NextConfig = {
   /**
@@ -15,12 +14,12 @@ const nextConfig: NextConfig = {
    * 只在开发期有意义，生产构建不看这个键。
    */
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
-  env: {
-    // Pin even the unset/default value in both client and server bundles.
-    // A runtime-only override must not disable the route the built client uses.
-    NEXT_PUBLIC_PI_CHAT_ENABLED: process.env.NEXT_PUBLIC_PI_CHAT_ENABLED ?? '',
-  },
-  output: process.env.VERCEL ? undefined : 'standalone',
+  // 上游 1.2.0-rc.1 把旧的 Pi 对话路整条退役（#1913），`NEXT_PUBLIC_PI_CHAT_ENABLED`
+  // 也随之不再存在（这个文件下方还留着"设了它就让生产构建失败"的守卫）。
+  // 二开这边原先在这里钉这个键，合上游时去掉了 —— 钉一个已退役的键只会让构建
+  // 带着一个没人读的 env，并和上面那个守卫打架。
+  // 上游 1.2.0-rc.1 去掉了 VERCEL 逃逸（server-first 自托管）：一律 standalone。
+  output: 'standalone',
   outputFileTracingIncludes: {
     '/*': [
       'lib/server/agent-runtime/import-pptx-worker.mjs',
@@ -37,12 +36,8 @@ const nextConfig: NextConfig = {
       // and the runtime dlopen of sharp 0.35.4 failed with
       // "libvips-cpp.so.8.18.6: No such file or directory" on self-hosted
       // Docker (Alpine/musl) deployments. Force-include every sharp-libvips
-      // native lib dir for standalone builds. Vercel packages its runtime
-      // dependencies itself; including every native variant there bloats each
-      // traced function and can push Hobby deployments past 12 bundles.
-      ...(!isVercelBuild
-        ? ['node_modules/.pnpm/@img+sharp-libvips-*/node_modules/@img/sharp-libvips-*/lib/**']
-        : []),
+      // native lib dir.
+      'node_modules/.pnpm/@img+sharp-libvips-*/node_modules/@img/sharp-libvips-*/lib/**',
     ],
   },
   typescript: {
@@ -88,8 +83,42 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // Provider logos are drawn wherever services are listed, and each tab
+        // switch mounts a fresh set of them. With Next's default `max-age=0`
+        // every one is revalidated first and stays blank until the server
+        // answers. They are not content-hashed, so cache for a day, not forever.
+        source: '/logos/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' },
+        ],
+      },
     ];
   },
 };
 
-export default nextConfig;
+// NEXT_PUBLIC_PI_CHAT_ENABLED used to opt out of Pi into the legacy
+// director-graph classroom chat. That runtime is gone, so a production build
+// that still carries any value which once selected it fails instead of
+// silently switching the deployment to Pi. These values never did.
+const PI_CHAT_FLAG_VALUES_STILL_ACCEPTED = new Set(['', 'true', '1']);
+
+export default function config(phase: string): NextConfig {
+  const piChatFlag = process.env.NEXT_PUBLIC_PI_CHAT_ENABLED;
+  if (
+    phase === PHASE_PRODUCTION_BUILD &&
+    piChatFlag !== undefined &&
+    !PI_CHAT_FLAG_VALUES_STILL_ACCEPTED.has(piChatFlag)
+  ) {
+    throw new Error(
+      `NEXT_PUBLIC_PI_CHAT_ENABLED is set to ${JSON.stringify(piChatFlag)}, but the legacy ` +
+        'director-graph classroom chat has been removed and this variable can no longer ' +
+        'select it. Remove NEXT_PUBLIC_PI_CHAT_ENABLED, then select a model that supports ' +
+        'tool calling for Classroom (Settings → Course Model Config, or the `classroom` ' +
+        'slot in openmaic.yml and the `llm` slot it inherits from). For Gemini, use the ' +
+        'native `google` preset. If the model configuration is managed by an administrator, ' +
+        'ask them to make this change.',
+    );
+  }
+  return nextConfig;
+}

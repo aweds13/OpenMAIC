@@ -6,6 +6,16 @@
  */
 
 import type { NextRequest } from 'next/server';
+import {
+  assertDeploymentModelAuthorized,
+  ModelAuthorizationError,
+  usesServerCredentials,
+} from '@/lib/server/model-config/model-authorization';
+import {
+  isPiGeminiCompatibleRoute,
+  PiGeminiNativeRequiredError,
+} from '@/lib/server/model-config/pi-gemini-route';
+import { presetIdFor } from '@/lib/config/preset-ids';
 import { getModel, getProvider, parseModelString, type ModelWithInfo } from '@/lib/ai/providers';
 import type { ProviderType, ThinkingConfig } from '@/lib/types/provider';
 import {
@@ -14,10 +24,10 @@ import {
   resolveBaseUrl,
   resolveProxy,
 } from '@/lib/server/provider-config';
-import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
+import { validateClientBaseUrl, validateUrlForSSRF } from '@/lib/server/ssrf-guard';
 import { fetchWithRedirectValidation } from '@/lib/server/fetch-with-redirect-validation';
+import { clientBaseUrlLlmFetch } from '@/lib/server/llm-provider-fetch';
 import {
-  getStageRoute,
   getUserStageRoute,
   parseUserStageRoutes,
   type LlmStage,
@@ -37,28 +47,35 @@ export interface ResolvedModel extends ModelWithInfo {
   baseUrl?: string;
   /** Optional per-request thinking configuration from the client. */
   thinkingConfig?: ThinkingConfig;
+  /**
+   * Whether the primary comes from server configuration: a capability slot, or
+   * (on the deprecated request path) a server-configured provider. A model and
+   * key the client sent are not. Only server-managed primaries may arm the
+   * retryable-failure fallback in callLLM: a client-supplied model with a
+   * garbage key must never be allowed to burn the operator's fallback key.
+   * Callers pass this through to callLLM's `fallbackOptions.serverManaged`.
+   */
+  serverManaged: boolean;
 }
 
-/**
- * Resolve a language model from explicit parameters.
- *
- * Use this when model config comes from the request body.
- */
-export async function resolveModel(params: {
+export interface ModelRequest {
   modelString?: string;
   /**
-   * Optional generation stage (a `callLLM` source label, e.g. 'scene-content').
-   * When set and a route is configured via `MODEL_ROUTES`, the route wins for
-   * this call — even over a client-sent `modelString` (x-model). Unrouted
-   * stages fall back to `modelString` then `DEFAULT_MODEL`. See
-   * lib/server/model-routes.ts.
+   * The generation stage (a `callLLM` source label, e.g. 'scene-content'). A
+   * stage resolves through its capability slot (lib/config/model-slots.ts):
+   * the deployment and workspace configuration first; the model the request
+   * names only when the configuration leaves the slot unassigned; then the
+   * defaults an older deployment set with DEFAULT_MODEL.
    */
   stage?: LlmStage;
+  /** Server call-site requirement; Pi chat needs tools, other classroom uses do not. */
+  requireToolCalling?: boolean;
+  /** Whose web settings apply; null for none. */
+  workspaceId?: string | null;
   /**
-   * User-level per-stage routes (parsed from the `x-model-routes` header by
-   * resolveModelFromHeaders/FromRequest). Precedence: operator MODEL_ROUTES >
-   * these user routes > x-model > DEFAULT_MODEL. A user route carries its own
-   * connection params (apiKey/baseUrl/providerType) for the routed provider;
+   * User-level per-stage routes (the browser's `x-model-routes`), deprecated
+   * with the other request fields. A user route carries its own connection
+   * params (apiKey/baseUrl/providerType) for the routed provider;
    * server-managed providers still resolve credentials authoritatively.
    */
   userRoutes?: Record<string, UserStageRoute>;
@@ -66,24 +83,58 @@ export async function resolveModel(params: {
   baseUrl?: string;
   providerType?: string;
   thinkingConfig?: ThinkingConfig;
-}): Promise<ResolvedModel> {
-  // Resolution order: env stage route > user stage route > x-model > DEFAULT_MODEL.
-  // A configured stage route is the operator's deliberate per-stage choice and
-  // wins even over a client-sent x-model (otherwise the browser UI, which always
-  // sends its saved model, would shadow every route). User routes (the
-  // user-facing 「课程模型配置」 per-stage selection) sit just below operator
-  // routes and above the client's main-model x-model. Unrouted stages fall back
-  // to the client x-model, then DEFAULT_MODEL. There is intentionally no hardcoded
-  // model fallback — if nothing resolves we fail loud rather than silently pick a
-  // vendor default.
-  const envRoute = getStageRoute(params.stage);
-  const userRoute = envRoute ? undefined : getUserStageRoute(params.userRoutes ?? {}, params.stage);
-  const stageRoute: UserStageRoute | undefined = envRoute ?? userRoute;
-  const stageModel = stageRoute?.model;
-  const modelString = stageModel || params.modelString || process.env.DEFAULT_MODEL;
-  if (!modelString) {
-    throw new Error(
-      'No model could be resolved. Configure DEFAULT_MODEL (and/or a MODEL_ROUTES entry for this stage), or send a model via x-model.',
+}
+
+let deprecationLogged = false;
+
+/** Why a request's own model is refused under `allowUserKeys: false`. */
+export const REQUEST_PROVIDERS_REFUSED =
+  'This server uses only the providers its configuration declares; a request cannot name its own model, key or endpoint.';
+
+/**
+ * Resolve a language model: through the stage's slot when there is a stage,
+ * else (verify-model) the model the request names. Fails loudly when nothing
+ * resolves; there is no vendor default.
+ */
+export async function resolveModel(params: ModelRequest): Promise<ResolvedModel> {
+  const { requestProvidersAllowed } = await import('@/lib/server/model-config/runtime');
+  // Under `allowUserKeys: false` users choose only among the
+  // providers openmaic.yml declares: the model, key and endpoint a request
+  // names are ignored, and only the configuration decides.
+  const allowed = requestProvidersAllowed();
+  if (params.stage) {
+    const { resolveStageModel } = await import('@/lib/server/model-config/llm');
+    return resolveStageModel({
+      stage: params.stage,
+      workspaceId: params.workspaceId ?? null,
+      requireToolCalling: params.requireToolCalling,
+      ...(allowed ? { legacyRequest: () => resolveRequestedModel(params) } : {}),
+    });
+  }
+  if (!allowed) throw new Error(REQUEST_PROVIDERS_REFUSED);
+  const requested = await resolveRequestedModel(params);
+  if (!requested) throw new Error('No model could be resolved: the request names none.');
+  return requested;
+}
+
+/**
+ * The model a request names with its own fields (x-model, x-api-key,
+ * x-base-url, x-provider-type, x-model-routes, or the equivalent body
+ * fields), or undefined when it names none. Deprecated: the configuration
+ * decides, and this answers only for a slot it leaves unassigned, and never
+ * under `allowUserKeys: false` (see resolveModel).
+ */
+export async function resolveRequestedModel(
+  params: ModelRequest,
+): Promise<ResolvedModel | undefined> {
+  const userRoute = getUserStageRoute(params.userRoutes ?? {}, params.stage);
+  const stageModel = userRoute?.model;
+  const modelString = stageModel || params.modelString;
+  if (!modelString) return undefined;
+  if (!deprecationLogged) {
+    deprecationLogged = true;
+    console.warn(
+      '[resolve-model] A request named its own model or key. This is deprecated: configure models in the model settings or openmaic.yml.',
     );
   }
   const { providerId, modelId } = parseModelString(modelString);
@@ -109,6 +160,24 @@ export async function resolveModel(params: {
   // public targets, so the hop target is checked regardless of who chose the
   // origin.
   const managed = isServerConfiguredProvider('providers', providerId);
+  if (
+    managed &&
+    usesServerCredentials({
+      preset: presetIdFor('chat', providerId),
+      apiKey: resolveApiKey(providerId),
+    })
+  ) {
+    const { deploymentConfig } = await import('@/lib/server/model-config/runtime');
+    const deployment = deploymentConfig();
+    // Do not revive legacy credentials when openmaic.yml replaced them. Use
+    // the saved-provider path for credentials declared by that file instead.
+    if (!deployment.legacy) throw new ModelAuthorizationError();
+    assertDeploymentModelAuthorized(
+      deployment.layer?.config,
+      presetIdFor('chat', providerId),
+      modelId,
+    );
+  }
   const registeredProviderType = getProvider(providerId)?.type;
   if (
     clientProviderType &&
@@ -126,8 +195,15 @@ export async function resolveModel(params: {
     throw new Error('Amazon Bedrock must be enabled by the server operator before it can be used.');
   }
   const clientBaseUrl = managed ? undefined : clientBaseUrlParam || undefined;
-  if (clientBaseUrl) {
-    const ssrfError = await validateUrlForSSRF(clientBaseUrl);
+  // The caller picked this model, so an unmanaged provider's endpoint is the
+  // caller's choice: the client-supplied URL or the provider's catalog default
+  // (e.g. a localhost Ollama).
+  const clientEndpoint = !managed;
+  const endpointUrl = clientBaseUrl ?? getProvider(providerId)?.defaultBaseUrl;
+  if (clientEndpoint && endpointUrl) {
+    const ssrfError = clientBaseUrl
+      ? await validateClientBaseUrl(clientBaseUrl)
+      : await validateUrlForSSRF(endpointUrl);
     if (ssrfError) {
       throw new Error(ssrfError);
     }
@@ -136,6 +212,15 @@ export async function resolveModel(params: {
   const apiKey = resolveApiKey(providerId, clientApiKey || '');
   const baseUrl = resolveBaseUrl(providerId, clientBaseUrl);
   const proxy = resolveProxy(providerId);
+  if (
+    params.requireToolCalling &&
+    isPiGeminiCompatibleRoute(
+      effectiveProviderType,
+      baseUrl || getProvider(providerId)?.defaultBaseUrl || undefined,
+    )
+  ) {
+    throw new PiGeminiNativeRequiredError();
+  }
   const { model, modelInfo } = getModel({
     providerId,
     modelId,
@@ -143,20 +228,16 @@ export async function resolveModel(params: {
     baseUrl,
     proxy,
     providerType: clientProviderType as ProviderType | undefined,
-    // Re-validate every redirect hop of the outbound request (see
-    // fetchWithRedirectValidation); the base URL above is checked at origin.
-    fetchImpl: fetchWithRedirectValidation,
+    // A caller-chosen endpoint is pinned and refuses redirects (see
+    // lib/server/llm-provider-fetch.ts). Operator-configured endpoints keep the
+    // transport that re-validates every redirect hop.
+    fetchImpl: clientEndpoint ? clientBaseUrlLlmFetch : fetchWithRedirectValidation,
   });
 
-  // Thinking arbitration mirrors model routing — the route carries a full
-  // ThinkingConfig (mode/effort/level/enabled/budgetTokens/…) which callLLM
-  // normalizes against the model's capability:
-  //  - routed + thinking set → the route's thinking wins (over client thinking).
-  //  - routed + no thinking  → routed model uses its own default; client thinking
-  //    is dropped (it belonged to the client's other model).
-  //  - unrouted              → honor the client's thinking config.
+  // A user route carries its own ThinkingConfig; the client's thinking belongs
+  // to its main model, so a routed stage drops it.
   const thinkingConfig: ThinkingConfig | undefined = routed
-    ? stageRoute?.thinking
+    ? userRoute?.thinking
     : params.thinkingConfig;
 
   return {
@@ -168,6 +249,10 @@ export async function resolveModel(params: {
     apiKey,
     baseUrl,
     thinkingConfig,
+    // A server-configured provider key is operator-owned, so the primary may
+    // arm the operator's fallback. A client model on an unmanaged provider,
+    // with a key the client sent, must not.
+    serverManaged: managed,
   };
 }
 
@@ -190,7 +275,9 @@ export async function resolveModelFromHeaders(
   stage?: LlmStage,
   thinkingConfig?: ThinkingConfig,
 ): Promise<ResolvedModel> {
+  const { requestWorkspaceId } = await import('@/lib/server/model-config/runtime');
   return resolveModel({
+    workspaceId: stage ? await requestWorkspaceId(req) : null,
     modelString: req.headers.get('x-model') || undefined,
     stage,
     userRoutes: parseUserStageRoutes(req.headers.get('x-model-routes')),

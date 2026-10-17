@@ -136,6 +136,7 @@ export function buildCourseAudioAndDeckTools(deps: CourseToolDeps): AgentTool<ne
         force: params.force ?? false,
         roster: doc.stage.generatedAgentConfigs,
         signal,
+        ownerId: deps.ownerId,
       });
       if (!summary.available) {
         return result(

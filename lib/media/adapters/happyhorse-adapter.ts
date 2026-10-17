@@ -11,8 +11,9 @@ import type {
   VideoGenerationOptions,
   VideoGenerationResult,
 } from '../types';
+import { mediaFetchFor } from '../media-fetch';
 import { probeAuth } from '../probe-auth';
-import { runPolledTask } from '../polled-task';
+import { runPolledTask, type PolledTaskControl } from '../polled-task';
 import { assertNotRedirected } from '../redirect-guard';
 import { requireModel } from '../require-model';
 
@@ -96,26 +97,29 @@ export async function submitHappyHorseTask(
   options: VideoGenerationOptions,
 ): Promise<string> {
   const baseUrl = normalizeBaseUrl(config.baseUrl);
-  const response = await fetch(`${baseUrl}/api/v1/services/aigc/video-generation/video-synthesis`, {
-    method: 'POST',
-    redirect: 'manual',
-    headers: {
-      ...jsonHeaders(config.apiKey),
-      'X-DashScope-Async': 'enable',
+  const response = await mediaFetchFor(config)(
+    `${baseUrl}/api/v1/services/aigc/video-generation/video-synthesis`,
+    {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        ...jsonHeaders(config.apiKey),
+        'X-DashScope-Async': 'enable',
+      },
+      body: JSON.stringify({
+        model: requireModel(config.model, 'HappyHorse'),
+        input: {
+          prompt: options.prompt,
+        },
+        parameters: {
+          resolution: toHappyHorseResolution(options.resolution),
+          ratio: options.aspectRatio || '16:9',
+          duration: options.duration || 5,
+          watermark: false,
+        },
+      }),
     },
-    body: JSON.stringify({
-      model: requireModel(config.model, 'HappyHorse'),
-      input: {
-        prompt: options.prompt,
-      },
-      parameters: {
-        resolution: toHappyHorseResolution(options.resolution),
-        ratio: options.aspectRatio || '16:9',
-        duration: options.duration || 5,
-        watermark: false,
-      },
-    }),
-  });
+  );
 
   assertNotRedirected(response, 'HappyHorse');
 
@@ -140,11 +144,14 @@ export async function pollHappyHorseTask(
   taskId: string,
 ): Promise<VideoGenerationResult | null> {
   const baseUrl = normalizeBaseUrl(config.baseUrl);
-  const response = await fetch(`${baseUrl}/api/v1/tasks/${encodeURIComponent(taskId)}`, {
-    method: 'GET',
-    redirect: 'manual',
-    headers: authHeaders(config.apiKey),
-  });
+  const response = await mediaFetchFor(config)(
+    `${baseUrl}/api/v1/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: 'GET',
+      redirect: 'manual',
+      headers: authHeaders(config.apiKey),
+    },
+  );
 
   assertNotRedirected(response, 'HappyHorse');
 
@@ -179,6 +186,7 @@ export async function pollHappyHorseTask(
 export async function generateWithHappyHorse(
   config: VideoGenerationConfig,
   options: VideoGenerationOptions,
+  control?: PolledTaskControl,
 ): Promise<VideoGenerationResult> {
   return runPolledTask<VideoGenerationResult>({
     submit: async () => ({
@@ -192,6 +200,7 @@ export async function generateWithHappyHorse(
     intervalMs: POLL_INTERVAL_MS,
     maxAttempts: MAX_POLL_ATTEMPTS,
     label: 'HappyHorse video generation',
+    control,
     formatTimeout: ({ taskId, elapsedMs }) =>
       `HappyHorse video generation timed out after ${elapsedMs / 1000}s (task: ${taskId})`,
   });
@@ -204,7 +213,7 @@ export async function testHappyHorseConnectivity(
     providerName: 'HappyHorse',
     request: () => {
       const baseUrl = normalizeBaseUrl(config.baseUrl);
-      return fetch(`${baseUrl}/api/v1/tasks/connectivity-test-nonexistent`, {
+      return mediaFetchFor(config)(`${baseUrl}/api/v1/tasks/connectivity-test-nonexistent`, {
         method: 'GET',
         redirect: 'manual',
         headers: authHeaders(config.apiKey),

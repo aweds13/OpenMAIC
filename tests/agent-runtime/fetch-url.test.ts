@@ -23,7 +23,6 @@ import {
   FetchUrlError,
   normalizeUntrustedText,
 } from '@/lib/server/agent-runtime/fetch-url';
-import * as providerConfig from '@/lib/server/provider-config';
 import { normalizeUrlForStrictFetch } from '@/lib/server/ssrf-guard';
 
 const dispatcher = {} as never;
@@ -200,7 +199,6 @@ describe('fetch_url network and extraction', () => {
   });
 
   it('selects configured self-hosted MinerU for PDF extraction', async () => {
-    vi.spyOn(providerConfig, 'getServerPDFProviders').mockReturnValue({ mineru: {} });
     const mineru = getDocumentExtractorProvider('mineru')!;
     const unpdf = getDocumentExtractorProvider('unpdf')!;
     const mineruExtract = vi
@@ -217,6 +215,16 @@ describe('fetch_url network and extraction', () => {
       fetchImpl,
       dispatcher,
       minChars: 20,
+      // The document slot's service: self-hosted MinerU.
+      extractionServices: {
+        document: {
+          providerId: 'mineru',
+          baseUrl: 'http://mineru.internal:8000',
+          managed: true,
+          userEndpoint: false,
+          origin: 'configuration',
+        },
+      },
     });
 
     expect(result.markdown).toContain('MinerU 正文');
@@ -227,7 +235,6 @@ describe('fetch_url network and extraction', () => {
   });
 
   it('falls back to unpdf when no managed PDF provider is configured', async () => {
-    vi.spyOn(providerConfig, 'getServerPDFProviders').mockReturnValue({});
     const unpdf = getDocumentExtractorProvider('unpdf')!;
     const unpdfExtract = vi
       .spyOn(unpdf, 'extract')
@@ -242,6 +249,7 @@ describe('fetch_url network and extraction', () => {
       fetchImpl,
       dispatcher,
       minChars: 20,
+      extractionServices: { document: null },
     });
 
     expect(result.markdown).toContain('unpdf 正文');
@@ -253,7 +261,6 @@ describe('fetch_url network and extraction', () => {
   });
 
   it('limits untrusted PDFs to 50 pages before extraction', async () => {
-    vi.spyOn(providerConfig, 'getServerPDFProviders').mockReturnValue({});
     const input = await pdfBytes(51);
     const unpdf = getDocumentExtractorProvider('unpdf')!;
     const unpdfExtract = vi.spyOn(unpdf, 'extract').mockImplementation(async ({ buffer }) => {
@@ -278,7 +285,6 @@ describe('fetch_url network and extraction', () => {
   });
 
   it('caps extracted PDF text independently of the download size', async () => {
-    vi.spyOn(providerConfig, 'getServerPDFProviders').mockReturnValue({});
     const unpdf = getDocumentExtractorProvider('unpdf')!;
     vi.spyOn(unpdf, 'extract').mockResolvedValue(pdfArtifact('unpdf', 'x'.repeat(1_200_000)));
     const fetchImpl = vi.fn().mockResolvedValue(

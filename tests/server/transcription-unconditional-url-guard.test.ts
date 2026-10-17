@@ -28,6 +28,23 @@ vi.mock('@/lib/server/provider-config', () => ({
   resolveASRBaseUrl: (_id: string, clientBaseUrl?: string | null) => clientBaseUrl || undefined,
   resolveASRModel: (_id: string, clientModel?: string | null) => clientModel || 'whisper-1',
   resolveServerASRProviderId: () => undefined,
+  // No legacy configuration: the request's own provider is what resolves.
+  getServerProviderConfig: () => ({
+    providers: {},
+    tts: {},
+    asr: {},
+    pdf: {},
+    image: {},
+    video: {},
+    webSearch: {},
+    disabled: {
+      tts: new Set(),
+      asr: new Set(),
+      image: new Set(),
+      video: new Set(),
+      webSearch: new Set(),
+    },
+  }),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -80,11 +97,34 @@ describe('transcription — client-supplied base URL guard applies in every envi
     vi.stubEnv('NODE_ENV', 'development');
     vi.stubEnv('ALLOW_LOCAL_NETWORKS', 'true');
     mocks.serverManaged = true;
+    const { setDeploymentConfigForTests } = await import('@/lib/server/model-config/runtime');
+    setDeploymentConfigForTests({
+      layer: {
+        source: 'deployment',
+        config: {
+          providers: {
+            openai: { preset: 'openai-whisper', apiKey: 'server-key', models: ['whisper-1'] },
+          },
+        },
+      },
+      legacy: true,
+      notices: [],
+    });
     const res = await postTranscription('');
 
     expect(res.status).toBe(200);
     expect(mocks.transcribeAudio).toHaveBeenCalledWith(
-      expect.objectContaining({ providerId: 'openai', publicOnly: false }),
+      expect.objectContaining({ providerId: 'openai', publicOnly: false, managed: true }),
+      expect.any(File),
+    );
+  });
+
+  it('marks an unmanaged provider without a client base URL as not managed', async () => {
+    const res = await postTranscription('');
+
+    expect(res.status).toBe(200);
+    expect(mocks.transcribeAudio).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'openai', publicOnly: false, managed: false }),
       expect.any(File),
     );
   });

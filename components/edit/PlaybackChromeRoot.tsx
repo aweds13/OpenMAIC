@@ -1,11 +1,14 @@
 'use client';
 
+import { normalizeCueUserOptions } from '@/lib/chat/cue-user-options';
+import { useModelCapabilities } from '@/lib/model-settings/use-model-settings';
 import { toast } from 'sonner';
 import {
   forwardRef,
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -66,7 +69,7 @@ import type {
   PlaybackInteractiveComponentPick,
   PlaybackInteractivePickerState,
 } from '@/components/scene-renderers/InteractiveIframeHost';
-import { isCoursewareReferenceEnabled, isPiChatEnabled } from '@/lib/config/feature-flags';
+import { isCoursewareReferenceEnabled } from '@/lib/config/feature-flags';
 import {
   getSlideElementPresentation,
   getSlideElementTypeLabel,
@@ -101,6 +104,7 @@ export interface PlaybackChromeRootHandle {
 
 interface PlaybackChromeRootProps {
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
+  readonly generationFailureMessage?: string;
   /** Whether the Pro Switch in Header should be enabled. */
   readonly canEnterProMode?: boolean;
   /** Pro Switch click handler — parent coordinates teardown + mode flip. */
@@ -125,6 +129,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
   function PlaybackChromeRoot(
     {
       onRetryOutline,
+      generationFailureMessage,
       canEnterProMode,
       onEnterProMode,
       proModeActive,
@@ -150,6 +155,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     } = useStageStore();
     const failedOutlines = useStageStore.use.failedOutlines();
     const generationComplete = useStageStore.use.generationComplete();
+    const generationInterrupted = useStageStore.use.generationInterrupted();
 
     const currentScene = getCurrentScene();
     /**
@@ -158,7 +164,6 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
      * drives CanvasArea (which derives it itself) and the toolbar's transport.
      */
     const readingPage = (currentScene?.actions?.length ?? 0) === 0;
-    const piChatEnabled = isPiChatEnabled();
     const coursewareReferenceEnabled = isCoursewareReferenceEnabled();
     const [elementPickActive, setElementPickActiveState] = useState(false);
     const elementPickActiveRef = useRef(false);
@@ -214,6 +219,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
 
     // Cue user state (Issue 7)
     const [isCueUser, setIsCueUser] = useState(false);
+    const [cueUserOptions, setCueUserOptions] = useState<string[] | undefined>();
 
     // End flash state (Issue 3)
     const [showEndFlash, setShowEndFlash] = useState(false);
@@ -252,7 +258,8 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     // Selected agents from settings store (Zustand)
     const selectedAgentIds = useSettingsStore((s) => s.selectedAgentIds);
     const ttsMuted = useSettingsStore((s) => s.ttsMuted);
-    const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
+    // Narration is on when the workspace's tts slot resolves to a provider.
+    const ttsEnabled = !!useModelCapabilities().tts;
 
     // Generate participants from selected agents
     const participants = useMemo(
@@ -447,6 +454,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       setSpeechProgress(null);
       setThinkingState(null);
       setIsCueUser(false);
+      setCueUserOptions(undefined);
       setIsTopicPending(false);
       setChatIsStreaming(false);
       setChatIsSoftClosing(false);
@@ -1043,7 +1051,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     }, [playbackSpeed]);
 
     /**
-     * Handle discussion SSE — POST /api/chat and push events to engine
+     * Start a discussion in ChatArea, which sends it through the classroom chat hook
      */
     const handleDiscussionSSE = useCallback(
       async (topic: string, prompt?: string, agentId?: string) => {
@@ -1252,7 +1260,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       ? scenes.length
       : scenes.findIndex((s) => s.id === currentSceneId);
     const totalScenesCount = scenes.length + (canAdvanceToPendingSlot ? 1 : 0);
-    const showElementReference = piChatEnabled && coursewareReferenceEnabled && mode === 'playback';
+    const showElementReference = coursewareReferenceEnabled && mode === 'playback';
     const canPickSlideElement = Boolean(
       showElementReference &&
       !whiteboardOpen &&
@@ -1428,6 +1436,17 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       if (!canPickElement) setElementPickActive(false);
     }, [canPickElement, setElementPickActive, whiteboardOpen]);
 
+    // An armed picker belongs to the surface it was armed on. Opening or closing
+    // the whiteboard (student toggle, Teacher action, or runtime visibility) ends
+    // it instead of moving it to the other surface; a selected draft is kept.
+    // Layout timing keeps the destination picker from painting for a frame.
+    const previousWhiteboardOpenRef = useRef(whiteboardOpen);
+    useLayoutEffect(() => {
+      if (previousWhiteboardOpenRef.current === whiteboardOpen) return;
+      previousWhiteboardOpenRef.current = whiteboardOpen;
+      setElementPickActive(false);
+    }, [setElementPickActive, whiteboardOpen]);
+
     useEffect(() => {
       if (showElementReference) return;
       setElementPickActive(false);
@@ -1515,7 +1534,6 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
 
     // whiteboard toggle
     const handleWhiteboardToggle = () => {
-      if (!whiteboardOpen) setElementPickActive(false);
       setWhiteboardOpenManually(!whiteboardOpen);
     };
 
@@ -1777,6 +1795,8 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               isGenerationFailed={
                 isPendingScene && failedOutlines.some((f) => f.id === generatingOutlines[0]?.id)
               }
+              isGenerationInterrupted={isPendingScene && generationInterrupted}
+              generationFailureMessage={generationFailureMessage}
               onRetryGeneration={
                 onRetryOutline && generatingOutlines[0]
                   ? () => onRetryOutline(generatingOutlines[0].id)
@@ -1820,6 +1840,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 endFlashSessionType={endFlashSessionType}
                 thinkingState={thinkingState}
                 isCueUser={isCueUser}
+                cueUserOptions={cueUserOptions}
                 isSoftClosing={chatIsSoftClosing}
                 softCloseDeadline={softCloseDeadline}
                 isTopicPending={isTopicPending}
@@ -1872,6 +1893,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                   // Auto-switch to chat tab when user sends a message
                   chatAreaRef.current?.switchToTab('chat');
                   setIsCueUser(false);
+                  setCueUserOptions(undefined);
                   // Immediately mark streaming for synchronized stop button
                   setChatIsStreaming(true);
                   setChatSessionType(chatSessionType || 'qa');
@@ -2024,7 +2046,8 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 setThinkingState(state);
               });
             }}
-            onCueUser={(_fromAgentId, _prompt) => {
+            onCueUser={(_fromAgentId, _prompt, options) => {
+              setCueUserOptions(normalizeCueUserOptions(options));
               setIsCueUser(true);
             }}
             onLiveSessionError={handleLiveSessionError}
@@ -2032,6 +2055,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               setThinkingState(null);
               setSpeechProgress(null);
               setIsCueUser(false);
+              setCueUserOptions(undefined);
               setActiveBubbleId(null);
             }}
             onSoftClosingChange={(softClosing, deadline) => {

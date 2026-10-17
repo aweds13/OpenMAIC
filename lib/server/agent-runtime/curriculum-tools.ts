@@ -11,7 +11,7 @@
  */
 import { Type, type Static } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import { DocumentFolderLimitError } from '@openmaic/storage';
+import { DocumentFolderLimitError, isDocumentWriteRefusedError } from '@openmaic/storage';
 import type { Queryable } from '@openmaic/storage/document/pg';
 import type { StageLinkLifecycleData } from '@/lib/agent-runtime/lifecycle';
 
@@ -22,6 +22,7 @@ import { folderIdForCall, stageIdForCall } from './course-stage';
 import { mergeStageOutline } from './course-outline-union';
 import { runStageMutation } from './mutation-fence';
 import { FOLDER_COUNT_LIMIT, validateFolderName } from '@/lib/utils/folder-name-validation';
+import { courseGenerationFields, type CourseGenerationLookup } from './course-generation';
 
 export { stageIdForCall } from './course-stage';
 
@@ -96,6 +97,8 @@ export interface CurriculumToolDeps {
    * request for the same bytes back.
    */
   onLibraryChanged?: (change: LibraryChange) => void;
+  /** The owner's courses a generation run is still producing (read-only until it completes). */
+  courseGenerations?: CourseGenerationLookup;
   /** Fired after a successful stage-document write. */
   onCheckpoint?: (info: {
     tool: string;
@@ -195,6 +198,10 @@ export function buildCurriculumTools(deps: CurriculumToolDeps): AgentTool<never,
     description:
       'Create a NEW stage document owned by this session user and return its stageId and classroom url. Pass that stageId explicitly to every later stage tool. Use for multi-stage series: one stage per unit/day.',
     parameters: CreateStageParams,
+    // A mint is a write, and it must not share a batch with other stage tools
+    // running in parallel: the run's owner-bound store is shared by every
+    // tool, and a sequential tool makes pi run the whole batch in order.
+    executionMode: 'sequential',
     async execute(callId, params: Static<typeof CreateStageParams>, signal) {
       if (signal?.aborted) throw new Error('aborted');
       const title = params.title?.trim();
@@ -300,7 +307,21 @@ export function buildCurriculumTools(deps: CurriculumToolDeps): AgentTool<never,
       // the owner scope in one transaction. A concurrent mint of the same id
       // is refused by the store's owner scope; the replay is sequential, so
       // the loadDocument pre-check above is the ordering guarantee.
-      await runStageMutation(signal, () => deps.store.saveDocument(document));
+      try {
+        await runStageMutation(signal, () => deps.store.saveDocument(document));
+      } catch (error) {
+        // The deployment's creation policy refused the course (a host
+        // authorizeCreate hook). A stable, generic result: the host's own
+        // refusal text is for its clients, not for the model.
+        if (isDocumentWriteRefusedError(error)) {
+          return toolResult(
+            'Creating a new stage was refused by this deployment. Do not retry; tell the user that a new course could not be created.',
+            { refused: true, error: 'create-refused' },
+            true,
+          );
+        }
+        throw error;
+      }
       if (signal?.aborted) throw new Error('aborted');
       if (folderId) {
         const moved = await runStageMutation(signal, () =>
@@ -493,17 +514,23 @@ export function buildCurriculumTools(deps: CurriculumToolDeps): AgentTool<never,
       const courses = await deps.store.listDocuments(params.folderId);
       if (signal?.aborted) throw new Error('aborted');
       if (courses.length === 0) return toolResult('No stages found.', { courses: [], count: 0 });
-      const details = courses.map((course) => ({
-        stageId: course.id,
-        title: course.name,
-        ...(course.folderId ? { folderId: course.folderId } : {}),
-        updatedAt: course.updatedAt,
-        pageCount: course.sceneCount,
-      }));
+      const generations = (await deps.courseGenerations?.()) ?? new Map();
+      if (signal?.aborted) throw new Error('aborted');
+      const details = courses.map((course) => {
+        const generation = generations.get(course.id);
+        return {
+          stageId: course.id,
+          title: course.name,
+          ...(course.folderId ? { folderId: course.folderId } : {}),
+          updatedAt: course.updatedAt,
+          pageCount: course.sceneCount,
+          ...(generation ? courseGenerationFields(generation) : {}),
+        };
+      });
       const lines = details
         .map(
           (course) =>
-            `- "${course.title}" (${course.stageId}, ${course.pageCount} page(s)${course.folderId ? `, folder ${course.folderId}` : ''})`,
+            `- "${course.title}" (${course.stageId}, ${course.pageCount} page(s)${course.folderId ? `, folder ${course.folderId}` : ''}${'generating' in course ? `, still being generated: ${course.scenesCompleted}/${course.scenesTotal} pages, read-only until generation completes` : ''})`,
         )
         .join('\n');
       return toolResult(`Stages:\n${lines}`, { courses: details, count: details.length });
