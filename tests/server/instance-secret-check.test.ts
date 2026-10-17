@@ -49,11 +49,14 @@ describe('inspectInstanceSecret', () => {
     expect(inspectInstanceSecret({}, dataDir)).toMatchObject({ fileExists: true, kid });
   });
 
-  it.skipIf(process.getuid?.() === 0)('sees a data directory that cannot be written', () => {
-    const root = tempDir();
-    fs.chmodSync(root, 0o500);
-    expect(inspectInstanceSecret({}, path.join(root, 'data')).dataDirWritable).toBe(false);
-  });
+  it.skipIf(process.getuid?.() === 0 || process.platform === 'win32')(
+    'sees a data directory that cannot be written',
+    () => {
+      const root = tempDir();
+      fs.chmodSync(root, 0o500);
+      expect(inspectInstanceSecret({}, path.join(root, 'data')).dataDirWritable).toBe(false);
+    },
+  );
 });
 
 describe('instanceSecretWarnings', () => {

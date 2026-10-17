@@ -150,6 +150,7 @@ function makeStore(meta: ClaimedAgentSession) {
     getCancelRequestedAt: vi.fn(async () => null),
     isCancelRequested: vi.fn(async () => false),
     listUserMessages: vi.fn(async () => []),
+    pruneMessageUpdates: vi.fn(async () => undefined),
     registerSessionUrls: vi.fn(async () => []),
     releaseLease: vi.fn(async () => undefined),
     requeueForRetry: vi.fn(async () => false),

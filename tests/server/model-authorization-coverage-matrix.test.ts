@@ -607,21 +607,26 @@ describe('server model authorization coverage matrix', () => {
       expect(mocks.admitted).toHaveBeenCalled();
     },
   );
-  it('chat/pi refuses an unauthorized search model before starting the LLM stream', async () => {
-    vi.stubEnv('OPENMAIC_ENABLE_PI_NATIVE_CHILD_RUNTIME', 'true');
-    const response = await (
-      await import('@/app/api/chat/pi/route')
-    ).POST(
-      request('/api/chat/pi', {
-        ...chatBody('allowed'),
-        webSearchProviderId: 'claude',
-        webSearchModelId: 'unlisted',
-      }),
-    );
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual(refusal);
-    expect(mocks.upstream).not.toHaveBeenCalled();
-  });
+  // 这条在本机要 ~3.1s（首次加载 auth 栈），默认 5s 在并跑/慢机器上会假超时。
+  it(
+    'chat/pi refuses an unauthorized search model before starting the LLM stream',
+    { timeout: 30_000 },
+    async () => {
+      vi.stubEnv('OPENMAIC_ENABLE_PI_NATIVE_CHILD_RUNTIME', 'true');
+      const response = await (
+        await import('@/app/api/chat/pi/route')
+      ).POST(
+        request('/api/chat/pi', {
+          ...chatBody('allowed'),
+          webSearchProviderId: 'claude',
+          webSearchModelId: 'unlisted',
+        }),
+      );
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual(refusal);
+      expect(mocks.upstream).not.toHaveBeenCalled();
+    },
+  );
   it('deployment references grant only models for the matching capability', () => {
     const config: ModelConfigFile = {
       providers: { plan: { preset: 'minimax', apiKey: 'server' } },
@@ -661,9 +666,19 @@ describe('server model authorization coverage matrix', () => {
         entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)],
       );
     const api = join(process.cwd(), 'app/api');
+    // `join` 在 Windows 上给反斜杠，而 `.endsWith('/route.ts')` 只认正斜杠 ——
+    // 不归一化的话这条判据在 Windows 上会扫出 0 个入口，变成一条永远"通过不了"
+    // （或者更糟：永远扫不到东西）的死判据。
+    const rel = (file: string) => file.slice(api.length + 1).replace(/\\/g, '/');
     const calls = walk(api)
-      .filter((file) => file.endsWith('/route.ts') && pattern.test(readFileSync(file, 'utf8')))
-      .map((file) => file.slice(api.length + 1, -'/route.ts'.length))
+      .filter((file) => {
+        const path = rel(file);
+        return (
+          (path === 'route.ts' || path.endsWith('/route.ts')) &&
+          pattern.test(readFileSync(file, 'utf8'))
+        );
+      })
+      .map((file) => rel(file).slice(0, -'/route.ts'.length))
       .sort();
     // Document services have no request-selected model id.
     expect(calls).toEqual(

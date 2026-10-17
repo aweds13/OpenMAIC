@@ -57,9 +57,41 @@ async function entryNames(zip: JSZip): Promise<string[]> {
 }
 
 describe('batch export with the real builders', () => {
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+
   beforeEach(() => {
     vi.stubGlobal('indexedDB', new IDBFactory());
     vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+    // 合并上游 1.2.0 之后：`use-export-pptx` 会走一遍浏览器专属的 persistence 边界
+    // （`HttpRuntimeStore({ baseUrl: '/api/persistence' })`）。node 里 `fetch('/api/…')`
+    // 直接抛 `Failed to parse URL`，于是整门课被记成 error。这里只关心产物字节，
+    // 把这条写入静音掉。
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.includes('learner-key')) {
+          return json({ learnerKey: 'learner-test' });
+        }
+        if (url.includes('/assets')) {
+          return json({ id: 'asset-test', url: '/api/persistence/assets/asset-test/content' });
+        }
+        // 这个用例里没有真实文档：让文档读取走"没有"那一路，而不是拿到半个对象。
+        if (url.includes('/documents')) {
+          // 这个用例没有真实文档：给出 store 认得的"没有"（404 + DOCUMENT_NOT_FOUND），
+          // 让导出走 fallback，而不是拿到半个对象或裸 404 错误。
+          return new Response(JSON.stringify({ error: { code: 'DOCUMENT_NOT_FOUND' } }), {
+            status: 404,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return json({});
+      }),
+    );
   });
 
   afterEach(() => {
@@ -77,18 +109,22 @@ describe('batch export with the real builders', () => {
       updatedAt: 2,
     } as unknown as Stage;
 
-    const result = await buildBatchExportZip([{ id: 'stage-1', name: COURSE_NAME }], {
-      includePptx: true,
-      includeInteractive: true,
-      includeClassroomZip: true,
-    }, {
-      deps: {
-        loadCourse: async () => ({
-          stage,
-          scenes: [{ ...slideScene, stageId: 'stage-1' }, interactiveScene()],
-        }),
+    const result = await buildBatchExportZip(
+      [{ id: 'stage-1', name: COURSE_NAME }],
+      {
+        includePptx: true,
+        includeInteractive: true,
+        includeClassroomZip: true,
       },
-    });
+      {
+        deps: {
+          loadCourse: async () => ({
+            stage,
+            scenes: [{ ...slideScene, stageId: 'stage-1' }, interactiveScene()],
+          }),
+        },
+      },
+    );
 
     const outer = await readZip(result.blob);
     // Assert the per-course outcome FIRST: a course that threw is recorded with
@@ -101,13 +137,17 @@ describe('batch export with the real builders', () => {
     ]);
 
     // The PPTX is a real deck, not our stub's `pptx-bytes`.
-    const pptx = await JSZip.loadAsync(await outer.file(`${COURSE_NAME}/${COURSE_NAME}.pptx`)!.async('uint8array'));
+    const pptx = await JSZip.loadAsync(
+      await outer.file(`${COURSE_NAME}/${COURSE_NAME}.pptx`)!.async('uint8array'),
+    );
     expect(Object.keys(pptx.files)).toContain('ppt/slides/slide1.xml');
     const slideXml = await pptx.file('ppt/slides/slide1.xml')!.async('string');
     expect(slideXml.length).toBeGreaterThan(200);
 
     // The interactive page kept the resource pack's shape and its own bytes.
-    const page = await outer.file(`${COURSE_NAME}/interactive/01_牛顿迭代演示.html`)!.async('string');
+    const page = await outer
+      .file(`${COURSE_NAME}/interactive/01_牛顿迭代演示.html`)!
+      .async('string');
     expect(page).toContain('Newton');
 
     // The classroom ZIP is a re-importable archive of the same course: a real
@@ -132,18 +172,22 @@ describe('batch export with the real builders', () => {
   it('skips the PPTX for an interactive-only course without failing the batch', async () => {
     const buildBatchExportZip = await loadBatchBuilder();
     const stage = { id: 'stage-2', name: '纯交互', createdAt: 1, updatedAt: 2 } as unknown as Stage;
-    const result = await buildBatchExportZip([{ id: 'stage-2', name: '纯交互' }], {
-      includePptx: true,
-      includeInteractive: true,
-      includeClassroomZip: false,
-    }, {
-      deps: {
-        loadCourse: async () => ({
-          stage,
-          scenes: [{ ...interactiveScene(), stageId: 'stage-2' }],
-        }),
+    const result = await buildBatchExportZip(
+      [{ id: 'stage-2', name: '纯交互' }],
+      {
+        includePptx: true,
+        includeInteractive: true,
+        includeClassroomZip: false,
       },
-    });
+      {
+        deps: {
+          loadCourse: async () => ({
+            stage,
+            scenes: [{ ...interactiveScene(), stageId: 'stage-2' }],
+          }),
+        },
+      },
+    );
 
     const outer = await readZip(result.blob);
     expect(await entryNames(outer)).toEqual(['纯交互/interactive/01_牛顿迭代演示.html']);

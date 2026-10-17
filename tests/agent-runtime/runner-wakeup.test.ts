@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => {
     }),
     getCancelRequestedAt: vi.fn(async () => null),
     isCancelRequested: vi.fn(async () => false),
+    pruneMessageUpdates: vi.fn(async () => undefined),
     listUserMessages: vi.fn(
       async (
         _sessionId?: string,

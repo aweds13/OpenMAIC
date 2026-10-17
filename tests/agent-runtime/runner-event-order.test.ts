@@ -17,6 +17,7 @@ vi.mock('@/lib/server/agent-runtime/store', () => ({
     getCancelRequestedAt: vi.fn(async () => null),
     isCancelRequested: vi.fn(async () => false),
     listUserMessages: vi.fn(async () => []),
+    pruneMessageUpdates: vi.fn(async () => undefined),
     releaseLease: mocks.releaseLease,
     requeueForRetry: vi.fn(async () => false),
     requeueSession: vi.fn(async () => false),

@@ -155,6 +155,10 @@ function makeStore(meta: ClaimedAgentSession) {
     getCancelRequestedAt: vi.fn(async () => null),
     isCancelRequested: vi.fn(async () => false),
     listUserMessages: vi.fn(async () => []),
+    // 上游 1.2.0-rc.1 的 runner 在 setup 里会读「上一轮跑到哪」（readPriorRunRecord
+    // 拿的是 store，不是 entry log），收口时还会删掉被最终回复覆盖的用户消息中间态。
+    readEventsAfter: vi.fn(async () => []),
+    pruneMessageUpdates: vi.fn(async () => undefined),
     registerSessionUrls: vi.fn(async () => []),
     releaseLease: vi.fn(async () => undefined),
     requeueForRetry: vi.fn(async () => false),

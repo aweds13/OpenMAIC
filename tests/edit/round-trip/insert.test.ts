@@ -61,28 +61,34 @@ describe('round-trip: element.add inserts (PR2 gate)', () => {
     expect(slideXml).toContain(DEFAULT_TEXT_NEEDLE);
   });
 
-  it('(b) inserted default image element (remote URL) — slide XML is non-empty', async () => {
-    const { scene, content } = makeSlideFixture();
+  // 本机（Clash fake-IP）有网 ⇒ 导出器真的会去取那条远程 URL，5s 默认超时不够。
+  // 用例要验的是"取不到也不崩"，所以给足时间让它走到 catch 分支。
+  it(
+    '(b) inserted default image element (remote URL) — slide XML is non-empty',
+    { timeout: 60_000 },
+    async () => {
+      const { scene, content } = makeSlideFixture();
 
-    const after = applySlideEditOperation(content, {
-      type: 'element.add',
-      element: createDefaultImageElement('rt-img-1', 'https://example.com/x.png'),
-    });
+      const after = applySlideEditOperation(content, {
+        type: 'element.add',
+        element: createDefaultImageElement('rt-img-1', 'https://example.com/x.png'),
+      });
 
-    const blob = await exportSlideContent(after, scene);
+      const blob = await exportSlideContent(after, scene);
 
-    // (b) Tests that element.add on a remote-URL image does NOT crash or corrupt
-    // export. The remote URL cannot be fetched in CI (no network), so the exporter
-    // logs "Failed to convert image to base64, skipping element" and omits the image.
-    // This case gates that export pipeline is resilient; the REAL image round-trip
-    // (data-URL, the PR2 local-upload path) is covered by image-data-url.test.ts
-    // and is deliberately not duplicated here.
+      // (b) Tests that element.add on a remote-URL image does NOT crash or corrupt
+      // export. The remote URL cannot be fetched in CI (no network), so the exporter
+      // logs "Failed to convert image to base64, skipping element" and omits the image.
+      // This case gates that export pipeline is resilient; the REAL image round-trip
+      // (data-URL, the PR2 local-upload path) is covered by image-data-url.test.ts
+      // and is deliberately not duplicated here.
 
-    // Basic size guard — a valid PPTX is always several KB at minimum.
-    expect(blob.size).toBeGreaterThan(0);
+      // Basic size guard — a valid PPTX is always several KB at minimum.
+      expect(blob.size).toBeGreaterThan(0);
 
-    // The slide XML entry must be present and non-empty.
-    const slideXml = await readPptxEntry(blob, 'ppt/slides/slide1.xml');
-    expect(slideXml.length).toBeGreaterThan(0);
-  });
+      // The slide XML entry must be present and non-empty.
+      const slideXml = await readPptxEntry(blob, 'ppt/slides/slide1.xml');
+      expect(slideXml.length).toBeGreaterThan(0);
+    },
+  );
 });

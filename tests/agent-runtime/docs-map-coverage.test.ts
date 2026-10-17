@@ -27,6 +27,44 @@ const AGENTS = readFileSync(join(process.cwd(), 'AGENTS.md'), 'utf8');
 /** 本 fork 的基线（AGENTS.md §0 记的就是它）。 */
 const BASELINE = '57fbcc4';
 
+/**
+ * 上游自己带来的文件（`origin/main` 树里的路径）。
+ *
+ * ★ 2026-10-17 合并上游 1.2.0-rc.1 之后补的：`57fbcc4..HEAD` 里现在也包含上游那
+ * 80 个提交带来的 1451 个文件，而它们**不是本 fork 的新增**。判据的本意（本文件
+ * 头部）是"本 fork 独有的文件"，所以按 `origin/main` 逐路径剔除。
+ *
+ * 口径**没有放宽**：fork 自己碰过的每个新增文件、每个顶层条目，仍然逐个要求进地图
+ * （剔除集合来自上游的树，不是来自本判据的结论）；git 不可用时返回 `null`，
+ * 调用方退回"不剔除"的旧行为。
+ */
+function upstreamTree(): Set<string> | null {
+  try {
+    const out = execFileSync(
+      'git',
+      ['ls-tree', '-r', '--name-only', 'origin/main', '--', 'lib', 'app', 'components'],
+      { encoding: 'utf8' },
+    );
+    return new Set(out.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0));
+  } catch {
+    return null;
+  }
+}
+
+/** 上游自己改过的路径（`57fbcc4..origin/main`）。理由同 `upstreamTree()`。 */
+function upstreamChanged(): Set<string> | null {
+  try {
+    const out = execFileSync(
+      'git',
+      ['-c', 'core.quotepath=false', 'diff', '--name-only', `${BASELINE}..origin/main`],
+      { encoding: 'utf8' },
+    );
+    return new Set(out.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0));
+  } catch {
+    return null;
+  }
+}
+
 /** 取"基线以来新增的源码文件"。git 不可用 / 基线不在时返回 `null`（跳过而不是误报）。 */
 function forkAddedSources(): string[] | null {
   try {
@@ -35,10 +73,12 @@ function forkAddedSources(): string[] | null {
       ['diff', '--name-only', '--diff-filter=A', `${BASELINE}..HEAD`, '--', 'lib', 'app', 'components'],
       { encoding: 'utf8' },
     );
+    const upstream = upstreamTree();
     return out
       .split('\n')
       .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !line.includes('.test.'));
+      .filter((line) => line.length > 0 && !line.includes('.test.'))
+      .filter((line) => !upstream?.has(line));
   } catch {
     return null;
   }
@@ -158,12 +198,16 @@ describe('★ 动过的一级条目都写在手册里', () => {
         ['-c', 'core.quotepath=false', 'diff', '--name-only', `${BASELINE}..HEAD`],
         { encoding: 'utf8' },
       );
+      // 上游自己改过的一级条目不算本 fork 的改动（2026-10-17 合上游后加的，
+      // 理由见 `upstreamTree()`；剔除的是上游的改动集合，不是判据自己的结论）。
+      const upstream = upstreamChanged();
       roots = [
         ...new Set(
           out
             .split(/\r?\n/)
             .map((line) => line.trim())
             .filter((line) => line.length > 0)
+            .filter((line) => !upstream?.has(line))
             .map((line) => line.split('/')[0]!),
         ),
       ];

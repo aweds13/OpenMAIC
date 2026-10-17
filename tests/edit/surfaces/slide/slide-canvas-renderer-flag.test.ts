@@ -49,6 +49,8 @@ const content: SlideContent = {
 
 vi.mock('@/lib/config/feature-flags', () => ({
   isEditorRendererEnabled: () => state.rendererEnabled,
+  // 上游 1.2.0-rc.1：材料抽取那条路要先问「服务端持久化配没配」。
+  isServerPersistenceConfigured: () => false,
 }));
 
 vi.mock('@/components/slide-renderer/Editor/Canvas', () => ({
