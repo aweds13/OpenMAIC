@@ -29,6 +29,7 @@ import { withPlainJsonDocumentWrites } from '@/lib/document-store/plain-json-sto
 import { createOwnerBoundDocumentStore } from '@/lib/persistence/owner-bound-document-store';
 import { ensureStageMetaSchema } from '@/lib/persistence/stage-meta';
 import { validateAppScene, validateAppStage } from '@/lib/document-store/validators';
+import { validateSlideCanvas } from '@/lib/server/agent-runtime/course-edit/element-schema';
 import type {
   InteractiveContent,
   PBLContent,
@@ -501,10 +502,7 @@ describe('patch_stage', () => {
       ops: [{ op: 'set', path: '/content/canvas/elements/0/defaultColour', value: '#f00' }],
     } as never);
     expect(unknown).toMatchObject({ isError: true });
-    // ★ 2026-10-08：这句原来断的是原始 Ajv 措辞 `additional properties`，而那**不点名字段**。
-    //   改成按元素汇总之后，消息直接说「多余字段 defaultColour」—— 信息更多，所以改断"字段名"。
-    //   （不是为了让红变绿：如果哪天它退回去只报措辞、不报字段名，这条会立刻红。）
-    expect(textOf(unknown)).toContain('多余字段 defaultColour');
+    expect(textOf(unknown)).toContain('unexpected property "defaultColour"');
 
     const placeholder =
       '<image bytes omitted: image/png, 5000 bytes; read-only placeholder; to replace it, write a new media src/URL at this path>';
@@ -1020,6 +1018,723 @@ describe('patch_stage', () => {
   });
 });
 
+/** A slide carrying every text-bearing element kind plus legacy line data. */
+function richSlideScene(): Scene {
+  const scene = slideScene();
+  (scene.content as SlideContent).canvas.elements.push(
+    {
+      id: 'el-shape',
+      type: 'shape',
+      left: 0,
+      top: 100,
+      width: 200,
+      height: 100,
+      rotate: 0,
+      viewBox: [200, 100],
+      path: 'M 0 0 L 200 0 L 200 100 L 0 100 Z',
+      fixedRatio: false,
+      fill: '#eee',
+      text: {
+        content: '<p>Shape <strong>bold</strong> words</p>',
+        defaultFontName: 'Inter',
+        defaultColor: '#111',
+        align: 'middle',
+      },
+    },
+    // Lines commonly carry `rotate` in stored data even though the DSL line
+    // type omits it.
+    {
+      id: 'el-line',
+      type: 'line',
+      left: 0,
+      top: 300,
+      width: 2,
+      rotate: 0,
+      start: [0, 0],
+      end: [100, 0],
+      style: 'solid',
+      color: '#000',
+      points: ['', ''],
+    } as never,
+    {
+      id: 'el-table',
+      type: 'table',
+      left: 300,
+      top: 100,
+      width: 300,
+      height: 100,
+      rotate: 0,
+      outline: { width: 1, style: 'solid', color: '#000' },
+      colWidths: [0.5, 0.5],
+      cellMinHeight: 30,
+      data: [
+        [
+          { id: 'c00', colspan: 1, rowspan: 1, text: 'Mass' },
+          { id: 'c01', colspan: 1, rowspan: 1, text: 'Weight' },
+        ],
+      ],
+    },
+    {
+      id: 'el-latex',
+      type: 'latex',
+      left: 0,
+      top: 400,
+      width: 100,
+      height: 40,
+      rotate: 0,
+      latex: 'E = mc^2',
+    },
+    {
+      id: 'el-code',
+      type: 'code',
+      left: 600,
+      top: 300,
+      width: 300,
+      height: 100,
+      rotate: 0,
+      language: 'python',
+      lines: [
+        { id: 'l1', content: 'print("hi")' },
+        { id: 'l2', content: 'x = 1' },
+      ],
+    },
+  );
+  return scene;
+}
+
+function richState() {
+  return state(course([richSlideScene()]));
+}
+
+function slideElements(current: ReturnType<typeof state>) {
+  return (current.get().scenes[0]!.content as SlideContent).canvas.elements;
+}
+
+describe('patch_stage robustness', () => {
+  it('lets a background patch through when an unrelated element carries legacy fields', async () => {
+    const scene = richSlideScene();
+    // Legacy data the closed schema would reject on its own.
+    Object.assign((scene.content as SlideContent).canvas.elements[0]!, { legacyFlag: true });
+    const current = state(course([scene]));
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('bg', {
+      target: '/scenes/1',
+      intent: 'Darken the background',
+      ops: [
+        { op: 'set', path: '/content/canvas/background', value: { type: 'solid', color: '#000' } },
+      ],
+    } as never);
+    expect(result).not.toHaveProperty('isError');
+    expect((current.get().scenes[0]!.content as SlideContent).canvas.background).toEqual({
+      type: 'solid',
+      color: '#000',
+    });
+  });
+
+  it('still rejects violations the patch introduces, per the element’s own type', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('bad-line', {
+      target: '/scenes/1',
+      intent: 'Give the line a label',
+      ops: [{ op: 'set', path: '/content/canvas/elements/2/label', value: 'x' }],
+    } as never);
+    expect(result).toMatchObject({ isError: true });
+    expect(textOf(result)).toContain('canvas/elements/2 (line): unexpected property "label"');
+    expect(textOf(result)).not.toContain('defaultFontName');
+    expect(current.putScene).not.toHaveBeenCalled();
+    // `rotate` on a stored line is accepted outright.
+    expect(validateSlideCanvas((richSlideScene().content as SlideContent).canvas)).toEqual([]);
+  });
+
+  it('read_stage text view emits writable field-level pointers', async () => {
+    const current = richState();
+    const read = tool(dslTools(current.store), 'read_stage');
+    const view = JSON.parse(
+      textOf(await read.execute('text', { path: '/scenes/1', detail: 'text' } as never)),
+    ) as { entries: Array<{ path: string; text: string; html?: boolean }> };
+    const byPath = Object.fromEntries(view.entries.map((entry) => [entry.path, entry]));
+    expect(byPath['/content/canvas/elements/0/content']).toMatchObject({
+      text: 'Hello AI',
+      html: true,
+    });
+    expect(byPath['/content/canvas/elements/1/text/content']?.text).toBe('Shape bold words');
+    expect(byPath['/content/canvas/elements/3/data/0/1/text']?.text).toBe('Weight');
+    expect(byPath['/content/canvas/elements/4/latex']?.text).toBe('E = mc^2');
+    expect(byPath['/content/canvas/elements/5/lines/1/content']?.text).toBe('x = 1');
+    expect(byPath['/actions/0/text']?.text).toBe('Welcome');
+    expect(view.entries.some((entry) => entry.path.includes('/visible/'))).toBe(false);
+
+    const actions = JSON.parse(
+      textOf(await read.execute('actions', { path: '/scenes/1/actions', detail: 'text' } as never)),
+    ) as { entries: Array<{ path: string }> };
+    expect(actions.entries.map((entry) => entry.path)).toEqual(['/actions/0/text']);
+
+    // Every pointer the view shows is writable as-is.
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const written = await patch.execute('cell', {
+      target: '/scenes/1',
+      intent: 'Rename a column',
+      ops: [
+        {
+          op: 'str_replace',
+          path: '/content/canvas/elements/3/data/0/1/text',
+          oldText: 'Weight',
+          newText: 'Force',
+        },
+      ],
+    } as never);
+    expect(written).not.toHaveProperty('isError');
+  });
+
+  it('lists the element’s real string fields when str_replace targets a missing field', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('missing-field', {
+      target: '/scenes/1',
+      intent: 'Edit the shape label',
+      ops: [
+        {
+          op: 'str_replace',
+          path: '/content/canvas/elements/1/content',
+          oldText: 'Shape',
+          newText: 'Box',
+        },
+      ],
+    } as never);
+    expect(result).toMatchObject({ isError: true });
+    expect(textOf(result)).toContain('/content/canvas/elements/1/content is missing');
+    expect(textOf(result)).toContain('String fields under /content/canvas/elements/1');
+    expect(textOf(result)).toContain('/content/canvas/elements/1/text/content');
+  });
+
+  it('explains a missing anchor with the closest excerpt, markup, and other fields', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const paraphrased = await patch.execute('paraphrase', {
+      target: '/scenes/1',
+      intent: 'Fix wording',
+      ops: [
+        {
+          op: 'str_replace',
+          path: '/content/canvas/elements/1/text/content',
+          oldText: 'Shape bold word',
+          newText: 'x',
+        },
+      ],
+    } as never);
+    expect(textOf(paraphrased)).toContain('anchor text not found');
+    expect(textOf(paraphrased)).toContain('HTML markup');
+    expect(textOf(paraphrased)).toContain('closest stored text');
+
+    const elsewhere = await patch.execute('elsewhere', {
+      target: '/scenes/1',
+      intent: 'Fix wording',
+      ops: [
+        {
+          op: 'str_replace',
+          path: '/content/canvas/elements/0/content',
+          oldText: 'Welcome',
+          newText: 'Hi',
+        },
+      ],
+    } as never);
+    expect(textOf(elsewhere)).toContain('the anchor occurs verbatim in /actions/0/text');
+    expect(current.putScene).not.toHaveBeenCalled();
+  });
+
+  it('resolves str_replace without path to the single field holding the anchor', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('no-path', {
+      target: '/scenes/1',
+      intent: 'Fix the formula',
+      ops: [{ op: 'str_replace', oldText: 'mc^2', newText: 'm c^2' }],
+    } as never);
+    expect(result).not.toHaveProperty('isError');
+    expect(textOf(result)).toContain(
+      'op 1: str_replace path resolved to /content/canvas/elements/4/latex',
+    );
+    expect(slideElements(current)[4]).toMatchObject({ latex: 'E = m c^2' });
+
+    const ambiguous = await patch.execute('ambiguous', {
+      target: '/scenes/1',
+      intent: 'Rename',
+      ops: [{ op: 'str_replace', oldText: 'We', newText: 'Wee' }],
+    } as never);
+    expect(textOf(ambiguous)).toContain('anchor text occurs in 2 fields');
+    expect(textOf(ambiguous)).toContain('/content/canvas/elements/3/data/0/1/text');
+    expect(textOf(ambiguous)).toContain('/actions/0/text');
+
+    // Structural strings (ids, fonts, colors) are never path-less targets.
+    const structural = await patch.execute('structural', {
+      target: '/scenes/1',
+      intent: 'Rename',
+      ops: [{ op: 'str_replace', oldText: 'el-title', newText: 'el-x' }],
+    } as never);
+    expect(textOf(structural)).toContain('not found in any string field');
+
+    const none = await patch.execute('none', {
+      target: '/scenes/1',
+      intent: 'Rename',
+      ops: [{ op: 'str_replace', oldText: 'Welcom everyone', newText: 'Hi' }],
+    } as never);
+    expect(textOf(none)).toContain('not found in any string field');
+    expect(textOf(none)).toContain('closest stored text is in /actions/0/text');
+  });
+
+  it('appends with set at index == length and explains shifted indices', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const appended = await patch.execute('append', {
+      target: '/scenes/1',
+      intent: 'Add narration',
+      ops: [{ op: 'set', path: '/actions/1', value: { type: 'speech', text: 'More' } }],
+    } as never);
+    expect(appended).not.toHaveProperty('isError');
+    expect(textOf(appended)).toContain('op 1: appended at index 1 (array had 1 items)');
+    const actions = current.get().scenes[0]!.actions!;
+    expect(actions).toHaveLength(2);
+    // Actions are server-identified like elements: a missing id is assigned.
+    expect(actions[1]).toMatchObject({ type: 'speech', text: 'More', id: expect.any(String) });
+
+    const shifted = await patch.execute('shifted', {
+      target: '/scenes/1',
+      intent: 'Remove and recolor',
+      ops: [
+        { op: 'delete_element', elementId: 'el-shape' },
+        { op: 'set', path: '/content/canvas/elements/5/color', value: '#f00' },
+      ],
+    } as never);
+    expect(shifted).toMatchObject({ isError: true, details: { failedOp: 2 } });
+    expect(textOf(shifted)).toContain('out of bounds (current length 5)');
+    expect(textOf(shifted)).toContain('indices have shifted');
+    expect(textOf(shifted)).toContain('0=el-title, 1=el-line');
+  });
+
+  it('keeps the server-owned id on a whole-element set and names changed ids', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const replaced = await patch.execute('replace', {
+      target: '/scenes/1',
+      intent: 'Rewrite the formula element',
+      ops: [
+        {
+          op: 'set',
+          path: '/content/canvas/elements/4',
+          value: {
+            type: 'latex',
+            left: 0,
+            top: 400,
+            width: 120,
+            height: 40,
+            rotate: 0,
+            latex: 'F = ma',
+          },
+        },
+      ],
+    } as never);
+    expect(replaced).not.toHaveProperty('isError');
+    expect(slideElements(current)[4]).toMatchObject({ id: 'el-latex', latex: 'F = ma' });
+
+    const retyped = await patch.execute('retype', {
+      target: '/scenes/1',
+      intent: 'Swap element kind',
+      ops: [
+        {
+          op: 'set',
+          path: '/content/canvas/elements/4',
+          value: { id: 'el-new', type: 'text' },
+        },
+      ],
+    } as never);
+    expect(textOf(retyped)).toContain('added "el-new"; removed "el-latex"');
+
+    // Carrying another element's id is a reorder/swap attempt: rejected, not
+    // silently re-identified (animations and actions target ids).
+    const elements = slideElements(current);
+    const swapped = await patch.execute('swap', {
+      target: '/scenes/1',
+      intent: 'Swap two elements',
+      ops: [
+        { op: 'set', path: '/content/canvas/elements/0', value: elements[1] },
+        { op: 'set', path: '/content/canvas/elements/1', value: elements[0] },
+      ],
+    } as never);
+    expect(swapped).toMatchObject({ isError: true, details: { failedOp: 1 } });
+    expect(textOf(swapped)).toContain(
+      'carries id "el-shape" of the element at index 1; elements cannot be reordered',
+    );
+    expect(slideElements(current)[0]!.id).toBe('el-title');
+  });
+
+  it('fully validates a changed canvas field and names the offending item', async () => {
+    const scene = richSlideScene();
+    const canvas = (scene.content as SlideContent).canvas;
+    const valid = {
+      id: 'anim-1',
+      elId: 'el-title',
+      effect: 'fadeIn',
+      type: 'in',
+      duration: 500,
+      trigger: 'click',
+    } as const;
+    const legacy = { ...valid, id: 'anim-2', legacyFlag: true };
+    canvas.animations = [valid, legacy] as never;
+    const current = state(course([scene]));
+    const patch = tool(dslTools(current.store), 'patch_stage');
+
+    // Untouched legacy animations do not block an unrelated edit.
+    const unrelated = await patch.execute('bg', {
+      target: '/scenes/1',
+      intent: 'Darken the background',
+      ops: [
+        { op: 'set', path: '/content/canvas/background', value: { type: 'solid', color: '#000' } },
+      ],
+    } as never);
+    expect(unrelated).not.toHaveProperty('isError');
+
+    // Touching the animations array revalidates all of it, with a precise
+    // pointer to the item the model must fix.
+    const shifted = await patch.execute('shift', {
+      target: '/scenes/1',
+      intent: 'Drop the first animation',
+      ops: [{ op: 'remove', path: '/content/canvas/animations/0' }],
+    } as never);
+    expect(shifted).toMatchObject({ isError: true });
+    expect(textOf(shifted)).toContain('canvas/animations/0: unexpected property "legacyFlag"');
+  });
+
+  it('rejects invalid values moved or duplicated within a changed field', async () => {
+    const scene = richSlideScene();
+    const canvas = (scene.content as SlideContent).canvas;
+    canvas.theme.themeColors = ['#2563eb', 42 as unknown as string];
+    const current = state(course([scene]));
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const duplicated = await patch.execute('theme-dup', {
+      target: '/scenes/1',
+      intent: 'Add a theme color',
+      ops: [{ op: 'set', path: '/content/canvas/theme/themeColors/2', value: 42 }],
+    } as never);
+    expect(duplicated).toMatchObject({ isError: true });
+    expect(textOf(duplicated)).toContain('canvas/theme/themeColors/1: must be string');
+    expect(textOf(duplicated)).toContain('canvas/theme/themeColors/2: must be string');
+
+    const chart = {
+      id: 'el-chart',
+      type: 'chart',
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 100,
+      rotate: 0,
+      chartType: 'bar',
+      themeColors: ['#000'],
+      data: { labels: [42], legends: [], series: [] },
+    };
+    const before = { ...canvas, theme: { ...canvas.theme, themeColors: ['#000'] } };
+    const withChart = (data: unknown) =>
+      ({ ...before, elements: [{ ...chart, data }] }) as unknown as typeof canvas;
+    expect(
+      validateSlideCanvas(
+        withChart({ labels: [], legends: [42], series: [] }),
+        withChart(chart.data),
+      ),
+    ).toEqual(['canvas/elements/0/data/legends/0 (chart): must be string']);
+  });
+
+  it('fully validates a changed table and names the offending cell', async () => {
+    const scene = richSlideScene();
+    const table = (scene.content as SlideContent).canvas.elements[3] as unknown as {
+      data: Array<Array<Record<string, unknown>>>;
+    };
+    table.data[0]![1]!.legacyFlag = true;
+    const current = state(course([scene]));
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const removed = await patch.execute('cell-shift', {
+      target: '/scenes/1',
+      intent: 'Drop the first cell',
+      ops: [{ op: 'remove', path: '/content/canvas/elements/3/data/0/0' }],
+    } as never);
+    expect(removed).toMatchObject({ isError: true });
+    expect(textOf(removed)).toContain(
+      'canvas/elements/3/data/0/0 (table): unexpected property "legacyFlag"',
+    );
+  });
+
+  it('runs identity and schema checks on str_replace into slide content', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const retype = await patch.execute('retype', {
+      target: '/scenes/1',
+      intent: 'Bad edit',
+      ops: [
+        {
+          op: 'str_replace',
+          path: '/content/canvas/elements/1/text/align',
+          oldText: 'middle',
+          newText: 'mid',
+        },
+      ],
+    } as never);
+    expect(retype).toMatchObject({ isError: true, details: { failedOp: 1 } });
+    expect(textOf(retype)).toContain('canvas/elements/1/text/align (shape)');
+
+    const reid = await patch.execute('reid', {
+      target: '/scenes/1',
+      intent: 'Bad edit',
+      ops: [
+        {
+          op: 'str_replace',
+          path: '/content/canvas/elements/0/id',
+          oldText: 'title',
+          newText: 'x',
+        },
+      ],
+    } as never);
+    expect(textOf(reid)).toContain('cannot add, remove, or change element ids');
+    expect(current.putScene).not.toHaveBeenCalled();
+  });
+
+  it('keeps the action id on a whole-action set and clears stale audio', async () => {
+    const scene = richSlideScene();
+    scene.actions = [
+      { id: 'act-1', type: 'speech', text: 'Welcome', audioId: 'asset-old' },
+      { id: 'act-2', type: 'speech', text: 'Next' },
+    ] as never;
+    const current = state(course([scene]));
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const replaced = await patch.execute('replace-action', {
+      target: '/scenes/1',
+      intent: 'Rewrite narration',
+      ops: [
+        {
+          op: 'set',
+          path: '/actions/0',
+          value: { type: 'speech', text: 'Hello again', audioId: 'asset-old' },
+        },
+      ],
+    } as never);
+    expect(replaced).not.toHaveProperty('isError');
+    const action = current.get().scenes[0]!.actions![0]!;
+    expect(action).toMatchObject({ id: 'act-1', text: 'Hello again' });
+    expect(action).not.toHaveProperty('audioId');
+
+    const swapped = await patch.execute('swap-action', {
+      target: '/scenes/1',
+      intent: 'Swap narration',
+      ops: [{ op: 'set', path: '/actions/0', value: { id: 'act-2', type: 'speech', text: 'x' } }],
+    } as never);
+    expect(textOf(swapped)).toContain('carries id "act-2" of the action at index 1');
+  });
+
+  it('keeps audio only when the batch-start action with the same id has the same text', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const changed = await patch.execute('reuse-changed', {
+      target: '/scenes/1',
+      intent: 'Rewrite narration',
+      ops: [
+        { op: 'remove', path: '/actions/0' },
+        {
+          op: 'set',
+          path: '/actions/0',
+          value: { id: 'act-1', type: 'speech', text: 'Different', audioId: 'asset-old' },
+        },
+      ],
+    } as never);
+    expect(changed).not.toHaveProperty('isError');
+    expect(current.get().scenes[0]!.actions![0]).not.toHaveProperty('audioId');
+
+    const fresh = state(course([richSlideScene()]));
+    const freshPatch = tool(dslTools(fresh.store), 'patch_stage');
+    const unchanged = await freshPatch.execute('reuse-same', {
+      target: '/scenes/1',
+      intent: 'Re-add narration',
+      ops: [
+        { op: 'remove', path: '/actions/0' },
+        {
+          op: 'set',
+          path: '/actions/0',
+          value: { id: 'act-1', type: 'speech', text: 'Welcome', audioId: 'asset-old' },
+        },
+      ],
+    } as never);
+    expect(unchanged).not.toHaveProperty('isError');
+    expect(fresh.get().scenes[0]!.actions![0]).toMatchObject({ audioId: 'asset-old' });
+  });
+
+  it('rejects an appended action that reuses an existing id', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    for (const path of ['/actions/1', '/actions/-']) {
+      const result = await patch.execute('dup-action', {
+        target: '/scenes/1',
+        intent: 'Add narration',
+        ops: [{ op: 'set', path, value: { id: 'act-1', type: 'speech', text: 'More' } }],
+      } as never);
+      expect(result).toMatchObject({ isError: true });
+      expect(textOf(result)).toContain('duplicate action ids "act-1"');
+    }
+    expect(current.putScene).not.toHaveBeenCalled();
+  });
+
+  it('drops audio on speech actions with a new or missing id after a whole-array set', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('replace-all', {
+      target: '/scenes/1',
+      intent: 'Rewrite narration',
+      ops: [
+        {
+          op: 'set',
+          path: '/actions',
+          value: [
+            { type: 'speech', text: 'Hello again', audioId: 'asset-old', audioUrl: 'u' },
+            { id: 'act-new', type: 'speech', text: 'More', audioId: 'asset-old' },
+          ],
+        },
+      ],
+    } as never);
+    expect(result).not.toHaveProperty('isError');
+    const actions = current.get().scenes[0]!.actions!;
+    expect(actions[0]).toMatchObject({ id: expect.any(String), text: 'Hello again' });
+    for (const action of actions) {
+      expect(action).not.toHaveProperty('audioId');
+      expect(action).not.toHaveProperty('audioUrl');
+    }
+  });
+
+  it('reports a bad action list instead of throwing on null actions', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('null-action', {
+      target: '/scenes/1',
+      intent: 'Replace narration',
+      ops: [{ op: 'set', path: '/actions', value: [null, { type: 'speech', text: 'x' }] }],
+    } as never);
+    expect(result).toMatchObject({ isError: true });
+    expect(current.putScene).not.toHaveBeenCalled();
+  });
+
+  it('accepts /content/elements as the canonical /content/canvas/elements and says so', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const result = await patch.execute('alias', {
+      target: '/scenes/1',
+      intent: 'Recolor title',
+      ops: [{ op: 'set', path: '/content/elements/0/defaultColor', value: '#f00' }],
+    } as never);
+    expect(result).not.toHaveProperty('isError');
+    expect(textOf(result)).toContain(
+      'path /content/elements/0/defaultColor read as /content/canvas/elements/0/defaultColor',
+    );
+    expect(slideElements(current)[0]).toMatchObject({ defaultColor: '#f00' });
+  });
+
+  it('infers a missing op only when unambiguous and hints remove for valueless set', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const inferred = await patch.execute('infer', {
+      target: '/scenes/1',
+      intent: 'Mixed edits',
+      ops: [
+        { path: '/content/canvas/elements/0/defaultColor', value: '#0f0' },
+        {
+          path: '/content/canvas/elements/4/latex',
+          oldText: 'mc^2',
+          newText: 'mc^3',
+        },
+        { elementId: 'el-code' },
+      ],
+    } as never);
+    expect(inferred).not.toHaveProperty('isError');
+    expect(textOf(inferred)).toContain('op 1: op inferred as set');
+    expect(textOf(inferred)).toContain('op 2: op inferred as str_replace');
+    expect(textOf(inferred)).toContain('op 3: op inferred as delete_element');
+    expect(slideElements(current).map((element) => element.id)).not.toContain('el-code');
+
+    const ambiguous = await patch.execute('ambiguous', {
+      target: '/scenes/1',
+      intent: 'Unclear',
+      ops: [{ path: '/content/canvas/elements/0/fill' }],
+    } as never);
+    expect(textOf(ambiguous)).toContain('op is missing and cannot be inferred');
+
+    const valueless = await patch.execute('valueless', {
+      target: '/scenes/1',
+      intent: 'Clear fill',
+      ops: [{ op: 'set', path: '/content/canvas/elements/0/fill' }],
+    } as never);
+    expect(textOf(valueless)).toContain('to clear a field use op:"remove"');
+  });
+
+  it('fills renderer defaults on add_element but never invents text content', async () => {
+    const current = richState();
+    const patch = tool(dslTools(current.store), 'patch_stage');
+    const added = await patch.execute('add', {
+      target: '/scenes/1',
+      intent: 'Add a caption',
+      ops: [
+        {
+          op: 'add_element',
+          element: {
+            type: 'text',
+            left: 0,
+            top: 500,
+            width: 300,
+            height: 40,
+            content: '<p>Caption</p>',
+          },
+        },
+      ],
+    } as never);
+    expect(added).not.toHaveProperty('isError');
+    expect(slideElements(current).at(-1)).toMatchObject({
+      content: '<p>Caption</p>',
+      rotate: 0,
+      defaultFontName: expect.any(String),
+      defaultColor: expect.any(String),
+    });
+
+    const empty = await patch.execute('add-empty', {
+      target: '/scenes/1',
+      intent: 'Add a caption',
+      ops: [
+        {
+          op: 'add_element',
+          element: { type: 'text', left: 0, top: 500, width: 300, height: 40 },
+        },
+      ],
+    } as never);
+    expect(textOf(empty)).toContain('element (text): missing required property "content"');
+
+    // A supplied path keeps its own coordinate space: viewBox is not derived.
+    const shape = {
+      type: 'shape',
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      path: 'M 0 0 L 1 0 L 1 1 Z',
+    };
+    const pathOnly = await patch.execute('add-path', {
+      target: '/scenes/1',
+      intent: 'Add a triangle',
+      ops: [{ op: 'add_element', element: shape }],
+    } as never);
+    expect(textOf(pathOnly)).toContain('element (shape): missing required property "viewBox"');
+    const { path: _path, ...box } = shape;
+    const boxOnly = await patch.execute('add-box', {
+      target: '/scenes/1',
+      intent: 'Add a box',
+      ops: [{ op: 'add_element', element: box }],
+    } as never);
+    expect(boxOnly).not.toHaveProperty('isError');
+    expect(slideElements(current).at(-1)).toMatchObject({ viewBox: [200, 100] });
+  });
+});
+
 describe('grep_stage', () => {
   it('matches case-insensitively and maps NFKC-expanded matches to original offsets', async () => {
     const scene = slideScene();
@@ -1226,6 +1941,13 @@ describe('DSL course-tool wiring', () => {
     expect(DSL_TOOLS_PROMPT).toContain('/scenes/<1-based order|sceneId>');
     expect(DSL_TOOLS_PROMPT).toContain('Start with detail:"tree" to see structure');
     expect(DSL_TOOLS_PROMPT).toContain('prefer grep_stage over paging with offset');
+  });
+
+  it('points a new course without a chosen skill at stage-design before planning', () => {
+    const prompt = buildRunnerCoursePrompt({});
+    expect(prompt).toContain(
+      'When the user asks for a new course and has not chosen a skill, read the `stage-design` skill before planning; topic skills build on it.',
+    );
   });
 });
 
@@ -1500,191 +2222,4 @@ it('allows unrelated text edits on a slide with imported chart formatting', asyn
   } as never);
   expect(result).not.toHaveProperty('isError');
   expect(current.putScene).toHaveBeenCalledTimes(1);
-});
-
-/**
- * ★★ 命中要带**字段级指针** —— 这是 `grep_stage` → `patch_stage` 之间缺的那一环
- * （2026-10-10，学习者实测逼出来的）。
- *
- * ── 由来 ──────────────────────────────────────────────────────
- *
- * 学习者原话：「**`patch_stage` 要逐字匹配，所以得先把那一页的源码读出来
- * （第 35 页整页 4.2 万字符，我只要其中一句话）—— 它不能搜索关键字吗**」。
- *
- * 能搜（`grep_stage` 一直都在，提示词也写着 "prefer grep_stage over paging with offset"），
- * **但搜出来的东西不够拿来改**：命中原来只有 `scenePath: /scenes/<id>`（**页**级），
- * 而 `patch_stage` 的 `set` / `str_replace` 要的是 **`/content/...` 字段级指针**。
- * 两者对不上 ⇒ 模型搜到了那句话，仍然得把整页源码读出来才知道它在哪个元素里。
- * 提示词那句话因此是**半句空话**。
- *
- * 判据钉两件事：**source scope 给出指针** · **text scope 不给**（那搜的是可见正文投影，
- * 与源码字段不是一一对应，给出来就是错的 —— 宁可没有，不要给错）。
- */
-describe('★★ grep_stage 的命中要带字段级指针', () => {
-  it('★ scope=source 时给出可直达 patch_stage 的字段指针', async () => {
-    const scene = slideScene();
-    ((scene.content as SlideContent).canvas.elements[0] as PPTTextElement).content =
-      '<p>闰年判断：能被 4 整除</p>';
-    const current = state(course([scene]));
-    const grep = tool(dslTools(current.store), 'grep_stage');
-    const result = await grep.execute('grep', {
-      query: '闰年判断',
-      scope: 'source',
-    } as never);
-    const details = result.details as { hits: Array<{ pointers?: string[] }> };
-    const pointed = details.hits.filter((hit) => (hit.pointers ?? []).length > 0);
-    expect(pointed.length).toBeGreaterThanOrEqual(1);
-    // ★ 指针必须是**字段级**（不是 /scenes/<id> 那种页级），且落在 content 之下。
-    const pointer = pointed[0]!.pointers![0]!;
-    expect(pointer.startsWith('/content/')).toBe(true);
-    expect(pointer).toContain('/elements/');
-  });
-
-  it('★ scope=text **不给**指针（可见正文与源码字段不是一一对应，给出来就是错的）', async () => {
-    const scene = slideScene();
-    ((scene.content as SlideContent).canvas.elements[0] as PPTTextElement).content =
-      '<p>闰年判断：能被 4 整除</p>';
-    const current = state(course([scene]));
-    const grep = tool(dslTools(current.store), 'grep_stage');
-    const result = await grep.execute('grep', { query: '闰年判断', scope: 'text' } as never);
-    const details = result.details as { hits: Array<{ pointers?: string[] }> };
-    expect(details.hits.length).toBeGreaterThanOrEqual(1);
-    for (const hit of details.hits) expect(hit.pointers ?? []).toHaveLength(0);
-  });
-});
-
-/**
- * ★★ **「没找到」和「没扫完」绝不许长得一样**（2026-10-10，学习者贴回来的真跑记录逼出来的）。
- *
- * ── 那次真实失败 ────────────────────────────────────────────────
- *
- * agent 拿一句话去搜（`scope: "source"`），回话是：
- *
- * ```
- * { "hits": [], "scannedChars": 260741, "truncated": true, "cursor": "eyJ2…" }
- * ```
- *
- * **而回话里一个字都没说"我没扫完"。** 它据此对学习者说「搜不到那句」——
- * 把"还没扫到"当成了"不存在"。整门课 86 页，那次只扫到第 18 页。
- *
- * 这正是本仓反复栽的那个形状。所以：**截断了就必须先用大白话说清覆盖范围**，
- * 一条都没命中时更要说 —— 那正是最容易被误读成"全课都没有"的情形。
- */
-describe('★★ grep_stage 截断时必须说"没扫完"', () => {
-  const needle = '编译器拦下来';
-  const manyScenes = Array.from({ length: 40 }, (_, i) => {
-    const scene = slideScene(i + 1, `scene_${i + 1}`);
-    ((scene.content as SlideContent).canvas.elements[0] as PPTTextElement).content =
-      `<p>${needle}：第 ${i + 1} 页</p>`;
-    return scene;
-  });
-
-  it('★ 命中撞上限（截断）⇒ 明说"没扫完"，并给 cursor', async () => {
-    const current = state(course(manyScenes));
-    const grep = tool(dslTools(current.store), 'grep_stage');
-    const result = await grep.execute('grep', { query: needle, scope: 'source' } as never);
-    const details = result.details as { truncated: boolean; cursor?: string };
-    expect(details.truncated).toBe(true);
-    expect(details.cursor).toBeTruthy();
-    // ★ 关键：回话正文里必须出现"没扫完"这层意思，不能只有 JSON。
-    expect(textOf(result)).toContain('没扫完');
-    expect(textOf(result)).toContain('后面还有没扫的内容');
-  });
-
-  it('★ 一条都没命中**又**截断 ⇒ 明说"不能说 不存在"（那次就是这么误判的）', async () => {
-    const current = state(course(manyScenes));
-    const grep = tool(dslTools(current.store), 'grep_stage');
-    // 先用一次会截断的查询占掉额度不现实；直接用一个"只在很后面才出现"的词也不稳，
-    // 所以这里改为：构造一个**命中为 0 且也截断**的场景 —— 命中上限先被别的词吃满。
-    // 简化做法：查一个不存在的词，此时若截断，notice 必须给出"不能说 不存在"。
-    const result = await grep.execute('grep', { query: '这个词整门课都没有', scope: 'source' } as never);
-    const details = result.details as { hits: unknown[]; truncated: boolean };
-    if (details.truncated && details.hits.length === 0) {
-      expect(textOf(result)).toContain('不能说');
-      expect(textOf(result)).toContain('还没扫到那里');
-    } else {
-      // 没截断就不该出现这层话（否则是噪声）。
-      expect(textOf(result)).not.toContain('没扫完');
-    }
-  });
-
-  it('★ 没截断时**一个字都不多说**（诊断不能变成噪声）', async () => {
-    const current = state(course([slideScene()]));
-    const grep = tool(dslTools(current.store), 'grep_stage');
-    const result = await grep.execute('grep', { query: 'ＡＩ', scope: 'text' } as never);
-    expect((result.details as { truncated: boolean }).truncated).toBe(false);
-    expect(textOf(result)).not.toContain('没扫完');
-  });
-});
-
-/**
- * ★★ **小框改字：装不下就**不写**（2026-10-10，学习者转来 agent 的自述）。
- *
- * 「**小框（120–135px）改字必须等长或更短** —— 这门课里这种框很多，
- *   **我这轮就先溢出再压缩过一次**。」
- *
- * 那次代价是**两次写入 + 一轮往返**。而这两件事**写之前就都知道**：
- * 盒子多大、字号多大、新文字多长。`layout-check` 是**写完之后**的诊断，
- * 挡不住这一次 —— 所以补这道**事前**的。
- *
- * ★ 拒绝信息必须给出路：**缩短到 ≤N 字，或加框 / 拆页**；
- *   并且明说**不要压字号**（那正是"缩成灰块"那条老路）。
- */
-describe('★★ patch_stage：小框改字装不下就不写', () => {
-  const smallBoxScene = (): Scene => {
-    const scene = slideScene();
-    const canvas = (scene.content as SlideContent).canvas;
-    canvas.elements[0] = {
-      ...(canvas.elements[0] as PPTTextElement),
-      left: 40, top: 40, width: 400, height: 128,   // ← 学习者点名的那种小框
-      content: '<p style="font-size: 16px;">短句。</p>',
-    } as PPTTextElement;
-    return scene;
-  };
-
-  it('★ 塞一段长文字进去 ⇒ **拒绝**，且说清"没写入"、给两条路、别压字号', async () => {
-    const current = state(course([smallBoxScene()]));
-    const patch = tool(dslTools(current.store), 'patch_stage');
-    const result = await patch.execute('p', {
-      stageId: 'stage-test',
-      target: '/scenes/scene_slide',
-      intent: '改一句',
-      ops: [
-        {
-          op: 'str_replace',
-          path: '/content/canvas/elements/0/content',
-          oldText: '短句。',
-          newText: `<p style="font-size: 16px;">${'这句话很长，'.repeat(30)}</p>`,
-        },
-      ],
-    } as never);
-    const text = textOf(result);
-    expect(text).toContain('溢出');
-    expect(text).toContain('没有写入');
-    expect(text).toContain('拆成两页');
-    expect(text).toContain('不要压字号');
-    // ★ 拒绝 ⇒ 页面没变（整批原子，不留半成品）
-    expect((current.get().scenes[0]!.content as SlideContent).canvas.elements[0]).toMatchObject({
-      height: 128,
-    });
-  });
-
-  it('★ 等长或更短的改法**照常放行**（不能把正常路挡住）', async () => {
-    const current = state(course([smallBoxScene()]));
-    const patch = tool(dslTools(current.store), 'patch_stage');
-    const result = await patch.execute('p', {
-      stageId: 'stage-test',
-      target: '/scenes/scene_slide',
-      intent: '换个说法',
-      ops: [
-        {
-          op: 'str_replace',
-          path: '/content/canvas/elements/0/content',
-          oldText: '短句。',
-          newText: '<p style="font-size: 16px;">短。</p>',
-        },
-      ],
-    } as never);
-    expect(textOf(result)).not.toContain('溢出');
-  });
 });

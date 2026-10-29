@@ -41,7 +41,6 @@ import {
   getAgentSessionMaterialStore,
   getSessionMaterial,
   listSessionMaterials,
-  sessionMaterialsPromptBlock,
 } from '@/lib/server/agent-runtime/session-materials';
 import { buildFetchUrlTool } from '@/lib/server/agent-runtime/fetch-url';
 import { registerSessionUrls } from '@/lib/server/agent-runtime/session-urls';
@@ -190,43 +189,6 @@ describe('session materials persistence', () => {
     expect(await getSessionMaterial('session-other', rows[0]!.id)).toBeNull();
   });
 });
-
-describe('sessionMaterialsPromptBlock', () => {
-  // This block sits inside the system message, and a system message is ONE
-  // prefix-cache unit: a single changed byte re-bills the whole message plus
-  // every message behind it. Enumerating the materials here used to make it
-  // change on every registration — measured at 99.1% -> 38.5% cache hit rate
-  // after inserting one material row into an otherwise untouched session.
-  // These assertions are the contract that keeps that from coming back.
-  it('takes no arguments, so no per-session data can reach it', () => {
-    expect(sessionMaterialsPromptBlock).toHaveLength(0);
-  });
-
-  it('is byte-identical on every call', () => {
-    expect(sessionMaterialsPromptBlock()).toBe(sessionMaterialsPromptBlock());
-  });
-
-  it('directs the agent to the material tools instead of listing materials', () => {
-    const prompt = sessionMaterialsPromptBlock();
-
-    expect(prompt).toContain('list_materials');
-    expect(prompt).toContain('read_material');
-    expect(prompt).toContain('nextOffset');
-    expect(prompt).toContain('search_material');
-    expect(prompt).toContain('literal text');
-    expect(prompt).toContain('fetched and extracted');
-    expect(prompt).toContain('extract_material');
-    expect(prompt).toContain('wait_for_materials');
-    expect(prompt).toContain('use_material_media');
-    // The old shape was a per-material bullet carrying its character count.
-    // That line is the cache-buster; assert it cannot come back.
-    expect(prompt).not.toMatch(/^- "/m);
-    expect(prompt).not.toContain('characters)');
-    expect(prompt).not.toContain('textAssetId');
-    expect(prompt).not.toContain('sourceUrl');
-  });
-});
-
 describe('the material store on a fresh database', () => {
   it('provisions the agent-session schema before its own, whoever asks first', async () => {
     const db = new PGlite();

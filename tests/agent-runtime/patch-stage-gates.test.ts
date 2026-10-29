@@ -356,7 +356,7 @@ describe('★ 校验报错按元素汇总（不再被截断埋掉关键那一行
     });
     const issues = validateSlideCanvas(canvas);
     const joined = issues.join(' | ');
-    expect(joined).toContain('type=table');
+    expect(joined).toContain('(table)');
     expect(joined).toContain('data');
     expect(joined).not.toContain('must be equal to constant');
     // 汇总后应当很短：一个元素一行，不是几十行
@@ -419,7 +419,7 @@ describe('★ 元素类型必须在合同内（含 code / video / audio）', () 
     } } }).content.canvas;
     canvas.elements.push({ id: 'x-1', type: 'not-a-real-type', left: 0, top: 0, width: 10, height: 10, rotate: 0 });
     const joined = validateSlideCanvas(canvas).join(' | ');
-    expect(joined).toContain('不在合同里');
+    expect(joined).toContain('unknown element type');
     expect(joined).toContain('code');
   });
 });

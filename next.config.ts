@@ -3,23 +3,18 @@ import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 
 const nextConfig: NextConfig = {
   /**
-   * 允许 `127.0.0.1` 访问 dev server 自己的资源。
-   *
-   * 为什么需要：Next.js 16 的 dev server **默认只允许 localhost**，把其它
-   * 来源对自己 `/_next/*` 的请求当跨域拦掉。而本机（以及桌面快捷方式）用
-   * 的是 `127.0.0.1:3000` —— 于是 HTML 能加载、**JS 分块全被 403 拦掉**，
-   * 页面看起来正常但**所有按钮都没反应**（没有事件处理器），日志里是
-   * "Blocked cross-origin request to Next.js dev resource /_next/... "。
-   *
-   * 只在开发期有意义，生产构建不看这个键。
+   * 允许 `127.0.0.1` 访问 dev server 自己的资源。Next 16 的 dev server 默认只允许
+   * localhost，会把其它来源对自己 `/_next/*` 的请求当跨域拦掉 —— 页面能打开、JS 分块
+   * 全 403，看起来正常但所有按钮都没反应。只在开发期有意义，生产构建不看这个键。
    */
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
-  // 上游 1.2.0-rc.1 把旧的 Pi 对话路整条退役（#1913），`NEXT_PUBLIC_PI_CHAT_ENABLED`
-  // 也随之不再存在（这个文件下方还留着"设了它就让生产构建失败"的守卫）。
-  // 二开这边原先在这里钉这个键，合上游时去掉了 —— 钉一个已退役的键只会让构建
-  // 带着一个没人读的 env，并和上面那个守卫打架。
-  // 上游 1.2.0-rc.1 去掉了 VERCEL 逃逸（server-first 自托管）：一律 standalone。
+  // Keep Next dev from creating or rewriting repository agent instructions.
+  agentRules: false,
   output: 'standalone',
+  env: {
+    INTERACTIVE_ASSET_BASE_URL:
+      process.env.INTERACTIVE_ASSET_BASE_URL?.trim() || '/vendor/interactive',
+  },
   outputFileTracingIncludes: {
     '/*': [
       'lib/server/agent-runtime/import-pptx-worker.mjs',
@@ -71,6 +66,13 @@ const nextConfig: NextConfig = {
     const frameAncestors = extraAncestors ? `'self' ${extraAncestors}` : "'self'";
 
     return [
+      {
+        source: '/vendor/interactive/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
       {
         source: '/(.*)',
         headers: [

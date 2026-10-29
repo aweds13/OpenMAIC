@@ -58,6 +58,21 @@ vi.mock('node:crypto', async (importActual) => {
   return { ...actual, randomUUID: mocks.randomUUID };
 });
 
+vi.mock('@/lib/server/agent-runtime/extraction-watcher', async (importActual) => {
+  const actual =
+    await importActual<typeof import('@/lib/server/agent-runtime/extraction-watcher')>();
+  return {
+    ...actual,
+    startExtractionWatcher: () => ({ stop: () => {}, observe: () => ({ settled: [] }) }),
+  };
+});
+
+vi.mock('@/lib/server/agent-runtime/material-resolver', async (importActual) => {
+  const actual =
+    await importActual<typeof import('@/lib/server/agent-runtime/material-resolver')>();
+  return { ...actual, listSessionScopeMaterials: async () => [] };
+});
+
 vi.mock('@/lib/server/agent-runtime/store', () => ({
   getAgentSessionStore: mocks.getAgentSessionStore,
 }));
@@ -288,6 +303,11 @@ describe('skills runner registration', () => {
       'search_material',
       'extract_material',
       'wait_for_materials',
+      'list_material_folders',
+      'create_material_folder',
+      'rename_material_folder',
+      'move_materials',
+      'rename_material',
       'list_voices',
       'set_roster',
       'clip_audio',
@@ -296,7 +316,7 @@ describe('skills runner registration', () => {
       'search_chats',
       'read_chat',
     ]);
-    expect([...(options.allowedToolNames ?? [])].sort()).toEqual([ 'ask_user', 'clip_audio', 'course_audit', 'create_folder', 'create_skill', 'create_stage', 'duplicate_scene', 'edit_deck', 'extract_material', 'fetch_url', 'generate_actions', 'generate_image', 'generate_scene', 'generate_tts', 'grep_stage', 'import_pptx', 'list_folder_stages', 'list_materials', 'list_scenes', 'list_voices', 'move_to_folder', 'patch_skill', 'patch_stage', 'practice_result', 'practice_scaffold', 'read', 'read_chat', 'read_classroom', 'read_material', 'read_skill', 'read_stage', 'read_stage_outline', 'rename_stage', 'review_course', 'scratch', 'search_chats', 'search_classrooms', 'search_material', 'set_roster', 'use_material_media', 'wait_for_materials', ]);
+    expect([...(options.allowedToolNames ?? [])].sort()).toEqual([ 'ask_user', 'clip_audio', 'course_audit', 'create_folder', 'create_material_folder', 'create_skill', 'create_stage', 'duplicate_scene', 'edit_deck', 'extract_material', 'fetch_url', 'generate_actions', 'generate_image', 'generate_scene', 'generate_tts', 'grep_stage', 'import_pptx', 'list_folder_stages', 'list_material_folders', 'list_materials', 'list_scenes', 'list_voices', 'move_materials', 'move_to_folder', 'patch_skill', 'patch_stage', 'practice_result', 'practice_scaffold', 'read', 'read_chat', 'read_classroom', 'read_material', 'read_skill', 'read_stage', 'read_stage_outline', 'rename_material', 'rename_material_folder', 'rename_stage', 'review_course', 'scratch', 'search_chats', 'search_classrooms', 'search_material', 'set_roster', 'use_material_media', 'wait_for_materials' ]);
     expect(options.systemPrompt).toContain('<available_skills>');
     expect(options.systemPrompt).toContain('<name>pro-editing</name>');
     expect(options.systemPrompt).toContain('<name>stage-design</name>');

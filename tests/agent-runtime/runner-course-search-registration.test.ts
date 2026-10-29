@@ -40,6 +40,21 @@ vi.mock('node:crypto', async (importActual) => {
   return { ...actual, randomUUID: mocks.randomUUID };
 });
 
+vi.mock('@/lib/server/agent-runtime/extraction-watcher', async (importActual) => {
+  const actual =
+    await importActual<typeof import('@/lib/server/agent-runtime/extraction-watcher')>();
+  return {
+    ...actual,
+    startExtractionWatcher: () => ({ stop: () => {}, observe: () => ({ settled: [] }) }),
+  };
+});
+
+vi.mock('@/lib/server/agent-runtime/material-resolver', async (importActual) => {
+  const actual =
+    await importActual<typeof import('@/lib/server/agent-runtime/material-resolver')>();
+  return { ...actual, listSessionScopeMaterials: async () => [] };
+});
+
 vi.mock('@/lib/server/agent-runtime/store', () => ({
   getAgentSessionStore: mocks.getAgentSessionStore,
 }));
@@ -484,6 +499,9 @@ describe('★ assembled prompt: every capability combination', () => {
         parameters?: unknown;
       }[];
       const params = declaredParamNames(toolsWithSchema);
+      // 结果字段不是参数：材料工具把状态/文件夹名回给模型时用的是这两个键
+      // （`material-model-copy.ts` 的 copy 里就写着它们），提示词里点它们是**对的**。
+      for (const field of ['statusLabel', 'folderLabel']) params.add(field);
       const badParams = [
         ...new Set(
           toolsWithSchema.flatMap((tool) =>

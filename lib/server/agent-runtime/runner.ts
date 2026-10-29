@@ -48,8 +48,15 @@ import {
 } from './fetch-url';
 import { assembleRunnerTools, buildRunnerCoursePrompt } from './runner-contract';
 import type { CoursePromptBlocks } from './course-tools';
-import { buildMaterialTools } from './material-tools';
-import { buildRosterTools, ROSTER_TOOLS_PROMPT } from './roster-tools';
+import { buildMaterialTools, MATERIAL_TOOL_NAMES } from './material-tools';
+import { defaultLocale, supportedLocaleOf, type Locale } from '@/lib/i18n/types';
+import { startExtractionWatcher, type ExtractionWatcher } from './extraction-watcher';
+import {
+  buildMaterialLibraryTools,
+  MATERIAL_LIBRARY_TOOL_NAMES,
+  type MaterialLibraryChange,
+} from './material-library-tools';
+import { buildRosterTools, ROSTER_TOOL_NAMES, ROSTER_TOOLS_PROMPT } from './roster-tools';
 import {
   buildVoiceCloneTools,
   hasConfiguredVoiceRegistrationCapability,
@@ -107,7 +114,8 @@ import {
   preloadUserMessage,
   type SkillPreload,
 } from './skill-preload';
-import { sessionMaterialsPromptBlock } from './session-materials';
+import { listSessionScopeMaterials } from './material-resolver';
+import { materialsPromptBlock } from './material-prompt';
 import {
   availableSkillsPromptBlock,
   skillChoicePromptBlock,
@@ -135,7 +143,8 @@ import {
   type PendingToolCall,
 } from './tool-call-integrity';
 import { getAgentSessionStore } from './store';
-import { listAgentUserMessages } from './user-messages';
+import { findDeletedUserSkill } from './user-skills';
+import { listAgentUserMessages, readAgentMessageLog } from './user-messages';
 import { subscribeAgentEventWakeup } from './event-notify-bus';
 import { getBackgroundDocumentStore } from './owner-scoped-documents';
 import { canonicalizeStoredOwner } from '@/lib/persistence/owner-merges';
@@ -167,7 +176,7 @@ const MESSAGE_UPDATE_MIN_INTERVAL_MS = 150;
  * when a web-search backend is configured, the curriculum block always, the
  * skill discovery block when skills are installed, the fetch_url guidance
  * when fetching is enabled, and untrusted-content policy always, and
- * the session-materials block only when the session has materials.
+ * the materials block always — static guidance, independent of the material set.
  */
 function isLeaseLostError(error: unknown): boolean {
   let current = error;
@@ -752,6 +761,25 @@ export function durableUserMessageSeq(message: AgentMessage): number | null {
 }
 
 /**
+ * The interface language in effect once the user message `through` has been
+ * consumed (#1880): the latest message up to it that names a supported
+ * locale, else the session's own (for a first run with no message event at
+ * all), else the project default. Messages after `through` never count, so a
+ * queued message cannot change the words of the turn before it.
+ */
+export function localeThrough(
+  messages: ReadonlyMap<number, Locale>,
+  through: number,
+  sessionLocale: unknown,
+): Locale {
+  let latest: { seq: number; locale: Locale } | null = null;
+  for (const [seq, locale] of messages) {
+    if (seq <= through && (!latest || seq > latest.seq)) latest = { seq, locale };
+  }
+  return latest?.locale ?? supportedLocaleOf(sessionLocale) ?? defaultLocale;
+}
+
+/**
  * The classrooms a message named, resolved against the owner's own library.
  *
  * The composer stores a SNAPSHOT title on the ref, which is right for the
@@ -900,14 +928,17 @@ export function planRunStart(input: {
   if (input.plan.kind === 'start') {
     // A session created with opening context requeues its opening message as a
     // durable `user_message` before the runner claims; `pending[0]` is that
-    // message. Its classrooms must reach the model, or the run would not know
-    // which classroom the user named. Nothing else changes: the raw prompt is
-    // still the base, and materials are already listed in the system block.
-    // Messages that are not the opening one are delivered as follow-ups.
-    if (opening?.courseRefs?.length || opening?.elementRefs?.length) {
+    // message. Classrooms, element refs, and attachments on it must reach the
+    // model. The raw prompt stays the base text. The attachment note is the
+    // same one follow-up messages carry, and it stays out of the system prompt.
+    // Messages that are not the opening one are follow-ups.
+    if (
+      opening &&
+      (opening.courseRefs?.length || opening.elementRefs?.length || opening.materials?.length)
+    ) {
       return {
         kind: 'prompt',
-        text: composeFollowUpText({ ...opening, text: input.prompt, materials: undefined }),
+        text: composeFollowUpText({ ...opening, text: input.prompt }),
         ...(opening.durableMessageSeq ? { durableMessageSeq: opening.durableMessageSeq } : {}),
       };
     }
@@ -1020,6 +1051,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
   let criticalWriteError: unknown;
   let entryWritesHealthy = true;
   let terminalFrameEmitted = false;
+  let extractionWatcher: ExtractionWatcher | undefined;
 
   const markLeaseLost = () => {
     leaseLost = true;
@@ -1113,6 +1145,9 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         abort.abort();
       }
       return;
+    }
+    if (type === LIFECYCLE.sessionEnd || type === LIFECYCLE.sessionInterrupted) {
+      extractionWatcher?.stop();
     }
     runEventEmitted = true;
     if (type === LIFECYCLE.sessionEnd) terminalFrameEmitted = true;
@@ -1266,6 +1301,11 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     const historyMessages = recovery.messages;
     const plan = planResume(historyMessages);
     const plannedMessages = plan.kind === 'start' ? [] : plan.messages;
+    // The transcript append can survive a crash before the delivery cursor does.
+    const consumedInTranscript = plannedMessages.reduce(
+      (latest, message) => Math.max(latest, durableUserMessageSeq(message) ?? 0),
+      0,
+    );
     // planResume now contains durable messages only; synthetic receipts are a
     // read-time provider view owned by repairOrphanedToolCalls.
     const retainedCount = plannedMessages.length;
@@ -1295,37 +1335,41 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // ── Skills ─────────────────────────────────────────────────────────────────
     // The installed set (builtins + this owner's user-authored skills) is loaded
     // once per run. An explicit API selection (the session's frozen `skillId`)
-    // is validated here rather than at claim time; an unavailable skill is a
-    // hard error. Automatic activation lives in the transcript: a successful pi
+    // is validated here rather than at claim time. Only a confirmed deleted
+    // personal Skill may be detached; missing/foreign skills remain errors.
+    // Automatic activation lives in the transcript: a successful pi
     // `read` of SKILL.md. An explicit selection stays authoritative for this
     // session rather than being silently replaced by a later model read.
-    const installedSkills = await listSkills(meta.ownerId);
+    let installedSkills = await listSkills(meta.ownerId);
     const requestedSkill = await findSkill(meta.skillId, meta.ownerId);
+    const deletedSkill =
+      meta.skillId?.startsWith('usk_') && !requestedSkill
+        ? await findDeletedUserSkill(meta.skillId, meta.ownerId)
+        : null;
     if (meta.skillId && !requestedSkill) {
-      throw new Error(`session skill "${meta.skillId}" is unavailable for its owner`);
+      if (!deletedSkill) {
+        throw new Error(`session skill "${meta.skillId}" is unavailable for its owner`);
+      }
     }
-    let activeSkill = requestedSkill ?? skillReadFromTranscript(historyMessages, installedSkills);
-    let userFramesSeen = 0;
-    let turnPinnedSkill: LoadedSkill | null = null;
-    let pinValidThrough = -1;
-    const pinnedForCurrentTurn = (): LoadedSkill | null =>
-      turnPinnedSkill && userFramesSeen <= pinValidThrough ? turnPinnedSkill : null;
-    const skillReadTool = installedSkills.length
-      ? createNativeSkillReadTool(installedSkills, (selected) => {
-          if (!requestedSkill && !pinnedForCurrentTurn()) activeSkill = selected;
-        })
-      : null;
+    // Deletion may land between listSkills and findSkill's fresh lookup. Never
+    // keep the confirmed tombstone's body in this run's earlier snapshot.
+    if (deletedSkill)
+      installedSkills = installedSkills.filter((skill) => skill.id !== deletedSkill.id);
 
-    const adoptPreload = (preload: SkillPreload, deliversUserFrame: boolean): void => {
-      if (requestedSkill) return;
-      const target = preloadConstraintTarget(preload.requested);
-      turnPinnedSkill = target && target.constraints !== null ? target : null;
-      pinValidThrough = userFramesSeen + (deliversUserFrame ? 1 : 0);
-      if (target) activeSkill = target;
-    };
-
-    const loggedMessages = await listAgentUserMessages(store, id);
+    const {
+      messages: loggedMessages,
+      detachedSkills,
+      openingMessageSeq,
+    } = await readAgentMessageLog(store, id);
     let deliveredThrough = meta.deliveredUserMessageSeq ?? 0;
+    // Each durable message's interface language (#1880), filled as the run
+    // reads messages; `localeThrough` decides which one is in effect.
+    const messageLocales = new Map<number, Locale>();
+    const rememberLocale = (message: { seq: number; locale?: unknown }) => {
+      const locale = supportedLocaleOf(message.locale);
+      if (locale) messageLocales.set(message.seq, locale);
+    };
+    loggedMessages.forEach(rememberLocale);
     // Resolve the classrooms each pending message named against the owner's
     // library BEFORE the prompt is built: the run must be told the course's
     // current name (reference semantics), and the same resolved refs feed the
@@ -1380,6 +1424,37 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         repairedToolCalls: repairedToolCallIds,
       });
     }
+
+    if (deletedSkill) {
+      // Preserve the first-lifecycle-frame contract. Then commit the recovery
+      // and its recovery receipt atomically, before this message reaches the model.
+      await flushAll();
+      // Already consumed turns and the original opening message must not be
+      // reinterpreted as selecting a newly created Skill with the same handle.
+      // Fresh follow-ups after this boundary retain normal explicit selection.
+      const receipt = {
+        skillName: deletedSkill.name,
+        throughMessageSeq: Math.max(deliveredThrough, consumedInTranscript, openingMessageSeq ?? 0),
+      };
+      const detached = await store.detachSessionSkill(id, {
+        ownerId: meta.ownerId,
+        workerId: WORKER_ID,
+        attempt,
+        skillId: deletedSkill.id,
+        notice: { ts: Date.now(), type: LIFECYCLE.skillDetached, data: receipt },
+      });
+      if (!detached) throw new AgentSessionLeaseLostError(id, WORKER_ID, attempt);
+      delete meta.skillId;
+      detachedSkills.push(receipt);
+    }
+
+    const skillAvailableForMessage = (skill: { id: string; name: string }, seq = 0) =>
+      skill.id !== deletedSkill?.id &&
+      !detachedSkills.some(
+        (receipt) => receipt.skillName === skill.name && seq <= receipt.throughMessageSeq,
+      );
+    const skillsForMessage = (seq = 0) =>
+      installedSkills.filter((skill) => skillAvailableForMessage(skill, seq));
 
     const driver = await resolveAgentDriverModel(await backgroundWorkspaceId(meta.ownerId));
     const streamFn = createCallLlmStreamFn({
@@ -1568,6 +1643,39 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       idleAttach,
       firstRunSeq: recovery.firstRunSeq,
     });
+    // Discovery, preload and both readers share the consumed turn's boundary.
+    // Queuing a steer must not change what the preceding turn may read.
+    let skillMessageSeq =
+      plannedStart.kind === 'prompt'
+        ? (plannedStart.durableMessageSeq ?? 0)
+        : Math.max(deliveredThrough, consumedInTranscript);
+    const currentSkills = () => skillsForMessage(skillMessageSeq);
+    let activeSkill = requestedSkill ?? skillReadFromTranscript(historyMessages, currentSkills());
+    let userFramesSeen = 0;
+    let turnPinnedSkill: LoadedSkill | null = null;
+    let pinValidThrough = -1;
+    const pinnedForCurrentTurn = (): LoadedSkill | null =>
+      turnPinnedSkill && userFramesSeen <= pinValidThrough ? turnPinnedSkill : null;
+    const skillReadTool = installedSkills.length
+      ? createNativeSkillReadTool(currentSkills, (selected) => {
+          if (!requestedSkill && !pinnedForCurrentTurn()) activeSkill = selected;
+        })
+      : null;
+    const adoptPreload = (preload: SkillPreload, deliversUserFrame: boolean): void => {
+      if (requestedSkill) return;
+      const target = preloadConstraintTarget(preload.requested);
+      turnPinnedSkill = target && target.constraints !== null ? target : null;
+      pinValidThrough = userFramesSeen + (deliversUserFrame ? 1 : 0);
+      if (target) activeSkill = target;
+    };
+    // Use the language of the message being answered, not the newest queued.
+    let runLocale = localeThrough(
+      messageLocales,
+      plannedStart.kind === 'prompt' && plannedStart.durableMessageSeq !== undefined
+        ? plannedStart.durableMessageSeq
+        : Math.max(deliveredThrough, consumedInTranscript),
+      meta.locale,
+    );
     // The owner probe is the tool layer's legality boundary: every course call
     // declares its stageId, and stageAccess resolves that stage against the
     // session owner (owned / foreign / missing / tombstoned) before the tool
@@ -1612,6 +1720,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     const dslTools = buildDslCourseToolset({
       reviewedStages,
       reviewPage,
+      locale: () => runLocale,
       store: ownerScopedStore,
       backgroundStore: mediaJobStore,
       // The video slot for this run's owner; generate_video exists only when
@@ -1644,18 +1753,41 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       stageAccess,
       ownerId: meta.ownerId,
     });
-    // Session-scoped material tools are wired from durable session identity on
-    // every start and resume (reference semantics: the material tools are
-    // always registered alongside the capability-gated web_search); the tools
-    // read through the session-scoped store on each call.
-    //
-    // The materials listing is deliberately NOT read here any more. It only
-    // ever fed the prompt block, and enumerating the materials in the system
-    // prompt made the prompt change on every registration — one changed byte
-    // re-bills the whole system message plus every message behind it (see
-    // sessionMaterialsPromptBlock for the measurement). The block is a constant
-    // now and names `list_materials` instead.
-    const materialTools = buildMaterialTools({ sessionId: id });
+    // Session-scoped material tools are wired from durable session identity
+    // on every start and resume (the tools are always registered alongside
+    // the capability-gated web_search). The resolved set is passed into the
+    // materials block, which must not render it: names, ids and extraction
+    // status would change the system prompt and drop the prefix cache.
+    // The tools read the store on each call.
+    const materials = await listSessionScopeMaterials(id);
+    // Material-library changes reach the client as the durable
+    // `library_changed` with `library: 'materials'`; its material lists
+    // refetch, and the course tree does not.
+    const onMaterialLibraryChanged = (change: MaterialLibraryChange) =>
+      emit(LIFECYCLE.libraryChanged, change);
+    // Sources whose extraction this run cares about are watched while it
+    // lasts, so a settlement reaches the client without another wait.
+    extractionWatcher = startExtractionWatcher({
+      onSettled: (materialIds) =>
+        onMaterialLibraryChanged({
+          library: 'materials',
+          change: 'extraction_settled',
+          materialIds,
+        }),
+    });
+    const materialTools = buildMaterialTools({
+      sessionId: id,
+      onLibraryChanged: onMaterialLibraryChanged,
+      extractionWatcher,
+      locale: () => runLocale,
+    });
+    // Organizing the knowledge base: the run's owner, never a parameter.
+    const materialLibraryTools = buildMaterialLibraryTools({
+      sessionId: id,
+      ownerId: meta.ownerId,
+      onLibraryChanged: onMaterialLibraryChanged,
+      locale: () => runLocale,
+    });
     // Session-scoped registered voices: register_voice appends here, and
     // list_voices / set_roster (roster-tools) read the same array, so a cloned
     // voice stays bindable within the session that registered it (in-session
@@ -1773,7 +1905,9 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // Skill created earlier IN THIS RUN is not in `installedSkills` (loaded
         // once at start), and a tool that appears only on the next run would be a
         // capability the model cannot discover when it needs it.
-        buildSkillEditTools(meta.ownerId, currentOwner),
+        buildSkillEditTools(meta.ownerId, currentOwner, (skill) =>
+          skillAvailableForMessage(skill, skillMessageSeq),
+        ),
         // The native `read` tool is restricted to installed skill resources; it is
         // present exactly when skills exist. Discovery and invocation stay pi-native.
         skillReadTool ? [skillReadTool] : [],
@@ -1796,6 +1930,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         curriculumTools,
         scenePreviewTools,
         materialTools,
+        materialLibraryTools,
         rosterTools,
         voiceCloneTools,
         personalHistoryTools,
@@ -1827,8 +1962,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     //   那正是 `planFreeze` / `courseAudit` / `scratch` / `practice` / `learnerState`
     //   五个块被**静默丢弃**的原因（第 13 轮）。
     //   至此整条链由编译器兜住：runner 设的键 ⊆ 接口 ⊆ PROMPT_BLOCK_ORDER ⊆ 真渲染。
-    const promptBlocks: CoursePromptBlocks = {
-      availableSkills: availableSkillsPromptBlock(installedSkills),
+    const buildPromptBlocks = (): CoursePromptBlocks => ({
+      availableSkills: availableSkillsPromptBlock(currentSkills()),
         // 技能清单是"有哪些"，这一段是"怎么用它们做选择" —— 让 agent 主动
         // 推荐几个 + 把其余方法类列全，而不是等学习者点名（他不知道有这些）。
         skillChoice: installedSkills.length ? skillChoicePromptBlock(installedSkills) : undefined,
@@ -1861,26 +1996,19 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // fetch_url 没配能力时整块不出现：注册面、allowedToolNames、这里三处同源（§1.1）。
         fetch: fetchConnection ? fetchPromptBlock() : undefined,
         untrustedContent: untrustedContentPolicyPromptBlock(!!fetchConnection),
-        // Unconditional and constant: a session-conditional block would flip
-        // once (absent -> present) and cost one full-context re-read. See
-        // sessionMaterialsPromptBlock.
-        materials: sessionMaterialsPromptBlock(),
+        // Always: a conversation with nothing attached can still use the
+        // knowledge base.
+        materials: materialsPromptBlock(materials),
         roster: ROSTER_TOOLS_PROMPT,
         voice: voiceCloneToolsPrompt(voiceRegistrationEnabled),
-        // ★ 放在**最后**是刻意的：这是全提示词里唯一一块「学习者答一次题就变」的内容。
-        // 前缀缓存按前缀算，它后面没有别的块 ⇒ 变一次只让这一小段重读，前面照旧命中；
-        // 放进中间会让它之后的所有块每次一起失效。
-        // 它也是条件块（没记录时整块不出现），代价与 learnerProfile 同类：只在
-        // 「从没有记录 → 第一次有记录」时翻转一次。见 §1.2。
+        // ★ 放在**最后**是刻意的：全提示词里唯一一块「学习者答一次题就变」的内容。
+        // 前缀缓存按前缀算，它后面没有别的块 ⇒ 变一次只让这一小段重读。
         learnerState: learnerState ? learnerStatePromptBlock(learnerState) : undefined,
-    };
+    });
     if (process.env.OPENMAIC_DEBUG_PROMPT_FINGERPRINT === '1') {
       try {
         const { createHash } = await import('node:crypto');
-        // ★ 必须过滤掉 `undefined`：条件块现在写成 `key: cond ? value : undefined`
-        //   （那样每个键才是**直接键**、才受编译期多余属性检查）。
-        //   不过滤的话 `text.length` 会抛，而它在 try/catch 里 ⇒ **指纹静默失效**。
-        const parts = Object.entries(promptBlocks)
+        const parts = Object.entries(buildPromptBlocks())
           .filter(([, value]) => Boolean(value))
           .map(([name, value]) => {
             const text = value as string;
@@ -1891,24 +2019,16 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // Diagnostic only: fingerprinting must never break a run.
       }
     }
+    const systemPromptForTurn = () => buildRunnerCoursePrompt(buildPromptBlocks());
     const agent = buildAgent({
-      streamFn,
-      systemPrompt: buildRunnerCoursePrompt(promptBlocks),
+      // Pi snapshots the system prompt at run start. Rebuild discovery at the
+      // provider boundary too, after a fresh steered user frame is consumed.
+      streamFn: (model, context, options) =>
+        streamFn(model, { ...context, systemPrompt: systemPromptForTurn() }, options),
+      systemPrompt: systemPromptForTurn(),
       model: driver.piModel,
       tools,
-      // ★ 允许表**从真正装出来的工具派生**，不再手写第二遍。
-      //
-      //   原来这里是一份 ~30 行手写的名字镜像，注释里把"注册了就必须放行（§1.1）"
-      //   重复了四遍 —— 那说明它想表达的正是"允许表 = 工具表"，只是靠人保证。
-      //   而"两份清单靠人保证"这次会话已经咬过两回：
-      //     · 材料库：`materialsTools` 由两个 builder 建，允许表却读手写的
-      //       `MATERIALS_TOOL_NAMES`；
-      //     · 第 13 轮同形状的那处（6 个提示词块被静默丢弃）。
-      //   任何一处对不上，模型就"看得见、调不动"，**而且不报错**。
-      //
-      //   派生之后这一整类不可能再发生：工具表里有什么，就放行什么。
-      //   配套判据：runner-course-search-registration 的能力矩阵里逐组合断言
-      //   `tools ⊆ allowedToolNames`（对账成了常驻守卫）。
+      // ★ 允许表**从真正装出来的工具派生**，不再手写第二遍（见 HEAD 注释）。
       allowedToolNames: new Set(tools.map((tool) => tool.name)),
       ...(plan.kind === 'start' ? {} : { history: modelMessages }),
       afterToolCall: (toolContext) => {
@@ -1935,7 +2055,17 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         if (event.message.role === 'assistant') {
           trackToolCallMessage(inFlightToolCalls, event.message);
         }
-        if (event.message.role === 'user') userFramesSeen += 1;
+        if (event.message.role === 'user') {
+          userFramesSeen += 1;
+          // A durable message enters the transcript here -- the start prompt
+          // or a steered follow-up -- and from now on the run answers it, in
+          // its language.
+          const consumed = durableUserMessageSeq(event.message);
+          if (consumed !== null) {
+            runLocale = localeThrough(messageLocales, consumed, meta.locale);
+            skillMessageSeq = consumed;
+          }
+        }
         enqueue(async () => {
           await entrySession!.appendMessage(event.message);
           const deliveredSeq = durableUserMessageSeq(event.message);
@@ -1995,6 +2125,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       let delivered = 0;
       for (const message of all) {
         if (message.seq <= deliveredThrough || acceptedMessageSeqs.has(message.seq)) continue;
+        // Recorded now, in effect only once pi consumes the message.
+        rememberLocale(message);
         const followUp = toFollowUp(message);
         // Same resolution as the start path: a steered message names its
         // classrooms on the durable event, and the model must be told the
@@ -2066,7 +2198,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // transcript dedupe (not a special case) keeps it to one load.
         const preload = await buildSkillPreload({
           text: plannedStart.text,
-          skills: installedSkills,
+          skills: skillsForMessage(plannedStart.durableMessageSeq),
           transcript: modelMessages,
           ...(plan.kind === 'start' && requestedSkill ? { forced: [requestedSkill] } : {}),
           model: {
@@ -2117,12 +2249,13 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         // Delivery carries NO user message — the follow-up cursor is the count
         // of `user` messages in the transcript, and moving it would mark a
         // real user message delivered and drop it.
-        const resumedTurnText =
-          loggedMessages.findLast((message) => message.seq <= deliveredThrough)?.text ??
-          meta.prompt;
+        const resumedMessage = loggedMessages.findLast(
+          (message) => message.seq <= Math.max(deliveredThrough, consumedInTranscript),
+        );
+        const resumedTurnText = resumedMessage?.text ?? meta.prompt;
         const repair = await buildSkillPreload({
           text: resumedTurnText,
-          skills: installedSkills,
+          skills: skillsForMessage(resumedMessage?.seq),
           transcript: modelMessages,
           model: {
             api: driver.piModel.api,
@@ -2278,6 +2411,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
   } finally {
     clearInterval(heartbeatTimer);
     clearInterval(cancelPoll);
+    extractionWatcher?.stop();
     unsubscribeWakeup();
     drainOnWake = null;
     await flushAll(false);

@@ -14,6 +14,8 @@
  *
  * Field sets mirror `@openmaic/dsl` `slides.ts` exactly (the 10-element union).
  */
+import { validateShapeGeometry, shapeGeometryChanged } from '@openmaic/geometry';
+import type { Slide, PPTShapeElement } from '@openmaic/dsl';
 import { Type, type TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { ElementTypes } from '@openmaic/dsl';
@@ -409,6 +411,9 @@ const LineElementPatch = Type.Object(
     lock: optionalBoolean(),
     groupId: optionalString(),
     width: optionalNumber(),
+    // Not part of the DSL line type, but renderers and imports commonly store
+    // it on lines; rejecting it would block every unrelated edit on the slide.
+    rotate: optionalNumber(),
     link: Type.Optional(Link),
     name: optionalString(),
     start: Type.Optional(Point),
@@ -607,25 +612,24 @@ const CodeElementInput = fullElementSchema(ElementTypes.CODE, CodeElementPatch, 
   'lines',
 ]);
 
+const ELEMENT_INPUT_SCHEMAS: Record<string, TSchema> = {
+  [ElementTypes.TEXT]: TextElementInput,
+  [ElementTypes.IMAGE]: ImageElementInput,
+  [ElementTypes.SHAPE]: ShapeElementInput,
+  [ElementTypes.LINE]: LineElementInput,
+  [ElementTypes.CHART]: ChartElementInput,
+  [ElementTypes.TABLE]: TableElementInput,
+  [ElementTypes.LATEX]: LatexElementInput,
+  [ElementTypes.VIDEO]: VideoElementInput,
+  [ElementTypes.AUDIO]: AudioElementInput,
+  [ElementTypes.CODE]: CodeElementInput,
+};
+
 /** Complete element JSON accepted by `add_element`; `id` is server-assigned. */
-export const SlideElementInputSchema = Type.Union(
-  [
-    TextElementInput,
-    ImageElementInput,
-    ShapeElementInput,
-    LineElementInput,
-    ChartElementInput,
-    TableElementInput,
-    LatexElementInput,
-    VideoElementInput,
-    AudioElementInput,
-    CodeElementInput,
-  ],
-  {
-    description:
-      'One COMPLETE slide element JSON without id. The server validates it and assigns id.',
-  },
-);
+export const SlideElementInputSchema = Type.Union(Object.values(ELEMENT_INPUT_SCHEMAS), {
+  description:
+    'One COMPLETE slide element JSON without id. The server validates it and assigns id.',
+});
 
 function persistedElementSchema(schema: TSchema): TSchema {
   const object = schema as TSchema & {
@@ -642,33 +646,12 @@ function persistedElementSchema(schema: TSchema): TSchema {
   return { ...persisted, required: ['id', ...(object.required ?? [])] };
 }
 
-/** Complete persisted element JSON, including the server-owned id. */
-/**
- * 每种元素**自己那一支**的持久化 schema —— 从它派生 union，同时也用它做**错误定位**：
- * 一个元素没过 union 时，用**它自己那一支**重新校验，才拿得到"它到底缺什么"。
- * 直接看 union 的错误会把**所有**分支的必需字段混成一行（实测过：
- * `缺必需字段 content, defaultFontName, defaultColor, fixedRatio, src, viewBox, path, fill`）。
- */
-const PERSISTED_ELEMENT_SCHEMAS = {
-  [ElementTypes.TEXT]: persistedElementSchema(TextElementInput),
-  [ElementTypes.IMAGE]: persistedElementSchema(ImageElementInput),
-  [ElementTypes.SHAPE]: persistedElementSchema(ShapeElementInput),
-  [ElementTypes.LINE]: persistedElementSchema(LineElementInput),
-  [ElementTypes.CHART]: persistedElementSchema(ChartElementInput),
-  [ElementTypes.TABLE]: persistedElementSchema(TableElementInput),
-  [ElementTypes.LATEX]: persistedElementSchema(LatexElementInput),
-  // ★ 这三类**一直都在**（上游 10 类，本仓也全支持）—— 我 2026-10-09 做这张查找表时
-  //   只照"union 的前 7 行"手抄了一遍，把它们漏了 ⇒ 汇总器对 `code` 元素会说
-  //   "这个类型不在合同里"（**假话**），而我还把这条假话写成了判据。
-  //   **手写镜像比现实窄** —— 同一个病，这次犯在我自己身上。
-  [ElementTypes.VIDEO]: persistedElementSchema(VideoElementInput),
-  [ElementTypes.AUDIO]: persistedElementSchema(AudioElementInput),
-  [ElementTypes.CODE]: persistedElementSchema(CodeElementInput),
-} as const;
-
-// union 也从**这张表**派生，不再另抄一份（两份清单必然漂）。
-const PersistedSlideElementSchema = Type.Union(
-  Object.values(PERSISTED_ELEMENT_SCHEMAS) as unknown as [TSchema, ...TSchema[]],
+/** Complete persisted element JSON per type, including the server-owned id. */
+const PERSISTED_ELEMENT_SCHEMAS: Record<string, TSchema> = Object.fromEntries(
+  Object.entries(ELEMENT_INPUT_SCHEMAS).map(([type, schema]) => [
+    type,
+    persistedElementSchema(schema),
+  ]),
 );
 
 const SlideThemeSchema = Type.Object(
@@ -720,7 +703,10 @@ const SlideCanvasSchema = Type.Object(
     viewportSize: Type.Number(),
     viewportRatio: Type.Number(),
     theme: SlideThemeSchema,
-    elements: Type.Array(PersistedSlideElementSchema),
+    // Elements are validated one by one against their own declared type (see
+    // `elementIssues`), so errors name the offending property instead of the
+    // union of every element variant's requirements.
+    elements: Type.Array(Type.Unknown()),
     background: Type.Optional(SlideBackgroundSchema),
     animations: Type.Optional(Type.Array(SlideAnimationSchema)),
     turningMode: Type.Optional(
@@ -768,91 +754,180 @@ export function validateElementPatch(type: string, patch: Record<string, unknown
   return Errors(schema, patch).map((error) => `patch${error.instancePath || ''}: ${error.message}`);
 }
 
+interface SchemaIssue {
+  /** Path inside the validated value ("" for the value itself). */
+  at: string;
+  /** Pointer of the offending value: `at`, or `at/<name>` for a property issue. */
+  location: string;
+  message: string;
+}
+
+function encodeToken(token: string): string {
+  return token.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+/** Flatten TypeBox errors into one issue per offending property. */
+function schemaIssues(schema: TSchema, value: unknown): SchemaIssue[] {
+  const issues = Errors(schema, value).flatMap((error): SchemaIssue[] => {
+    const at = error.instancePath || '';
+    const params = error.params as {
+      additionalProperties?: string[];
+      requiredProperties?: string[];
+    };
+    if (error.keyword === 'additionalProperties' && params.additionalProperties?.length) {
+      return params.additionalProperties.map((name) => ({
+        at,
+        location: `${at}/${encodeToken(name)}`,
+        message: `unexpected property ${JSON.stringify(name)}`,
+      }));
+    }
+    if (error.keyword === 'required' && params.requiredProperties?.length) {
+      return params.requiredProperties.map((name) => ({
+        at,
+        location: `${at}/${encodeToken(name)}`,
+        message: `missing required property ${JSON.stringify(name)}`,
+      }));
+    }
+    return [{ at, location: at, message: error.message }];
+  });
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = `${issue.at}: ${issue.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const KNOWN_ELEMENT_TYPES = Object.keys(ELEMENT_INPUT_SCHEMAS).join(', ');
+
+/**
+ * Validate one element against the schema of its OWN declared `type`, so
+ * errors name the offending property instead of the whole element union.
+ * Issue paths are relative to the element.
+ */
+function elementIssues(
+  element: unknown,
+  schemas: Record<string, TSchema>,
+): { type: string; issues: SchemaIssue[] } {
+  if (!element || typeof element !== 'object' || Array.isArray(element)) {
+    return {
+      type: 'unknown',
+      issues: [{ at: '', location: '', message: 'expected an element object' }],
+    };
+  }
+  const type = (element as { type?: unknown }).type;
+  const schema = typeof type === 'string' ? schemas[type] : undefined;
+  if (!schema) {
+    return {
+      type: 'unknown',
+      issues: [
+        {
+          at: '/type',
+          location: '/type',
+          message: `unknown element type ${JSON.stringify(type)}; expected one of ${KNOWN_ELEMENT_TYPES}`,
+        },
+      ],
+    };
+  }
+  return { type: type as string, issues: schemaIssues(schema, element) };
+}
+
+function formatElementIssue(prefix: string, type: string, issue: SchemaIssue): string {
+  return `${prefix}${issue.at} (${type}): ${issue.message}`;
+}
+
 /** Validate a complete, id-less element before the server assigns identity. */
 export function validateElementInput(element: unknown): string[] {
-  if (Check(SlideElementInputSchema, element)) return [];
-  return Errors(SlideElementInputSchema, element).map(
-    (error) => `element${error.instancePath || ''}: ${error.message}`,
-  );
+  const { type, issues } = elementIssues(element, ELEMENT_INPUT_SCHEMAS);
+  if (issues.length > 0) {
+    return issues.map((issue) => formatElementIssue('element', type, issue));
+  }
+  const input = element as PPTShapeElement;
+  return input.type === 'shape' ? shapeGeometryIssues(input, 'element') : [];
+}
+
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** First token of an issue location: the top-level field it belongs to. */
+function topLevelField(issue: SchemaIssue): string {
+  const token = issue.location.split('/')[1] ?? '';
+  return token.replace(/~1/g, '/').replace(/~0/g, '~');
 }
 
 /**
- * 把 canvas 的校验错误**按元素汇总**成几行能直接动手的话。
+ * Validate the patched canvas, rejecting unknown fields at every level.
  *
- * ── 为什么必须这样（2026-10-08 实测）────────────────────────────
- *
- * 原来是**把原始错误平铺**：`Errors(...).map(e => \`canvas${e.instancePath}: ${e.message}\`)`。
- * 一个可辨识联合里每个变体都会报一次，于是**一个元素就能刷出几十行**，而打印时**在 560 字符
- * 处被截断** —— 真正有用的那一行（table 分支说"缺 cellMinHeight"）**正好被截掉**。
- * 那次我是靠"翻出那一页的原始数据 + 三轮比对"才定位的，光看报错原文定不出来。
- *
- * 汇总后每个元素一行：
- *   `canvas/elements/12（type=table）：缺必需字段 cellMinHeight`
- * · `must be equal to constant` 一律丢掉 —— 那是"这个元素不是我这个类型"的噪声，
- *   每个变体都会喊一次，与被改的那个元素无关；
- * · 元素的实际 `type` 补进来（错误消息里不带它，而它是定位的关键）。
+ * With `previous`, data the patch did not touch is not revalidated, so
+ * historical data that predates a schema rule never makes the whole slide
+ * read-only: an element deep-equal to its `previous` version (matched by id)
+ * is skipped, and so is a top-level canvas field deep-equal to its previous
+ * value. Every new or changed element / field is validated in full.
  */
-function summarizeCanvasIssues(
-  canvas: unknown,
-  errors: readonly { instancePath?: string; message: string; params?: unknown }[],
-): string[] {
-  const elements = (canvas as { elements?: unknown[] } | null)?.elements;
-  const rootIssues = errors
-    .filter((error) => !/^\/elements\/\d+/.test(error.instancePath ?? ''))
-    .slice(0, 4)
-    .map((error) => `canvas${error.instancePath ?? ''}: ${error.message}`);
-  const indexes = new Set<number>();
-  for (const error of errors) {
-    const match = /^\/elements\/(\d+)/.exec(error.instancePath ?? '');
-    if (match) indexes.add(Number(match[1]));
-  }
-
-  const lines: string[] = [];
-  for (const index of [...indexes].sort((left, right) => left - right)) {
-    const element = Array.isArray(elements) ? (elements[index] as { type?: unknown } | undefined) : undefined;
-    const type = typeof element?.type === 'string' ? element.type : undefined;
-    const known = Object.keys(PERSISTED_ELEMENT_SCHEMAS);
-    const schema = type && type in PERSISTED_ELEMENT_SCHEMAS
-      ? PERSISTED_ELEMENT_SCHEMAS[type as keyof typeof PERSISTED_ELEMENT_SCHEMAS]
-      : undefined;
-    if (!schema) {
-      // ★ 另一类真故障：元素类型**根本不在合同里** —— 这时 union 里每一支都会抱怨，
-      //   报错原文只会说"must be equal to constant"，看不出是类型不认识。
-      lines.push(
-        `canvas/elements/${index}（type=${String(type)}）：**这个类型不在合同里**（合同只有 ${known.join(' / ')}）` +
-          ' —— 校验的是改完之后的整份 scene，所以这一页**任何**改动都会被拒。',
-      );
-      continue;
-    }
-    // ★ 用**这一支**重新校验：只有这样拿到的才是"它自己缺什么"。
-    const own = Errors(schema, element).filter((error) => error.message !== 'must be equal to constant');
-    const missing = new Set<string>();
-    const extras: string[] = [];
-    const nested: string[] = [];
-    for (const error of own) {
-      const required = /must have required propert(?:y|ies) (.+)$/.exec(error.message);
-      if (required) {
-        for (const field of required[1]!.split(',')) missing.add(field.trim());
-        continue;
+export function validateSlideCanvas(canvas: unknown, previous?: Slide): string[] {
+  // Historical geometry can have schema-invalid types, missing fields, or
+  // malformed tuples. Project unchanged geometry solely for the schema check;
+  // new and changed geometry still receives full validation below.
+  const schemaCanvas = projectUnchangedHistoricalGeometry(canvas, previous);
+  const before = previous as unknown as Record<string, unknown> | undefined;
+  const after = (schemaCanvas ?? {}) as Record<string, unknown>;
+  const issues = schemaIssues(SlideCanvasSchema, schemaCanvas)
+    .filter((issue) => {
+      const field = topLevelField(issue);
+      return !before || field === '' || !sameJson(after[field], before[field]);
+    })
+    .map((issue) => `canvas${issue.at}: ${issue.message}`);
+  const elements = (schemaCanvas as { elements?: unknown }).elements;
+  const originals = (canvas as { elements?: unknown }).elements;
+  if (Array.isArray(elements) && Array.isArray(originals)) {
+    const old = new Map(
+      (Array.isArray(previous?.elements) ? previous.elements : []).map((element) => [
+        element?.id,
+        element,
+      ]),
+    );
+    elements.forEach((element, index) => {
+      const id = (originals[index] as { id?: unknown } | null)?.id;
+      if (typeof id === 'string' && old.has(id) && sameJson(originals[index], old.get(id))) {
+        return;
       }
-      if (error.message.includes('must not have additional properties')) {
-        const named = (error.params as { additionalProperties?: string } | undefined)?.additionalProperties;
-        extras.push(named ?? error.instancePath ?? '多余字段');
-        continue;
+      const { type, issues: current } = elementIssues(element, PERSISTED_ELEMENT_SCHEMAS);
+      for (const issue of current) {
+        issues.push(formatElementIssue(`canvas/elements/${index}`, type, issue));
       }
-      nested.push(`${error.instancePath ?? ''}: ${error.message}`);
-    }
-    const parts: string[] = [];
-    if (missing.size > 0) parts.push(`缺必需字段 ${[...missing].join(', ')}`);
-    if (extras.length > 0) parts.push(`多余字段 ${extras.slice(0, 3).join(', ')}`);
-    if (nested.length > 0) parts.push(nested.slice(0, 2).join('；'));
-    lines.push(`canvas/elements/${index}（type=${type}）：${parts.join('；') || '不符合合同'}`);
+    });
   }
-  return [...rootIssues, ...lines].length > 0 ? [...rootIssues, ...lines] : ['canvas 校验失败'];
+  if (issues.length > 0) return issues;
+  const old = new Map(previous?.elements.map((element) => [element.id, element]));
+  return (canvas as Slide).elements.flatMap((element, index) => {
+    if (element.type !== 'shape') return [];
+    const before = old.get(element.id);
+    if (before?.type === 'shape' && !shapeGeometryChanged(before, element)) return [];
+    return shapeGeometryIssues(element, `canvas/elements/${index}`);
+  });
 }
 
-/** Validate the entire patched canvas, rejecting unknown fields at every level. */
-export function validateSlideCanvas(canvas: unknown): string[] {
-  if (Check(SlideCanvasSchema, canvas)) return [];
-  return summarizeCanvasIssues(canvas, Errors(SlideCanvasSchema, canvas));
+function projectUnchangedHistoricalGeometry(canvas: unknown, previous?: Slide): unknown {
+  if (!previous || !canvas || typeof canvas !== 'object' || !('elements' in canvas)) return canvas;
+  const elements = canvas.elements;
+  if (!Array.isArray(elements)) return canvas;
+  const old = new Map(previous.elements.map((element) => [element.id, element]));
+  let changed = false;
+  const projected = elements.map((element) => {
+    if (!element || typeof element !== 'object' || element.type !== 'shape') return element;
+    const before = old.get(element.id);
+    if (before?.type !== 'shape' || shapeGeometryChanged(before, element)) return element;
+    changed = true;
+    return { ...element, path: '', width: 1, height: 1, viewBox: [1, 1] };
+  });
+  return changed ? { ...canvas, elements: projected } : canvas;
+}
+
+function shapeGeometryIssues(shape: PPTShapeElement, prefix: string): string[] {
+  const result = validateShapeGeometry(shape);
+  if (result.ok) return [];
+  const { field, position, message } = result.error;
+  return [`${prefix}/${field}${position === undefined ? '' : ` at ${position}`}: ${message}`];
 }

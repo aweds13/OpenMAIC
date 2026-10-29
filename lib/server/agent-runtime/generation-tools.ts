@@ -25,7 +25,11 @@ import type { CourseToolDeps } from './course-tools';
 import { runStageMutation } from './mutation-fence';
 import { shiftCourseOrders } from './course-edit/tools';
 import { createGenerationAiCallFactory, sceneContentStage } from './generation-ai-call';
-import { synthesizeSceneNarration } from './scene-tts';
+import {
+  describeNarrationVoice,
+  formatTtsFailureTally,
+  synthesizeSceneNarration,
+} from './scene-tts';
 import { toGenerationContent } from './generation-content';
 import { checkScenesAgainstSkill } from './skills';
 import { sceneWriteDiagnosticsWithReview } from './scene-diagnostics';
@@ -99,8 +103,6 @@ const SceneParams = Type.Object({
       'A brief that only names the topic ("讲一下变量") produces a thin page.\n' +
       'Do not put tool instructions here — the page generator has no tools.',
   }),
-  instruction: Type.Optional(Type.String()),
-  materialFacts: Type.Optional(Type.Array(Type.String())),
   /**
    * ★ 自检页的题量/难度/题型。
    *
@@ -160,6 +162,13 @@ const SceneParams = Type.Object({
       description:
         'true = this page is read, not listened to: no narration is generated and no speech ' +
         'actions are written. false = generate narration. Omit to use the deployment default.',
+    }),
+  ),
+  instruction: Type.Optional(Type.String()),
+  materialFacts: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        'The content points the page must present; the generator writes each of them onto the page. Only content meant for learners belongs here; style, layout and narration constraints do not. For pbl, the target skills.',
     }),
   ),
   media: Type.Optional(
@@ -900,7 +909,13 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           });
         }
       }
-      return result(`Persisted ${actions.length} known actions for "${scene.title}".`, {
+      const voiceNote =
+        audio?.voice && audio.generated > 0 ? ` ${describeNarrationVoice(audio.voice)}` : '';
+      const narration =
+        audio?.available === true
+          ? ` Narration audio: ${audio.generated} generated, ${audio.skipped} skipped, ${formatTtsFailureTally(audio.failed)}.${voiceNote}`
+          : '';
+      return result(`Persisted ${actions.length} known actions for "${scene.title}".${narration}`, {
         sceneId: scene.id,
         actions,
         ...(audio ? { audio } : {}),

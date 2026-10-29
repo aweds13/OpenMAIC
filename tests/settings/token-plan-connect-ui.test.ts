@@ -68,7 +68,7 @@ async function workspaceWithOwnPicks(): Promise<ModelConfigFile> {
   });
   config = await applyModelSettingsChange(config, {
     kind: 'slots',
-    set: { llm: 'ds:deepseek-v4-pro', 'course.content.slide': 'ds:deepseek-v4-flash' },
+    set: { llm: 'ds:deepseek-v4-pro', 'course.content.slide': 'ds:deepseek-flash' },
   });
   return config;
 }
@@ -157,8 +157,8 @@ describe('Token Plan → connecting applies the plan’s recommended configurati
     expect(rows).toHaveLength(2);
     // Slot names as the course model map shows them (the id here: the test's
     // translations return keys), then current → recommended.
-    expect(rows[0]).toMatch(/^llmDeepSeek V4 Pro · ds → cogevol-base · TokenDance$/);
-    expect(rows[1]).toMatch(/^course\.content\.slide.* → cogevol-slide-0828 · TokenDance$/);
+    expect(rows[0]).toMatch(/^llmDeepSeek V4 Pro · ds → Cogevol Base · TokenDance$/);
+    expect(rows[1]).toMatch(/^course\.content\.slide.* → Cogevol Slide · TokenDance$/);
   });
 
   it("“Use plan's recommended setup” overwrites the workspace's picks in one change", async () => {
@@ -196,7 +196,7 @@ describe('Token Plan → connecting applies the plan’s recommended configurati
     });
     expect(panel.config()?.slots).toMatchObject({
       llm: 'ds:deepseek-v4-pro',
-      'course.content.slide': 'ds:deepseek-v4-flash',
+      'course.content.slide': 'ds:deepseek-flash',
     });
   });
 
