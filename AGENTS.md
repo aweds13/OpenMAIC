@@ -64,7 +64,7 @@
 
 ## 0.1 当前状态（2026-10-30 晚）
 
-- **HEAD 已推到 `mine/main`，CI 全绿**（`8fe168df`：13/13 success、0 failed）。
+- **HEAD 已推到 `mine/main`，CI 全绿**（末次核对 `8fe168df`：13/13 success、0 failed）。
   ★ 推送失败看 `curl https://api.github.com`（通）对 `curl https://github.com`（000）。
   日志里 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），只能信 API / `git ls-remote`。
   原命令重试，**不要**改 remote / 换协议 / 强推。
