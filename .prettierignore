@@ -18,6 +18,10 @@ packages/docs/
 .next/
 out/
 
+# 本地取证日志与夹具（已 gitignore，不进格式化判据）
+.tmp/
+.worktrees/
+
 # Generated files
 *.min.js
 *.min.css

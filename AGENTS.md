@@ -248,11 +248,14 @@
 
 ```bash
 cd D:/文档/jelly_ware/program/OpenMAIC
-node node_modules/prettier/bin/prettier.cjs --write <改过的文件>   # 别用 npx：本机 python 里 npx 抛 WinError 2
+node node_modules/prettier/bin/prettier.cjs --write <改过的文件>   # 别用 npx；★ 只管代码，*.md 见下
 npx tsc --noEmit                                                   # 必须 0 error
 node scripts/check-i18n-keys.mjs                                   # 别用 pnpm：store 权限报 os error 5
 python -X utf8 scripts/check-layers.py                             # 末行要 LAYER CHECKS: PASS ✅
 ```
+
+★ **prettier 不管 Markdown**：`.prettierignore` 有 `*.md` ⇒ 第一步对 `.md` 是**空跑**
+（写坏了也不报）。文档判据只有 `check-layers.py` 与人眼，别把「prettier 绿了」当文档没问题。
 
 ★ **`npx tsc --noEmit` 的必要前置**：`packages/@openmaic/renderer/dist/` 里只有 `.js`
 没有 `.d.ts`（`types` 指向 `./dist/index.d.ts`），导出会全部退化成 `any`，**凭空冒出 33 个 error**。
@@ -516,12 +519,10 @@ HTML 能加载、页面看起来正常，但 JS 分块全被 403 拦掉
 - **`DELETE /api/stages/<id>` 是软删**（`stage_meta.deleted_at`），不是真删。
 - **`psql` 中文 SQL 字面量** ⇒ 见 §3.3。
 
-### 6.4 ★ 两条已结案的环境事实 → 结论库（**原 6.5 也并进这一条**，编号保持不重排，免得打断 §6.6–6.8 的互引）
+### 6.4 ★ 两条已结案的环境事实
 
 · **代码注释里的数字可能是上游作者账号的快照**（`WorkspaceRail.tsx` 的 "139 courses"）；
 · **`@openmaic/dsl` 没有 `require` 条件** —— 想"读真数据"就写成 vitest 用例，别写独立脚本。
-
-两条的实测读数与复现命令在 `复盘/已结案结论.md` 的「详细结论」一节。
 
 ### 6.6 ★ `document_scenes.id` **只在 stage 内唯一** —— 任何按 sceneId 做键的地方都要带上 stage_id
 
