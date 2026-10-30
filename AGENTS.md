@@ -21,11 +21,11 @@
 
 | 活文件 | 给谁看 | 装什么 |
 |---|---|---|
-| **本文件**（`AGENTS.md`） | **agent** | **规则**：改哪一层、文件地图、证据命令、坑。★ **会被注入，预算 56000 字节** |
-| [`复盘/新窗口交接卡.md`](复盘/新窗口交接卡.md) | **agent** | **状态**：当前 CHECKPOINT + **新窗口照抄的第一条消息** |
+| **本文件**（`AGENTS.md`） | **agent** | **规则 + 现状**：改哪一层、文件地图、证据命令、坑；§0 一句话现状、§8 未决项。★ **会被注入，预算 56000 字节** |
 | [`复盘/已结案结论.md`](复盘/已结案结论.md) | **agent** | **已量过、已结案**的结论（每条附复现命令）。**动手前先读** |
 
-**新窗口的第一条消息在交接卡里，照抄即可。** 本文件是被它引用的规则层。
+**新窗口不需要开场白**：本文件会被自动注入，读完 §0（现状）与 §8（未决项）就知道该干什么。
+原「新窗口交接卡」已于 2026-10-30 拆掉 —— 状态进了 §0 与 §8，一次性历史进 git。
 
 原 `二开说明.md` / `怎么用.md` / `架构图.md` 已并入五层（产品说明 → 意图 + 品味；
 使用手册 → 实现层「自检」的 §5「怎么说」；结构图 → 实现层「架构图」）。
@@ -59,6 +59,37 @@
 | 「我是自学，不喜欢听课」 | 见 §4「自学 vs 听课」 |
 | 「题量对不上」 | 自检页曾经**永远是 3 题**（写死的兜底），其余靠 agent 手补 |
 | 「读网页会被拦、会截断，这不是假的吗」 | 预览 2000 字符 vs 正文平均 **17,443** —— 只读到 **11%** |
+
+---
+
+## 0.1 当前状态（2026-10-30 晚）
+
+- **HEAD = `8fe168df`，已推到 `mine/main`；CI 13/13 success、0 failed**。
+  ★ 推送失败看 `curl https://api.github.com`（通）对 `curl https://github.com`（000）；
+  日志里的 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），
+  只能信 API 或 `git ls-remote`。原命令重试，**不要**改 remote / 换协议 / 强推。
+- **五层 `docs/` 全绿**：`python -X utf8 scripts/check-layers.py` → `120 条引用（断链 0 处）`
+  + `LAYER CHECKS: PASS ✅`。判据做过反向验证，不是空心绿。
+- **仓根三份老文档与两份一次性复盘已删**，内容拆进五层（旧版 `git show 490259c1:<文件名>`）。
+  结论库 140200 → 80034 字节。
+- **插件两个真缺陷已收口并双向验证**（`page.data` 形状错配；差集只剥几何 ⇒ 多出 `markupChanged` 桶），
+  部署副本 md5 与源全等。
+- **B1 写入真库端到端验过**：`stage-0O5fLNmbe4/scene-p1` 指纹 `740876…|4007` → `de49c74…|3980`
+  → 还原回 `740876…|4007` **逐字节相同**。★ 第一次还原差 1 字节（原文 `<strong>` 只包「使用说明」）——
+  **只比指纹不看原文会误判成还原成功**。
+- **B2 非 slide 页只读文本在真数据上成立**（`/text` 回 `type:"interactive"` + 剥净正文 + 控件配置）。
+
+**唯一未决**见 §8（真人点一页）。
+
+### 不在本仓的那些文件（改之前先确认改的是哪一份）
+
+| 想找 | 路径 |
+|---|---|
+| **DSH 插件源**（两包 12 工具） | `D:/文档/jelly_ware/_tools/dsh-plugins/`（独立 git 仓） |
+| 插件**部署副本**（真正被加载的） | `C:/Users/asus/.dsh/profiles/desktop/node_modules/dsh-openmaic-*/` |
+| 起全部本地服务 / 日志 | `D:/文档/jelly_ware/_tools/openmaic/`（`start_all.ps1`、`logs/`；口径见运维 §二） |
+| 量尺寸 / 耗时 / 重量、离线探 interactive 页 | 同上 `diagnostics/`（`measure-slide-fit.mjs`、`measure-page-timing.mjs`、`measure-page-weight.mjs`、`probe-interactive-offline.mjs`） |
+| 数据库数据目录 | `D:/PostgreSQL-OpenMAIC/data`（5433） |
 
 ---
 
@@ -181,7 +212,7 @@
 | `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 没有渲染预览** —— `render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就**不注册这个工具**（§1.1），所以它看不到画面；而这几件事**不需要画面也能算**（元素本来就带坐标）。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 「底板 + 文字」**不算重叠**（包含不算，涉及文字的部分相交才算）。<br>★★ 量余量用**最大全空矩形**，不是空白面积占比。<br>★★★ 参数必须与渲染器同源（见 `lib/slide/text-metrics.ts`）。<br>★★★ `layoutDelta` 给改前/改后差集 ⇒ **"是不是我改坏的"不用人眼**。 |
 | `lib/slide/text-metrics.ts` | **文本框行高/内边距的唯一来源**：渲染器**写进 DOM**，`lib/quiz/layout-check.ts` 直接 import | ★ 原先是两处会各漂的字面量（class `leading-[1.5]` vs 检查器 `1.6`）⇒ 24 个盒子里 **19 条假阳性**；**库里 1084 个 text 元素只有 5 个带 `lineHeight`**（改这里=改所有页面的行高）。判据 `tests/components/slide-renderer/text-line-height-pin.test.ts`（6 条 + 三道变异） |
 | `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页的正文只在 `<script>` 里**（第 17/28/36/38/42/44/52/57 页）；实测第 28 页 48,080 字符 html → **34,952 字**正文。★ 与 `extractTaughtText` **方向相反**（那个故意少收、偏误报），只能共用 `stripMarkup`，别合并。★★ **三个已知缺口（2026-10-09 逐条核出来的，全都会变成审查的假阳性）**：① 收的是 jsdom 的 `body.textContent` ⇒ **内联 `<script>`/widget-config 的文字也进来**（第 34 页的 `type`/`code`/`language`/`description` 因此被判成"真缺口"）；② **配置写在 `<head>` 的那 1 页反而收不到提示**（20 个 interactive 页：head 配置 **1** / body 配置 **17** / 无配置 2 —— 第 32 页的提示因此被判成"全页没说"）；③ **压平了 `left`/`top`** ⇒ 审查会把**两栏**读成"挤在一行"（实测 6 条版面误报全出在这里） |
-| `lib/server/agent-runtime/page-review.ts` | **写入后带上下文再审一页**（`sceneWriteDiagnosticsWithReview()` 用的那半，6 条判据） | ★ **还没在真会话里跑过**（见交接卡"下一步"）；三条纪律有判据：结论进回话 / 抛错被吞掉写入照常 / 没传就一个字不加 |
+| `lib/server/agent-runtime/page-review.ts` | **写入后带上下文再审一页**（`sceneWriteDiagnosticsWithReview()` 用的那半，6 条判据） | ★ **还没在真会话里跑过**（见 §8）；三条纪律有判据：结论进回话 / 抛错被吞掉写入照常 / 没传就一个字不加 |
 | `lib/server/agent-runtime/review-tools.ts` | **`review_course`**：对抗性内容审查 —— **一次隔离的模型调用**（system 里只有页面文本 + 规矩），**没有会话历史 / 画像 / 工具**；结论必须带页码引用，否则 `isError`。★ 候选机制 + **`outOfScopeGapClaims()`**：报告把**本段之前就出现过**的词说成"没解释" ⇒ **指名作废**（见 §6.10 第 4 条） | 用户原话「审查 agent 要**完全没有任何基础**，不能想『噢原来是这个』」。判据 `tests/agent-runtime/review-tools.test.ts`（20 条 + 十道变异） |
 | `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
 | `lib/playback/reading-navigation.ts` | **阅读页滚轮翻页的判据**（阈值 12 / 去抖 450ms / 两道闸：用户开关 + 页内还能滚） | 规格见 `docs/specification/domains/F2-reading-pace.md`；`readingPage` 是**必填**布尔量，漏传只是静默还回播放键 |
@@ -580,42 +611,23 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ### 6.10 ★ 分段的工具里，「前面所有页」必须指**全课**的前面 —— 否则假阳性是工具自己造的
 
-2026-10-09 实测：`review_course` 按**字符预算分段**跑（一次一截，剩下的用 `fromOrder` 接着审），
-而它有两处把「这一段」当成了「整门课」⇒ **审查者照着工具给的错前提说话**。两条都已修：
-前缀吃满**本段之前**的所有页；提示词改成「**全课目录**（共 M 页）」+「本次给你的正文：第 A–B 页」
-+「目录里列着的页**不是**不存在的那一页」。**读数与原样后果 → 结论库「59 条假阳性」那条。**
+`review_course` 按字符预算分段跑（剩下的用 `fromOrder` 接着审），曾有两处把「这一段」
+当成「整门课」⇒ **审查者照着工具给的错前提说话**。已修：前缀吃满**本段之前**的所有页，
+提示词改成「全课目录（共 M 页）」+「本次给你的正文：第 A–B 页」。
 
-★ 教训：改这条判据时**必须让 `fromOrder` 落在第二页** —— 原来那条用的是"一次给两页"的夹具，
-前缀恰好在本段里，**照不到这个洞**。
+★ 判据必须让 `fromOrder` 落在**第二页** —— 拿"一次给两页"的夹具，前缀恰好在本段里，照不到这个洞。
 
-**同一形状还有四件事（**第 4 条 2026-10-10 已修**；其余三条还没修，别再当成"审查者不行"）**：
+**同形还有三条未修**（别再当成"审查者不行"）：`stripMarkup` 会把纯文本里的 `<…>` 换成空格
+（`List<String>` → `List `）；压平 `left`/`top` 让审查把**两栏**读成"挤在同一行"；jsdom 报错
+要按「按钮还绑不绑得上」分真假（`renderMathInElement is not defined` 是桩、非致命；
+`CodeMirror is not a function` 是**真缺陷**）。
 
-1. **`stripMarkup` 会吃掉纯文本里的 `<…>`**：`coverage-gap.ts` 把 `/<[^>]*>/g` 换成**空格**，
-   于是纯文本字段里的 `List<String>` 变成 `List ` —— 第 53 页那句"括号里是空的"就是这么来的
-   （存储里是 raw 的 `List<String>`，学生看到的是完整的）。
-2. **★ jsdom 的报错不全是假阳性 —— 判据是「按钮还绑不绑得上」。**
-   `renderMathInElement is not defined` 是**桩造成的、非致命**；但 `CodeMirror is not a function`
-   是**真缺陷**（CDN 真被拦时真浏览器一样死）。2026-10-10 实测 Day02 **26** 个 interactive 页：
-   **25 页「运行」按钮都绑上了，唯一死的是第 56 页** —— 它用 `CodeMirror(host, …)` 直呼，
-   而 shim 把全局换成了**非函数对象** ⇒ `if (window.CodeMirror)` 守卫被骗过 ⇒ **监听全不绑**。
-   （旧结论把页码写成 46，**错的**。）→ 结论库「离线降级 shim」那条。
-3. **压平了 `left`/`top`**：slide 元素是绝对定位的，抽出来的却是单列文本 ⇒ 审查把
-   **两栏**读成"挤在同一行"、"列丢了"（实测 6 条版面误报全出在这里）。
-4. **★ 孤立阅读：「×× 没解释」—— 已修（2026-10-10）**。复审只拿到第 44–46 页时报的那串
-   「`main` / `static` / `List` / `void` / `System.out.println` 都没解释」——
-   **候选没算错**（首次出现在第 4 / 10 页，一个都不在候选里），**是审查者越界自己点名**。
-   修法：提示词删掉那句**问不出答案**的话（"任何**前面**一页解释了它吗"：候选的定义就是
-   "前面没出现过"，而它看不到那些页）+ **机器复核** `outOfScopeGapClaims()` 指名作废。
-   实测真实报告 **5/5 全中**、真结论没被牵连。细节 → 结论库「孤立阅读」那条。
-   ★ **通用判据**：「审查说蠢话」分两种，修法相反 —— **(A) 工具给了错前提 ⇒ 修工具**；
-   **(B) 工具对了、模型没照做 ⇒ 修提示词 + 加机器复核**。**先量是哪一种。**
+★ **通用判据**：「审查说蠢话」分两种，修法相反 —— **(A) 工具给了错前提 ⇒ 修工具**；
+**(B) 工具对了、模型没照做 ⇒ 修提示词 + 加机器复核**。先量是哪一种。
+**审查者的输出不能超过它拿到的输入** —— 看到蠢话先问「它当时看到的到底是什么」。
 
-**量第 2 条的工具**：`_tools/openmaic/diagnostics/probe-interactive-offline.mjs` —— jsdom 不加载
-外部资源，正好是"CDN 被拦"；它劫持 `addEventListener` 数**谁真的绑上了 click**。退出码 1 = 有死页。
-**改 interactive 页的脚本之后都跑一遍它。**
-
-**教训（比上面每条都值钱）**：审查者的输出**不能超过它拿到的输入**。看到"审查说了一堆蠢话"，
-先问一句「**它当时看到的到底是什么**」—— 上面这几条里，蠢话全是**输入**造的。
+量第 2 条的工具：`_tools/openmaic/diagnostics/probe-interactive-offline.mjs`（退出码 1 = 有死页）；
+全部细节与读数 → 结论库 2.26。
 
 ---
 
@@ -634,15 +646,22 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ---
 
-## 8. 未决项（**别当成 bug 重新修**）
+## 8. 未决项 
 
-- `skills/agent-runtime/zone-of-proximal-development` 等技能里的"自检"措辞与题量参数
-  还没对齐（见 §4 的题量改动）。
-- `program/#228`、`program/framework`、`program/pdf-compress` 未归类，用户说先留着。
-- `selfcheck/`、`literature-eval/` 是否并入 `ultrarag/` —— 用户说"留着先吧"。
-- `dblp.ico` 是自绘的，等官方 logo。
-- 两条 1KB 残留待用户决定：`owner_material` 里 `端到端测试材料.md`（owner
-  `anon:c03e0fe5…`）、孤儿目录 `data/materials/owner-1/`。
+**只剩一条，且必须真人做**：在 DSH 面板里点一页，让 `openmaic_active` 有值
+（这是 B0 的最后一条判据，也是三步走 ② 的验收）。
+现算：`GET http://127.0.0.1:<DSH端口>/dsh-openmaic/active` 回
+`{"ok":true,"active":null,"lastError":""}`；点过之后应回
+`{"ok":true,"active":{"stageId":"stage-…","sceneId":"scene-p1",…}}`。
+★ **别用 curl 探面板是否加载**：DSH Web 整个静态资源面在签名 cookie 认证后面
+（连确定能跑的 `dsh-client-ui-workbench-panel` 也 404），`browse_page` 对回环地址直接回
+`blocked`。这条只能靠眼睛看。
+
+别的「未决」都只跟主仓别的子项目有关，与本 fork 无关，别当成 bug 重新修：
+`skills/agent-runtime/zone-of-proximal-development` 的措辞与题量参数未对齐（见 §4）；
+`program/#228` / `program/framework` / `program/pdf-compress` 未归类、`selfcheck/` 与
+`literature-eval/` 是否并入 `ultrarag/`（用户说先留着）；`dblp.ico` 是自绘的等官方 logo；
+两条 1KB 残留（`owner_material` 里 `端到端测试材料.md`、孤儿目录 `data/materials/owner-1/`）。
 
 ---
 
@@ -651,13 +670,14 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 ```
 1. 读 §2 的地图，确认你要改的东西有没有主
 2. 改 lib/ 或 app/（不要动 packages/@openmaic）
-3. npx vitest run tests/agent-runtime/  +  tsc  +  eslint
-4. 重启 next dev（§3.2）—— agent-runtime 不热重载
+3. node node_modules/prettier/bin/prettier.cjs --write <改过的文件>
+   npx tsc --noEmit  +  node scripts/check-i18n-keys.mjs  +  python -X utf8 scripts/check-layers.py
+4. 重启 next dev（§3.2）—— agent-runtime 不热重载；改了插件见 §12
 5. curl /api/whoami 确认开关进去了
 6. 要真跑一遍：让用户在工作台里跑，然后**用 §3.3 的 SQL 查事件流**下结论
-7. 把结论写回两份文件：
-   · 新规则 / 新坑 / 新结论 → 本文件（附上能复现它的命令）
-   · 新状态 / 下一步        → 复盘/新窗口交接卡.md（**追加**一段，不删旧的）
+7. 把结论写回两处：
+   · 新规则 / 新坑 / 新结论（附能复现它的命令）→ 本文件 §6 或 复盘/已结案结论.md
+   · 现状变了（HEAD / 门禁绿不绿 / 未决项增减）→ 本文件 §0.1 与 §8 **就地改**，不追加旧段
 ```
 
 **第 7 步是这两份文件存在的理由。** 没写回来的结论，下一个窗口的你要从头再量一遍。
@@ -666,8 +686,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 `vitest` 绿只说明**代码按写的方式跑**，不说明**学习者拿到的东西变好了**。
 效果只有在真实会话的事件流里读得出来（§3.3）。所以凡是"改产品行为"的改动，
-**必须在交接卡的"下一步"里留下"让用户真跑一遍 + 用哪条 SQL 验"**，
-并且在真读出来之前，不要说"修好了"。
+**必须写下"让用户真跑一遍 + 用哪条 SQL 验"**，并且在真读出来之前，不要说"修好了"。
 
 ---
 
@@ -686,47 +705,35 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 11. ★ 多窗口并发：两个对话窗口共用一个工作区
 
-2026-10-06 实测到的一次，值得记住 —— 因为**犯错的不是"另一个窗口"，是提交时的顺手**。
+2026-10-06 实测过一次真事故：两个窗口都在改 `AGENTS.md`，一次 `git add AGENTS.md`
+把对方那一段一起提交了 —— 提交信息只讲 139，内容里却多了一整个章节；
+文档从此**描述了一个代码还没进 git 的功能**，别人 checkout 会看到指向不存在文件的文档。
 
-### 发生了什么
+**规矩（按根治力度排序）：**
 
-同一时刻两个窗口在这个仓库里干活：一个在记「139 那条注释」的坑，另一个在做
-**批量下载**（`lib/export/batch-export.ts` + `BatchDownloadDialog.tsx` + 12 个 locale）。
-两边**都在改 `AGENTS.md`**。结果：
-
-- `git status` 里出现 20 项**不是自己建的**改动；
-- 一次 `git add AGENTS.md` **把对方写的那一段一起提交了** —— 提交信息只讲 139，
-  内容里却多了一整个 `## 10. 批量下载`；
-- 更深一层：`AGENTS.md` 从此**描述了一个代码还没进 git 的功能**
-  （`BatchDownloadDialog.tsx` 当时还是 untracked）。别人 checkout 这个提交，
-  会看到指向**不存在文件**的文档。
-- 对方交接卡里记着 `HEAD = 14a239b`，而实际 HEAD 已被这边推进两笔 ——
-  **它以为的现状是错的，而且它不知道。**
-
-### 规矩
-
-1. **提交前永远用显式路径**：`git add <明确的文件>`。
-   **绝不用 `git add -A` / `git add .` / `git commit -a`** —— 工作区里随时可能有
-   另一个窗口的半成品，一次顺手就卷进你的提交，而且**提交信息会撒谎**。
-   （反过来说：`git add <单个文件>` 也**不**安全 —— 如果那个文件两边都在改。
-   所以第 3 条才是根治。）
-2. **开工前先看有没有别人在动**：
-   - `git status --short` 里有没有**不是自己建的**文件；
-   - 有没有文件的 mtime **比上次操作还新**；
-   - 交接卡最新一段的作者是不是自己。
-3. **要并行干不相干的活，用 `git worktree` 分开**，不要共用一个工作区：
+1. **要并行干不相干的活，用 `git worktree` 分开**，不要共用一个工作区。
+   这是唯一根治，前两条只是减损：
 
    ```bash
    git worktree add ../OpenMAIC-<主题> -b <分支>
    ```
 
-   工程侧本来就是这个口径（`复盘/新窗口交接卡.md`：**每张卡一棵 worktree**）。
-   这里只是没做。
-4. **`AGENTS.md` 与交接卡是共享文件**：交接卡 **append-only**（两边同时追加会在
-   同一位置冲突）；`AGENTS.md` 只加不改旧段。
-5. **交接卡里的 `HEAD` 是写卡那一刻的快照，不是现状。** 动手前
-   `git rev-parse --short HEAD` **现算**。看到"记的 HEAD ≠ 实际 HEAD"，
-   先 `git log --oneline <记的>..HEAD` 查是谁推进的，**别当成数据损坏**。
+   工程侧本来就是这个口径（每张卡一棵 worktree）。隔离之后还要装节点，见
+   [`docs/implementation/运维.md`](docs/implementation/运维.md) §四 —— 新建的 worktree
+   **默认开不起来**，还差四步，且 `node_modules` 必须用 PowerShell 的
+   `New-Item -ItemType Junction`（`cmd //c mklink /J` 会静默失败）。
+
+2. **提交前永远用显式路径**：`git add <明确的文件>`。
+   **绝不用 `git add -A` / `git add .` / `git commit -a`** —— 工作区里随时可能有
+   另一个窗口的半成品，一次顺手就卷进你的提交，而**提交信息会撒谎**。
+   （反过来说，`git add <单个文件>` 也**不**安全 —— 如果那个文件两边都在改。）
+
+3. **开工前先看有没有别人在动**：`git status --short` 里有没有**不是自己建的**文件；
+   有没有文件的 mtime 比上次操作还新；`git rev-parse --short HEAD` **现算**一次
+   （§0.1 记的 HEAD 是写那一刻的快照，看到不符先 `git log --oneline <记的>..HEAD`
+   查是谁推进的，**别当成数据损坏**）。
+
+4. **`AGENTS.md` 是共享文件**：只加不改旧段（§0.1 与 §8 例外，那两处就是要就地更新）。
 
 ---
 
