@@ -739,18 +739,16 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
 目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分。
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **20 个工具**（`openmaic-course` **15** +
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **22 个工具**（`openmaic-course` **17** +
 `openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
 
-- **宿主半** `index.js` ⇒ 改完**重启 DSH**；**浏览器半** `client.src.js` ⇒ `node build.mjs` → **再重启**（`client.js` 13.9 MB 是产物、**不要手改**）。
-- **★ 两坑**：① 部署副本是**实体拷贝** ⇒ 必须 cp 再重启（`diff -rq lib <部署目录>` 应为空）；② 只改浏览器半才重建。
-- **判据**：`node smoke-render.mjs` 末行 `SMOKE: PASS ✅`（别用 `smoke-client.mjs`）。
-- **已收口缺陷**：① `/page` 回页本体、**没有 `data` 层** ② 差集剥几何要同时剥文字 ③ `SlideCanvas` 是唯一渲染器。
-- **侧栏**：图标是 `register(spec, 图标函数)` 的**第二参数**（不是 label），取 `lib/brand/brand-config.ts` 的 `productName`/`markSrc` → §1.14
+- 宿主半 `index.js` ⇒ 改完**重启 DSH**；浏览器半 `client.src.js` ⇒ `node build.mjs` → 再重启（`client.js` 13.9 MB 是产物）
+- **★ 两坑**：① 部署副本是**实体拷贝** ⇒ cp 再重启（`diff -rq lib <部署目录>` 空）；② 只改浏览器半才重建
+- 判据 `node smoke-render.mjs` 末行 `SMOKE: PASS ✅`（别用 `smoke-client.mjs`）
+- 已收口缺陷：① `/page` 回页本体、**没有 `data` 层** ② 差集剥几何要同时剥文字 ③ `SlideCanvas` 是唯一渲染器
+- 侧栏图标是 `register(spec, 图标函数)` 的**第二参数**，取 `lib/brand/brand-config.ts` 的 `productName`/`markSrc` → §1.14
 
-**诊断/冻结/纸/材料 8 个工具**都走 `lib/diag.mts` 桥子进程（数据由 index.js 取好走 stdin，桥不碰库）。
-★ tsx 要点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx` 是 shell 脚本）、别名只能 `import * as m` 再 `m.default ?? m`。
-**都不复刻**、直调仓内同名 builder（守卫措辞逐字一致）→ §1.16/§1.17。
-**纸与材料落文件系统**：草稿纸 `data/scratchpad/<owner>.json`（复用本机唯一 owner，`sNNN` **永不复用**）；材料库 `个人数据/材料清单/*.md`（目录读 `.env.local`，**没配不回默认值**）★ 写入走沙盒且**先把真文件复制进去**，否则 `append` 报 Created 还丢原内容。
-
+**诊断/冻结/纸/材料/练习 10 个工具**都走 `lib/diag.mts` 桥（index.js 取数据走 stdin，桥不碰库）：tsx 点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx` 是 shell 脚本）、别名须 `import * as m` 再 `m.default ?? m`；**都不复刻**、直调仓内同名 builder → §1.16/§1.17。
+- 纸与材料落文件系统：草稿纸 `data/scratchpad/<owner>.json`（本机唯一 owner，`sNNN` **永不复用**）；材料库 `个人数据/材料清单/*.md`（目录读 `.env.local`，**没配不回默认值**）★ 写走沙盒且**先把真文件复制进去**（否则丢原内容）
+- 练习落 `课程与学习/练习/<stage>/`（桥纯算、宿主判越界与不覆盖）★ 沙盒 env 必须设**在 import 之前**（常量加载期求值）→ §1.18
 **写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；默认 `dryRun:true` 只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
