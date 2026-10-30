@@ -536,9 +536,7 @@ export function skillChoicePromptBlock(skills: readonly LoadedSkill[]): string {
   const method = skills.filter((s) => !TOOLING_SKILLS.has(s.name));
   if (method.length === 0) return '';
 
-  const catalogue = method
-    .map((s) => `- \`${s.name}\` — ${oneLine(s.description)}`)
-    .join('\n');
+  const catalogue = method.map((s) => `- \`${s.name}\` — ${oneLine(s.description)}`).join('\n');
 
   return [
     '## Choosing a teaching method',
@@ -564,7 +562,7 @@ export function skillChoicePromptBlock(skills: readonly LoadedSkill[]): string {
     '',
     catalogue,
     '',
-    "**Carry the method into the pages.** The page generator (`generate_scene`) is a separate",
+    '**Carry the method into the pages.** The page generator (`generate_scene`) is a separate',
     'model call: it does NOT see the skill you read. Its only instruction is the `brief` you pass.',
     "So every brief must restate the method's *writing* requirements — target density, tone,",
     'structure, what belongs on the page itself. A brief that only names the topic produces a thin',

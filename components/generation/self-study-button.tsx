@@ -18,10 +18,7 @@ type DataAttributes = {
   [key: `data-${string}`]: string | number | boolean | undefined;
 };
 
-type SelfStudyButtonProps = Omit<
-  ComponentPropsWithoutRef<'button'>,
-  'aria-pressed' | 'children'
-> &
+type SelfStudyButtonProps = Omit<ComponentPropsWithoutRef<'button'>, 'aria-pressed' | 'children'> &
   DataAttributes & {
     pressed: boolean;
     label: string;

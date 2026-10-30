@@ -127,7 +127,11 @@ function patchTool(
     execute(
       id: string,
       params: Record<string, unknown>,
-    ): Promise<{ isError?: boolean; details?: Record<string, unknown>; content?: { text?: string }[] }>;
+    ): Promise<{
+      isError?: boolean;
+      details?: Record<string, unknown>;
+      content?: { text?: string }[];
+    }>;
   };
 }
 
@@ -339,9 +343,15 @@ function sceneWithLegacyTable(): Scene {
  */
 describe('★ 校验报错按元素汇总（不再被截断埋掉关键那一行）', () => {
   it('★ 一张缺 data 的表 ⇒ 一行说清「type=table 缺必需字段 data」，且没有鉴别器噪声', () => {
-    const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
-      elements: unknown[];
-    } } }).content.canvas;
+    const canvas = (
+      structuredClone(slide(1, '短内容')) as unknown as {
+        content: {
+          canvas: {
+            elements: unknown[];
+          };
+        };
+      }
+    ).content.canvas;
     canvas.elements.push({
       id: 'table-broken',
       type: 'table',
@@ -366,9 +376,15 @@ describe('★ 校验报错按元素汇总（不再被截断埋掉关键那一行
 
 describe('★ 旧生成器写的表：单元格 fontsize 是数字也要收（2026-10-08）', () => {
   it('★ fontsize: 14（数字）⇒ 整张表合格，页面改得动', () => {
-    const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
-      elements: unknown[];
-    } } }).content.canvas;
+    const canvas = (
+      structuredClone(slide(1, '短内容')) as unknown as {
+        content: {
+          canvas: {
+            elements: unknown[];
+          };
+        };
+      }
+    ).content.canvas;
     canvas.elements.push({
       id: 'table-fontsize',
       type: 'table',
@@ -379,7 +395,9 @@ describe('★ 旧生成器写的表：单元格 fontsize 是数字也要收（20
       rotate: 0,
       outline: { color: '#e5e7eb', style: 'solid', width: 1 },
       colWidths: [0.5, 0.5],
-      data: [[{ id: 'c1', colspan: 1, rowspan: 1, text: 'A', style: { fontsize: 14, bold: true } }]],
+      data: [
+        [{ id: 'c1', colspan: 1, rowspan: 1, text: 'A', style: { fontsize: 14, bold: true } }],
+      ],
     });
     expect(validateSlideCanvas(canvas)).toEqual([]);
   });
@@ -395,9 +413,15 @@ describe('★ 旧生成器写的表：单元格 fontsize 是数字也要收（20
  */
 describe('★ 元素类型必须在合同内（含 code / video / audio）', () => {
   it('★ type=code 的元素 ⇒ **不许**说"不在合同里"', () => {
-    const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
-      elements: unknown[];
-    } } }).content.canvas;
+    const canvas = (
+      structuredClone(slide(1, '短内容')) as unknown as {
+        content: {
+          canvas: {
+            elements: unknown[];
+          };
+        };
+      }
+    ).content.canvas;
     canvas.elements.push({
       id: 'code-1',
       type: 'code',
@@ -414,10 +438,24 @@ describe('★ 元素类型必须在合同内（含 code / video / audio）', () 
   });
 
   it('★ 真正不认识的名字 ⇒ 才报"不在合同里"（并列出合同有哪些）', () => {
-    const canvas = (structuredClone(slide(1, '短内容')) as unknown as { content: { canvas: {
-      elements: unknown[];
-    } } }).content.canvas;
-    canvas.elements.push({ id: 'x-1', type: 'not-a-real-type', left: 0, top: 0, width: 10, height: 10, rotate: 0 });
+    const canvas = (
+      structuredClone(slide(1, '短内容')) as unknown as {
+        content: {
+          canvas: {
+            elements: unknown[];
+          };
+        };
+      }
+    ).content.canvas;
+    canvas.elements.push({
+      id: 'x-1',
+      type: 'not-a-real-type',
+      left: 0,
+      top: 0,
+      width: 10,
+      height: 10,
+      rotate: 0,
+    });
     const joined = validateSlideCanvas(canvas).join(' | ');
     expect(joined).toContain('unknown element type');
     expect(joined).toContain('code');
@@ -574,7 +612,12 @@ describe('★ patch_stage：审查凭据落盘（跨 run）', () => {
   it('★ 盘上有凭据 ⇒ 放行（这次运行没审过也算）', async () => {
     delete process.env.OPENMAIC_PLAN_GATE;
     const current = harness(documentOf(eightPages(), false));
-    const receipt = { stageId: 'stage-test', reviewedAt: '2026-10-08T00:00:00.000Z', pageCount: 8, reportChars: 900 };
+    const receipt = {
+      stageId: 'stage-test',
+      reviewedAt: '2026-10-08T00:00:00.000Z',
+      pageCount: 8,
+      reportChars: 900,
+    };
     const response = await patchTool(current.store, undefined, async () => receipt).execute('c', {
       stageId: 'stage-test',
       target: '/scenes/2',

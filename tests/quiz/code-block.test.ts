@@ -25,9 +25,11 @@ describe('★ 代码块：多行转 code 元素 / 单行留 text', () => {
   });
 
   it('★ 单行片段 ⇒ keep-inline（转成代码块反而挤版式，也没行序可讲）', () => {
-    expect(codeBlockVerdict(element('<p style="font-family:monospace;">int a = 1500000000, b = 1500000000;</p>'))).toBe(
-      'keep-inline',
-    );
+    expect(
+      codeBlockVerdict(
+        element('<p style="font-family:monospace;">int a = 1500000000, b = 1500000000;</p>'),
+      ),
+    ).toBe('keep-inline');
   });
 
   it('★ 只有一处行内等宽、其余是正文 ⇒ keep-inline（"行内代码"不是代码块）', () => {
@@ -91,7 +93,7 @@ describe('★ 代码块：行尾注释不算"没有结构"', () => {
     //（`VALUES('x', 'http://x');` 会被切成 `… 'http:`）。
     const html =
       '<p style="font-family:monospace;">SELECT name FROM websites;</p>' +
-      '<p style="font-family:monospace;">INSERT INTO websites(name, url) VALUES(\'x\', \'http://x\');</p>';
+      "<p style=\"font-family:monospace;\">INSERT INTO websites(name, url) VALUES('x', 'http://x');</p>";
     expect(codeBlockVerdict(element(html))).toBe('code-element');
   });
 
@@ -150,7 +152,13 @@ describe('★ text → code 元素：转换器', () => {
 
   it('★ 几何原样带过去（转换只换内容形态，不动版式）', () => {
     const draft = codeElementFromText(source, { id: 'code_TEST0001', language: 'java' });
-    expect({ left: draft.left, top: draft.top, width: draft.width, height: draft.height, rotate: draft.rotate }).toEqual({
+    expect({
+      left: draft.left,
+      top: draft.top,
+      width: draft.width,
+      height: draft.height,
+      rotate: draft.rotate,
+    }).toEqual({
       left: 370,
       top: 188,
       width: 250,
@@ -161,7 +169,11 @@ describe('★ text → code 元素：转换器', () => {
 
   it('★ `List&lt;String&gt;` 不许被当成标签吃掉（剥标签在反转义之前）', () => {
     const draft = codeElementFromText(
-      { type: 'text', content: '<p style="font-family:monospace;">List&lt;String&gt; names = new ArrayList&lt;&gt;();</p>' },
+      {
+        type: 'text',
+        content:
+          '<p style="font-family:monospace;">List&lt;String&gt; names = new ArrayList&lt;&gt;();</p>',
+      },
       { id: 'code_TEST0002', language: 'java' },
     );
     expect(draft.lines[0]?.content).toBe('List<String> names = new ArrayList<>();');

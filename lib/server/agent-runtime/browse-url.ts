@@ -118,7 +118,7 @@ export function browsePromptBlock(capabilities: BrowsePromptCapabilities): strin
     'You have two ways to open a page, and they are **not alternatives**:',
     '',
     '- **`browse_url`** — a real browser (Playwright + Edge). Renders JavaScript, follows',
-    '  redirects, waits for the network to settle, and returns the readable text plus the page\'s',
+    "  redirects, waits for the network to settle, and returns the readable text plus the page's",
     '  links. Use it when a plain HTTP fetch comes back empty, 403s, or obviously did not render —',
     '  many course pages, modern docs sites and community pages need it.',
     '- **`fetch_url`** — one HTTP request, extracted to Markdown and **stored as a web material**',

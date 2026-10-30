@@ -2232,7 +2232,6 @@
     "webFetchSharedKeyHint": "Khóa này cũng được dùng để trò chuyện với nhà cung cấp này. Thay đổi hoặc xóa khóa sẽ ảnh hưởng đến trò chuyện."
   },
   "workspace": {
-
     "batchDownload": {
       "title": "Tải xuống hàng loạt",
       "description": "Chọn các khóa học và tải xuống trong một tệp ZIP, mỗi khóa học một thư mục. Không mở các khóa học.",
@@ -2392,7 +2391,6 @@
       "conversationFailure": {
         "serviceUnavailable": "Chưa cấu hình dịch vụ phân tích cho loại tệp này. Hãy nhờ quản trị viên cấu hình."
       }
-
     },
     "untitledCourse": "未命名课堂",
     "sceneCount": "{{count}} 页",

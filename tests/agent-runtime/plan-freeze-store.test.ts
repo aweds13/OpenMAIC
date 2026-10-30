@@ -47,7 +47,10 @@ describe('plan-freeze 文件层', () => {
   });
 
   it('round-trips a frozen state', async () => {
-    const frozen = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: specEntries(4) }).state;
+    const frozen = freezePlan(emptyPlanFreeze('stage-a'), {
+      at: T0,
+      entries: specEntries(4),
+    }).state;
     expect(await writePlanFreeze(frozen)).toBe(true);
 
     const back = await readPlanFreeze('stage-a');
@@ -57,7 +60,9 @@ describe('plan-freeze 文件层', () => {
   });
 
   it('★ keeps two stages apart — stageId is the key, not a shared file', async () => {
-    await writePlanFreeze(freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: specEntries(2) }).state);
+    await writePlanFreeze(
+      freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: specEntries(2) }).state,
+    );
     expect((await readPlanFreeze('stage-a')).frozen).toBe(true);
     expect((await readPlanFreeze('stage-b')).frozen).toBe(false);
   });

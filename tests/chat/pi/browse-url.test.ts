@@ -5,7 +5,11 @@ function isErrorResult(out: unknown): boolean {
   return (out as { isError?: boolean }).isError === true;
 }
 function jsonResponse(payload: unknown, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => payload } as unknown as Response;
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => payload,
+  } as unknown as Response;
 }
 
 describe('browse_url', () => {
@@ -24,10 +28,13 @@ describe('browse_url', () => {
       expect(body.url).toBe('https://arxiv.org/abs/1706.03762');
       expect(body.maxChars).toBe(5000);
       return jsonResponse({
-        ok: true, title: 'Attention Is All You Need', status: 200,
+        ok: true,
+        title: 'Attention Is All You Need',
+        status: 200,
         finalUrl: 'https://arxiv.org/abs/1706.03762',
         text: 'Abstract: The dominant sequence transduction models…',
-        textChars: 12345, truncated: false,
+        textChars: 12345,
+        truncated: false,
         links: ['https://arxiv.org/pdf/1706.03762'],
         elapsedSec: 8.1,
       });
@@ -36,7 +43,10 @@ describe('browse_url', () => {
       config: { baseUrl: 'http://127.0.0.1:8730/' },
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    const out = await tool.execute('c1', { url: 'https://arxiv.org/abs/1706.03762', maxChars: 5000 });
+    const out = await tool.execute('c1', {
+      url: 'https://arxiv.org/abs/1706.03762',
+      maxChars: 5000,
+    });
     expect(out.details.status).toBe('ok');
     expect(out.details.title).toBe('Attention Is All You Need');
     const text = (out.content[0] as { text: string }).text;
@@ -47,10 +57,12 @@ describe('browse_url', () => {
   it('reports a server refusal as blocked (not as a transport error)', async () => {
     const tool = buildBrowseUrlTool({
       config: { baseUrl: 'http://127.0.0.1:8730' },
-      fetchImpl: (async () => jsonResponse({
-        ok: false, error: 'blocked',
-        reason: 'target resolves to a private/reserved address (127.0.0.1) — refused',
-      })) as unknown as typeof fetch,
+      fetchImpl: (async () =>
+        jsonResponse({
+          ok: false,
+          error: 'blocked',
+          reason: 'target resolves to a private/reserved address (127.0.0.1) — refused',
+        })) as unknown as typeof fetch,
     });
     const out = await tool.execute('c1', { url: 'http://127.0.0.1:8080/' });
     expect(out.details.status).toBe('blocked');
@@ -61,7 +73,9 @@ describe('browse_url', () => {
   it('never reflects a raw transport error', async () => {
     const tool = buildBrowseUrlTool({
       config: { baseUrl: 'http://127.0.0.1:8730' },
-      fetchImpl: (async () => { throw new Error('ECONNREFUSED 127.0.0.1:8730'); }) as unknown as typeof fetch,
+      fetchImpl: (async () => {
+        throw new Error('ECONNREFUSED 127.0.0.1:8730');
+      }) as unknown as typeof fetch,
     });
     const out = await tool.execute('c1', { url: 'https://example.com' });
     expect(out.details.status).toBe('error');

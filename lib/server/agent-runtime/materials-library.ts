@@ -173,7 +173,7 @@ export function materialsIndexPromptBlock(index: string): string {
     '3. **Ask before recording.** Never write a candidate into the library just because you found',
     '   it. Show the learner what you found and what you would use it for, then record only what',
     '   they accept.',
-    '4. Record rejections too, in the topic file\'s「明确不要用的」section — so neither of you',
+    "4. Record rejections too, in the topic file's「明确不要用的」section — so neither of you",
     '   revisits the same dead end.',
     '5. Every entry needs: what it is, its URL, and **what role it plays** (knowledge backbone /',
     '   source of examples / project template). The role matters more than the title — the same',
@@ -183,7 +183,7 @@ export function materialsIndexPromptBlock(index: string): string {
     '`update_materials` (append to a topic, or replace it when creating/rewriting one).',
     'Create a new topic file when a subject has none, and add its row to `INDEX.md`.',
     '',
-    '**Do not reconstruct a material\'s contents from its title.** Read it with `fetch_url` first.',
+    "**Do not reconstruct a material's contents from its title.** Read it with `fetch_url` first.",
     'If you cannot read it (dead link, login wall), say so — do not quietly substitute your own',
     'knowledge and imply it came from the source.',
     '',
@@ -216,11 +216,13 @@ const UPDATE_PARAMS = Type.Object(
     topic: Type.String({
       minLength: 1,
       maxLength: 64,
-      description: 'Topic slug (e.g. "dart-flutter") or "INDEX". Lowercase letters, digits and dashes only.',
+      description:
+        'Topic slug (e.g. "dart-flutter") or "INDEX". Lowercase letters, digits and dashes only.',
     }),
     content: Type.String({
       minLength: 1,
-      description: 'Full Markdown body to write. For append mode this is the block to add at the end.',
+      description:
+        'Full Markdown body to write. For append mode this is the block to add at the end.',
     }),
     mode: Type.Union([Type.Literal('append'), Type.Literal('replace')], {
       description:
@@ -237,7 +239,7 @@ export function buildReadMaterialsTool(): AgentTool<never, never> {
     name: 'read_materials',
     label: 'Read the materials library',
     description:
-      'Read the learner\'s materials library. With no `topic`, lists the index plus every topic ' +
+      "Read the learner's materials library. With no `topic`, lists the index plus every topic " +
       'file that exists on disk. With a `topic`, returns that file. Use it before planning so you ' +
       'reuse materials already agreed on instead of searching for them again.',
     parameters: READ_PARAMS,
@@ -307,7 +309,7 @@ export function buildUpdateMaterialsTool(): AgentTool<never, never> {
     name: 'update_materials',
     label: 'Update the materials library',
     description:
-      'Write to the learner\'s materials library. Call it only for materials the learner has ' +
+      "Write to the learner's materials library. Call it only for materials the learner has " +
       '**accepted** — never record a candidate you merely found. `append` adds a block to a topic ' +
       'file; `replace` overwrites it (use when creating a new topic or rewriting INDEX.md). ' +
       'After adding a new topic, add its row to INDEX.md too.',

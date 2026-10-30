@@ -112,9 +112,9 @@ function summaryStream(summary: string, onCall: () => void = () => {}): StreamFn
 
 describe('usageAnchorIsStale', () => {
   it('says no when nothing has been compacted', () => {
-    expect(usageAnchorIsStale([{ role: 'user', content: 'hi', timestamp: 1 }, anchoredAssistant(2)])).toBe(
-      false,
-    );
+    expect(
+      usageAnchorIsStale([{ role: 'user', content: 'hi', timestamp: 1 }, anchoredAssistant(2)]),
+    ).toBe(false);
   });
 
   it('says yes when the anchor is older than the surviving summary', () => {
@@ -126,15 +126,19 @@ describe('usageAnchorIsStale', () => {
   it('says no once a run has produced a newer anchor', () => {
     // A run after the compaction appends fresh messages; the newest anchor then
     // describes the request that was actually sent, so it is trustworthy again.
-    expect(usageAnchorIsStale([compactionSummary(9_000), anchoredAssistant(2), anchoredAssistant(9_500)])).toBe(
-      false,
-    );
+    expect(
+      usageAnchorIsStale([
+        compactionSummary(9_000),
+        anchoredAssistant(2),
+        anchoredAssistant(9_500),
+      ]),
+    ).toBe(false);
   });
 
   it('says no when a compacted transcript has no anchor to doubt', () => {
-    expect(usageAnchorIsStale([compactionSummary(9_000), { role: 'user', content: 'hi', timestamp: 3 }])).toBe(
-      false,
-    );
+    expect(
+      usageAnchorIsStale([compactionSummary(9_000), { role: 'user', content: 'hi', timestamp: 3 }]),
+    ).toBe(false);
   });
 
   it('treats an undateable anchor as stale rather than trusting it', () => {
@@ -142,7 +146,9 @@ describe('usageAnchorIsStale', () => {
     // trusting a stale one costs the 6x over-count measured in the database.
     const undated = { ...(anchoredAssistant(2) as unknown as Record<string, unknown>) };
     delete undated.timestamp;
-    expect(usageAnchorIsStale([compactionSummary(9_000), undated as unknown as AgentMessage])).toBe(true);
+    expect(usageAnchorIsStale([compactionSummary(9_000), undated as unknown as AgentMessage])).toBe(
+      true,
+    );
   });
 
   it('does not let a zero-usage anchor count as an anchor', () => {
@@ -254,6 +260,8 @@ describe('maybeCompactAgentSession does not re-compact a context it just shrank'
 
     expect(second).toMatchObject({ checkCount: 1, triggerCount: 0, failures: [] });
     expect(onCall).not.toHaveBeenCalled();
-    expect((await session.getBranch()).filter((entry) => entry.type === 'compaction')).toHaveLength(1);
+    expect((await session.getBranch()).filter((entry) => entry.type === 'compaction')).toHaveLength(
+      1,
+    );
   });
 });

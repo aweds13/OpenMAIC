@@ -51,7 +51,9 @@ export interface PracticeResultEntry {
 }
 
 /** 文件夹名是 `<NN>-<标题>`（由 `practiceDirName()` 生成）。 */
-export function parsePracticeDirName(dirName: string): { order: number; title: string } | undefined {
+export function parsePracticeDirName(
+  dirName: string,
+): { order: number; title: string } | undefined {
   const match = /^(\d{1,3})-(.+)$/.exec(dirName.trim());
   if (!match) return undefined;
   const order = Number.parseInt(match[1]!, 10);

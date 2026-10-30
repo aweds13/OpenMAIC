@@ -73,7 +73,8 @@ describe('★ 可编辑画布（旧的那条）必须认得 `code`', () => {
   });
 
   it('★ 传一个 `code` 元素进去，不许再出现 `(not implemented)` 占位块，而且要真的画出代码', async () => {
-    const { EditableElement } = await import('@/components/slide-renderer/Editor/Canvas/EditableElement');
+    const { EditableElement } =
+      await import('@/components/slide-renderer/Editor/Canvas/EditableElement');
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -118,11 +119,12 @@ describe('★ 可编辑画布（旧的那条）必须认得 `code`', () => {
  */
 describe('★ 三处元素表：`code` 都要在（操作层这张用派生关系钉）', () => {
   it('★ 操作层覆盖 `ElementTypes` 的**全部**类型，且含 `code`', async () => {
-    const { ELEMENT_OPERATE_COMPONENTS } = await import(
-      '@/components/slide-renderer/Editor/Canvas/Operate/index'
-    );
+    const { ELEMENT_OPERATE_COMPONENTS } =
+      await import('@/components/slide-renderer/Editor/Canvas/Operate/index');
     const { ElementTypes } = await import('@openmaic/dsl');
-    expect(Object.keys(ELEMENT_OPERATE_COMPONENTS).sort()).toEqual(Object.values(ElementTypes).sort());
+    expect(Object.keys(ELEMENT_OPERATE_COMPONENTS).sort()).toEqual(
+      Object.values(ElementTypes).sort(),
+    );
     expect(ELEMENT_OPERATE_COMPONENTS[ElementTypes.CODE]).toBeTruthy();
   }, 30_000);
 });

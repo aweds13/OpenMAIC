@@ -177,7 +177,10 @@ export function resolveCompactionSettings(
 ): CompactionSettings {
   const reserveTokens =
     overrides?.reserveTokens ??
-    Math.min(DEFAULT_COMPACTION_SETTINGS.reserveTokens, Math.max(2_048, Math.floor(contextBudget * 0.25)));
+    Math.min(
+      DEFAULT_COMPACTION_SETTINGS.reserveTokens,
+      Math.max(2_048, Math.floor(contextBudget * 0.25)),
+    );
   const keepRecentTokens =
     overrides?.keepRecentTokens ??
     Math.min(

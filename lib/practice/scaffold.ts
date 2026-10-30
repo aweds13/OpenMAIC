@@ -215,7 +215,10 @@ process.exit(failed === 0 ? 0 : 1);
 }
 
 /** README：让学习者（和下一个窗口的 agent）一眼知道这是干什么的、怎么跑。 */
-export function buildReadme(spec: PracticeSpec, context: { stageId: string; order: number }): string {
+export function buildReadme(
+  spec: PracticeSpec,
+  context: { stageId: string; order: number },
+): string {
   const lines = [
     `# ${spec.title}`,
     '',
@@ -277,14 +280,21 @@ export function buildReadme(spec: PracticeSpec, context: { stageId: string; orde
  *
  * `generated: true` 的文件**不要手改**：它们由 runner 契约决定，改了就与判据脱节。
  */
-export function buildScaffold(spec: PracticeSpec, context: { stageId: string; order: number }): Scaffold {
+export function buildScaffold(
+  spec: PracticeSpec,
+  context: { stageId: string; order: number },
+): Scaffold {
   const problems = validateSpec(spec);
   if (problems.length) {
     throw new Error(`练习脚手架不合格：${problems.join('；')}`);
   }
 
   const files: ScaffoldFile[] = (spec.files ?? []).map((file) => ({ ...file, generated: false }));
-  files.push({ path: PRACTICE_CHECKS, content: `${JSON.stringify(spec.checks, null, 2)}\n`, generated: true });
+  files.push({
+    path: PRACTICE_CHECKS,
+    content: `${JSON.stringify(spec.checks, null, 2)}\n`,
+    generated: true,
+  });
   files.push({ path: PRACTICE_RUNNER, content: buildRunnerSource(), generated: true });
   files.push({ path: 'README.md', content: buildReadme(spec, context), generated: true });
 

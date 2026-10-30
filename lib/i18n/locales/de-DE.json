@@ -2232,7 +2232,6 @@
     "webFetchSharedKeyHint": "Dieser Schlüssel wird auch für den Chat mit diesem Anbieter verwendet. Änderungen oder das Entfernen wirken sich auf den Chat aus."
   },
   "workspace": {
-
     "batchDownload": {
       "title": "Stapel-Download",
       "description": "Kurse auswählen und als eine ZIP-Datei herunterladen – ein Ordner pro Kurs. Die Kurse werden nicht geöffnet.",
@@ -2392,7 +2391,6 @@
       "conversationFailure": {
         "serviceUnavailable": "Für diesen Dateityp ist kein Parser eingerichtet. Bitte einen Administrator, einen einzurichten."
       }
-
     },
     "untitledCourse": "未命名课堂",
     "sceneCount": "{{count}} 页",

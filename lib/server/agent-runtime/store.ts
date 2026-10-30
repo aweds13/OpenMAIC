@@ -5,10 +5,7 @@ import {
   type WithTransaction,
 } from '@openmaic/storage/agent-session/pg';
 import { extractObservedUrls } from '@openmaic/storage';
-import type {
-  AgentSessionMeta,
-  AgentSessionTransaction,
-} from '@openmaic/storage';
+import type { AgentSessionMeta, AgentSessionTransaction } from '@openmaic/storage';
 import type { Pool } from 'pg';
 
 import { getServerPersistenceProvider } from '@/lib/persistence/server-provider';

@@ -594,7 +594,6 @@ export function BaseCodeElement({ elementInfo, animate, selectable }: BaseCodeEl
     return delays;
   }, [lines, animStates]);
 
-
   return (
     <div
       ref={wrapperRef}
@@ -651,7 +650,8 @@ export function BaseCodeElement({ elementInfo, animate, selectable }: BaseCodeEl
               selectable
                 ? 'flex-1 overflow-auto py-3 px-3 select-text cursor-text'
                 : 'flex-1 overflow-auto py-3 px-3'
-            }            style={{
+            }
+            style={{
               color: '#24292e',
               ...(selectable
                 ? {}
@@ -698,4 +698,3 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
-

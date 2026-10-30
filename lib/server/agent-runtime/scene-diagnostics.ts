@@ -41,11 +41,7 @@ import {
   type LayoutElement,
   type LayoutFinding,
 } from '@/lib/quiz/layout-check';
-import {
-  checkPlanDependencies,
-  formatPlanIssues,
-  type PlanIssue,
-} from '@/lib/quiz/plan-check';
+import { checkPlanDependencies, formatPlanIssues, type PlanIssue } from '@/lib/quiz/plan-check';
 
 /**
  * 从一页已落盘的自检里取出待查文本。
@@ -216,11 +212,14 @@ export function sceneWriteDiagnostics(input: SceneWriteDiagnosticsInput): SceneW
 
   return {
     coverageGaps,
-    coverageText: coverageGaps.length ? `\n\n${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}` : '',
+    coverageText: coverageGaps.length
+      ? `\n\n${formatCoverageGaps(coverageGaps, { maxTerms: 12 })}`
+      : '',
     planIssues,
     planText: planIssues.length ? `\n\n${formatPlanIssues(planIssues)}` : '',
     densityText: densityNotes.length
-      ? String.fromCharCode(10, 10) + densityNotes.map((note) => `· ${note}`).join(String.fromCharCode(10))
+      ? String.fromCharCode(10, 10) +
+        densityNotes.map((note) => `· ${note}`).join(String.fromCharCode(10))
       : '',
     bodyChars,
     layoutFindings,

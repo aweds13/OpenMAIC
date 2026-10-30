@@ -229,7 +229,10 @@ export function checkPlanDependencies(
 }
 
 /** 把问题清单渲染成给 agent 的一段诊断。 */
-export function formatPlanIssues(issues: readonly PlanIssue[], options: { max?: number } = {}): string {
+export function formatPlanIssues(
+  issues: readonly PlanIssue[],
+  options: { max?: number } = {},
+): string {
   if (issues.length === 0) return '';
   const max = options.max ?? 6;
   const shown = issues.slice(0, max);

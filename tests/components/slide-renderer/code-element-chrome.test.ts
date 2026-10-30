@@ -87,9 +87,18 @@ describe('★ `code` 元素：幻灯片上不许有仿编辑器顶栏，行号�
 
   it('★ 没有仿 macOS 编辑器的顶栏：不许有红黄绿三点，也不许有语言标签', () => {
     const dom = render(elementInfo());
-    const colors = Array.from(dom.querySelectorAll<HTMLElement>('div')).map((node) => node.style.background);
+    const colors = Array.from(dom.querySelectorAll<HTMLElement>('div')).map(
+      (node) => node.style.background,
+    );
     // 顶栏那三个点用的是这三个色（见 git 历史里的 #ff5f57 / #febc2e / #28c840）
-    for (const trafficLight of ['rgb(255, 95, 87)', '#ff5f57', 'rgb(254, 188, 46)', '#febc2e', 'rgb(40, 200, 64)', '#28c840']) {
+    for (const trafficLight of [
+      'rgb(255, 95, 87)',
+      '#ff5f57',
+      'rgb(254, 188, 46)',
+      '#febc2e',
+      'rgb(40, 200, 64)',
+      '#28c840',
+    ]) {
       expect(colors, `顶栏的圆点回来了（${trafficLight}）`).not.toContain(trafficLight);
     }
     expect(dom.textContent?.toUpperCase()).not.toContain('JAVA');

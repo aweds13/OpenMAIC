@@ -216,6 +216,9 @@ const TEMPORARY_VENDOR_DEBT: readonly AllowedVendorDebt[] = [
       ['browser-native', 3],
       ['comfyui', 2],
       ['alidocmind', 14],
+      // 本 fork 加的 web-search 供应商，和上面每一个都是同一种债：
+      // provider-config.ts 仍是"目录 + 解析器"的混合组合根。
+      ['metaso', 2],
     ],
   ),
   ...groupedDebt(
@@ -286,6 +289,8 @@ const TEMPORARY_VENDOR_DEBT: readonly AllowedVendorDebt[] = [
       ['tavily', 4],
       ['exa', 4],
       ['firecrawl', 4],
+      // 本 fork 的 metaso：与上面每一条同类 —— 执行仍是一个中央 switch。
+      ['metaso', 4],
     ],
   ),
   ...groupedDebt(
@@ -305,6 +310,8 @@ const TEMPORARY_VENDOR_DEBT: readonly AllowedVendorDebt[] = [
       ['searxng', 2],
       ['exa', 3],
       ['firecrawl', 3],
+      // 本 fork 的 metaso：URL 校验仍是 provider 专属（第 58 行一行 3 个 token）。
+      ['metaso', 3],
     ],
   ),
   ...groupedDebt(

@@ -283,9 +283,7 @@ async function chat(req: NextRequest, principal: OwnerPrincipal): Promise<Respon
      */
     const courseSearchUrl = process.env.OPENMAIC_COURSE_SEARCH_URL?.trim();
     const courseSearchConfig =
-      childRuntimeMode === 'native' && courseSearchUrl
-        ? { baseUrl: courseSearchUrl }
-        : undefined;
+      childRuntimeMode === 'native' && courseSearchUrl ? { baseUrl: courseSearchUrl } : undefined;
     // 真浏览器抓取（browse_url）。**和课程检索分开两个服务**：抓一个网页要
     // 3~20 秒，塞进检索那个单线程 sidecar 会把检索请求全堵住。
     const browseUrl = process.env.OPENMAIC_BROWSE_URL?.trim();

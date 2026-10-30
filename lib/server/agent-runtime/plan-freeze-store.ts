@@ -25,10 +25,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import {
-  normalizePlanFreeze,
-  type PlanFreezeState,
-} from '@/lib/server/agent-runtime/plan-freeze';
+import { normalizePlanFreeze, type PlanFreezeState } from '@/lib/server/agent-runtime/plan-freeze';
 
 export function planFreezeDir(): string {
   return process.env.OPENMAIC_PLAN_FREEZE_DIR ?? join(process.cwd(), 'data', 'plan-freeze');
@@ -151,7 +148,9 @@ function acceptedReadingsFile(stageId: string): string {
 
 export async function readAcceptedReadings(stageId: string): Promise<AcceptedReadings | null> {
   try {
-    const parsed = JSON.parse(await readFile(acceptedReadingsFile(stageId), 'utf8')) as AcceptedReadings;
+    const parsed = JSON.parse(
+      await readFile(acceptedReadingsFile(stageId), 'utf8'),
+    ) as AcceptedReadings;
     return parsed && typeof parsed.pages === 'object' ? parsed : null;
   } catch {
     return null;

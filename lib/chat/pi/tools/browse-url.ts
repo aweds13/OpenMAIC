@@ -226,10 +226,10 @@ export function buildBrowseUrlTool(
     name: 'browse_url',
     label: 'Open a web page in a browser',
     description:
-      'Open an http(s) page in a real browser (Playwright + Edge) and return its readable text plus the links on it. '
-      + 'Use it for pages that need rendering — lecture/notes pages, arxiv abstract pages, GitHub READMEs. '
-      + 'It is NOT for the course catalog: course records already come from course_search, and their sourceUrl is '
-      + 'usually a CourseLeaf search page, so browsing it adds nothing. Local documents are read with read_document instead.',
+      'Open an http(s) page in a real browser (Playwright + Edge) and return its readable text plus the links on it. ' +
+      'Use it for pages that need rendering — lecture/notes pages, arxiv abstract pages, GitHub READMEs. ' +
+      'It is NOT for the course catalog: course records already come from course_search, and their sourceUrl is ' +
+      'usually a CourseLeaf search page, so browsing it adds nothing. Local documents are read with read_document instead.',
     parameters: BrowseParams,
     executionMode: 'sequential',
     prepareArguments: (args) => {

@@ -164,7 +164,9 @@ export function renderLearnerState(input: RenderLearnerStateInput): string {
     lines.push('**答过但没交卷（这一页还没做完，别当成没学过）**');
     for (const scene of drafts) {
       const content = contentsById.get(sceneKey(scene.stageId, scene.sceneId));
-      const where = content ? `第 ${content.order} 页《${oneLine(content.title, 24)}》` : scene.sceneId;
+      const where = content
+        ? `第 ${content.order} 页《${oneLine(content.title, 24)}》`
+        : scene.sceneId;
       lines.push(`- ${where}：已作答 ${Object.keys(scene.answers).length} 题，未交卷`);
     }
     lines.push('');
@@ -174,7 +176,9 @@ export function renderLearnerState(input: RenderLearnerStateInput): string {
     lines.push('**已经全对（不必重复考，把额度留给上面那些）**');
     for (const scene of clean) {
       const content = contentsById.get(sceneKey(scene.stageId, scene.sceneId));
-      const where = content ? `第 ${content.order} 页《${oneLine(content.title, 24)}》` : scene.sceneId;
+      const where = content
+        ? `第 ${content.order} 页《${oneLine(content.title, 24)}》`
+        : scene.sceneId;
       lines.push(`- ${where}：${scene.correctCount}/${scene.questions.length}`);
     }
     lines.push('');
@@ -193,9 +197,7 @@ export function renderLearnerState(input: RenderLearnerStateInput): string {
     '- 有「现在还做错的」时：下一次自检必须覆盖这些**考点**，可以换场景、换问法，' +
       '但不许出新题把它们绕过去。',
   );
-  lines.push(
-    '- 有「答过但没交卷」时：先问学习者要不要接着做完，再决定要不要讲。',
-  );
+  lines.push('- 有「答过但没交卷」时：先问学习者要不要接着做完，再决定要不要讲。');
   lines.push(
     '- 讲解新内容时，这些错过的考点是**已知的薄弱处** —— 讲到相关概念时可以点一句' +
       '「上次这里你选了另一个」，但不要展开成复述记录。',

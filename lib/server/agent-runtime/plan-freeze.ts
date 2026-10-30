@@ -127,9 +127,7 @@ export function freezePlan(
     const parts = [
       gaps.missingUnit > 0 ? `${gaps.missingUnit} 条没写单元` : '',
       gaps.missingKeyPoints > 0 ? `${gaps.missingKeyPoints} 条 \`keyPoints\` 是空的` : '',
-      gaps.practiceMissingDifficulty > 0
-        ? `${gaps.practiceMissingDifficulty} 条练习没写难度`
-        : '',
+      gaps.practiceMissingDifficulty > 0 ? `${gaps.practiceMissingDifficulty} 条练习没写难度` : '',
     ].filter((part) => part.length > 0);
     return {
       state,
@@ -247,7 +245,13 @@ export function planSpecGaps(entries: readonly SceneOutline[]): PlanSpecGaps {
       samples.push(`第 ${entry.order} 页《${entry.title}》`);
     }
   }
-  return { authored: authoredEntries.length, missingKeyPoints, missingUnit, practiceMissingDifficulty, samples };
+  return {
+    authored: authoredEntries.length,
+    missingKeyPoints,
+    missingUnit,
+    practiceMissingDifficulty,
+    samples,
+  };
 }
 
 export type PlanGateResult = { ok: true } | { ok: false; message: string };
@@ -332,7 +336,10 @@ export function planGate(input: PlanGateInput, options: PlanGateOptions = {}): P
 
   const entry = entries.find((item) => item.order === order);
   if (!entry) {
-    const orders = entries.map((item) => item.order).slice(0, 20).join(',');
+    const orders = entries
+      .map((item) => item.order)
+      .slice(0, 20)
+      .join(',');
     return {
       ok: false,
       message:
@@ -367,9 +374,7 @@ export function formatPlanFreezeStatus(
       ? String.fromCharCode(10) +
         '★ 这份计划里的条目**全是 `backfill` 从已有页面反推的**（不是设计出来的）：' +
         '没有单元、没有小点。要它变成规格，就按单元重排一遍。'
-      : gaps.missingUnit > 0 ||
-          gaps.missingKeyPoints > 0 ||
-          gaps.practiceMissingDifficulty > 0
+      : gaps.missingUnit > 0 || gaps.missingKeyPoints > 0 || gaps.practiceMissingDifficulty > 0
         ? String.fromCharCode(10) +
           `★ **这份计划不是规格**：你写的 ${gaps.authored} 条里有 ` +
           `${gaps.missingUnit} 条没有单元、${gaps.missingKeyPoints} 条 \`keyPoints\` 是空的` +

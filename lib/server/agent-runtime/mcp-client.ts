@@ -85,7 +85,9 @@ export function resolveMcpServers(): Record<string, McpServerConfig> {
       out[name] = {
         command: cfg.command,
         ...(Array.isArray(cfg.args) ? { args: cfg.args.map(String) } : {}),
-        ...(cfg.env && typeof cfg.env === 'object' ? { env: cfg.env as Record<string, string> } : {}),
+        ...(cfg.env && typeof cfg.env === 'object'
+          ? { env: cfg.env as Record<string, string> }
+          : {}),
         ...(typeof cfg.toolCallTimeoutMs === 'number'
           ? { toolCallTimeoutMs: cfg.toolCallTimeoutMs }
           : {}),

@@ -95,7 +95,7 @@ const SceneParams = Type.Object({
   brief: Type.String({
     minLength: 1,
     description:
-      'What this page must actually contain — this text is the page generator\'s ONLY instruction ' +
+      "What this page must actually contain — this text is the page generator's ONLY instruction " +
       'beyond the title and type, so it carries the teaching method with it.\n' +
       'Include: (a) the concrete content to cover — definitions, mechanisms, worked examples, ' +
       'comparisons, the reasoning that links them; (b) the WRITING REQUIREMENTS of the active ' +
@@ -530,9 +530,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
               },
             }
           : {}),
-        ...(params.type === 'quiz'
-          ? { quizConfig: resolveQuizConfig(params.quizConfig) }
-          : {}),
+        ...(params.type === 'quiz' ? { quizConfig: resolveQuizConfig(params.quizConfig) } : {}),
       };
       const baseline =
         params.instruction && existing?.type === 'slide'
@@ -758,7 +756,19 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
               },
               { reviewPage: deps.reviewPage },
             )
-          : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, layoutFindings: [], layoutText: '', layoutDelta: { added: [], removed: [], kept: [] }, layoutDeltaText: '', pageReviewText: '' };
+          : {
+              coverageGaps: [],
+              coverageText: '',
+              planIssues: [],
+              planText: '',
+              densityText: '',
+              bodyChars: 0,
+              layoutFindings: [],
+              layoutText: '',
+              layoutDelta: { added: [], removed: [], kept: [] },
+              layoutDeltaText: '',
+              pageReviewText: '',
+            };
       const mediaPlaceholders = collectUnresolvedMediaPlaceholders(persisted);
       deps.onCheckpoint({
         tool: 'generate_scene',
@@ -817,9 +827,7 @@ export function buildGenerationTools(deps: GenerationToolDeps): AgentTool<never,
           //   实测后果：agent 只看到 12 条，剩下 82 条只能**外推**，而它自己
           //   也如实说了"那是外推"。**工具不给出口，就别指望模型结论可靠。**
           //   中文片段只计数（低价值那一类：讲解页与自检页各自独立生成，措辞必然不同）。
-          coverageGapsCode: splitCoverageGaps(diagnostics.coverageGaps).code.map(
-            (gap) => gap.term,
-          ),
+          coverageGapsCode: splitCoverageGaps(diagnostics.coverageGaps).code.map((gap) => gap.term),
           coverageGapProseCount: splitCoverageGaps(diagnostics.coverageGaps).prose.length,
           ...(diagnostics.planIssues.length
             ? { planIssues: diagnostics.planIssues.map((issue) => issue.kind) }

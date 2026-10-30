@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { appendToSystemPrompt, buildQuizGrounding, taughtVocabulary } from '@/lib/quiz/quiz-grounding';
+import {
+  appendToSystemPrompt,
+  buildQuizGrounding,
+  taughtVocabulary,
+} from '@/lib/quiz/quiz-grounding';
 
 function scene(order: number, title: string, content: unknown) {
   return { order, title, content };
@@ -23,9 +27,9 @@ describe('taughtVocabulary', () => {
 
 describe('buildQuizGrounding', () => {
   it('says nothing when there is no earlier page', () => {
-    expect(buildQuizGrounding({ scenes: [scene(1, '第一页', { text: '封装' })], beforeOrder: 1 })).toBe(
-      '',
-    );
+    expect(
+      buildQuizGrounding({ scenes: [scene(1, '第一页', { text: '封装' })], beforeOrder: 1 }),
+    ).toBe('');
   });
 
   it('says nothing when earlier pages carry no readable text', () => {
@@ -63,9 +67,7 @@ describe('buildQuizGrounding', () => {
 
   it('ranks by importance and never lets a tight budget empty the vocabulary', () => {
     const block = buildQuizGrounding({
-      scenes: [
-        scene(1, '类', { text: '核心概念 核心概念 核心概念 边角词甲 边角词乙 边角词丙' }),
-      ],
+      scenes: [scene(1, '类', { text: '核心概念 核心概念 核心概念 边角词甲 边角词乙 边角词丙' })],
       beforeOrder: 2,
       // 比指令块本身还小 —— 预算下限必须兜住，否则会产出"有指令、空词表"的块，
       // 而指令第 1 条恰恰说"末尾那份清单就是允许用的词"。

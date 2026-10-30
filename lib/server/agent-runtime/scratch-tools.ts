@@ -106,67 +106,77 @@ export async function writeScratchpad(ownerId: string, pad: Scratchpad): Promise
 
 function scratchParams(materialsEnabled: boolean) {
   return Type.Object({
-  action: Type.Union(
-    [
-      Type.Literal('write'),
-      Type.Literal('index'),
-      Type.Literal('search'),
-      Type.Literal('classify'),
-      Type.Literal('promote'),
-    ],
-    {
-      description:
-        'write = record one thing you read or concluded (returns its id); index = the whole ' +
-        'scratchpad; search = filter it; classify = your judgement on an item (keep / drop); ' +
-        'promote = record the pointer of an item that became a materials-library entry.',
-    },
-  ),
-  kind: Type.Optional(
-    Type.Union(
-      [Type.Literal('source'), Type.Literal('claim'), Type.Literal('todo'), Type.Literal('note')],
+    action: Type.Union(
+      [
+        Type.Literal('write'),
+        Type.Literal('index'),
+        Type.Literal('search'),
+        Type.Literal('classify'),
+        Type.Literal('promote'),
+      ],
       {
         description:
-          'For `write`. `source` = something you read (give source, and depth: skim or deep); ' +
-          '`claim` = a fact you intend to put in the course (give the source ids that back it); ' +
-          '`todo`/`note` = anything else.',
+          'write = record one thing you read or concluded (returns its id); index = the whole ' +
+          'scratchpad; search = filter it; classify = your judgement on an item (keep / drop); ' +
+          'promote = record the pointer of an item that became a materials-library entry.',
       },
     ),
-  ),
-  text: Type.Optional(Type.String({ description: 'For `write`: one line. Keep it short.' })),
-  source: Type.Optional(Type.String({ description: 'For `write` with kind=source: URL or materialId.' })),
-  depth: Type.Optional(
-    Type.Union([Type.Literal('skim'), Type.Literal('deep')], {
-      description: 'For `write` with kind=source: did you skim it or read it properly?',
-    }),
-  ),
-  sources: Type.Optional(
-    Type.Array(Type.String(), {
-      description:
-        'For `write` with kind=claim: the ids of the source items that back this claim. ' +
-        'A claim with fewer than two is reported back to you — find a second source or do not write it.',
-    }),
-  ),
-  conflictWith: Type.Optional(
-    Type.String({ description: 'For `write`: the id this item contradicts. Contradictions must surface.' }),
-  ),
-  id: Type.Optional(Type.String({ description: 'For `classify` / `promote`: the item id (e.g. s003).' })),
-  status: Type.Optional(
-    Type.Union([Type.Literal('kept'), Type.Literal('dropped')], {
-      description: 'For `classify`: kept = still relevant; dropped = judged useless.',
-    }),
-  ),
-  topic: Type.Optional(
-    Type.String({
-      description: materialsEnabled
-        ? 'For `promote`: the **topic file** it went into (`update_materials` writes topic files and ' +
-          'does not return an id — the topic is the only real unit). Must be one that already exists; ' +
-          'only pass this **after** the learner accepted the material.'
-        : 'For `promote`: this deployment has no materials library, so nothing can be promoted. ' +
-          'Leave the item on the scratchpad.',
-    }),
-  ),
-  query: Type.Optional(Type.String({ description: 'For `search`: substring over text/source/id.' })),
-    sessionId: Type.Optional(Type.String({ description: 'Who wrote it. Pass the current session id.' })),
+    kind: Type.Optional(
+      Type.Union(
+        [Type.Literal('source'), Type.Literal('claim'), Type.Literal('todo'), Type.Literal('note')],
+        {
+          description:
+            'For `write`. `source` = something you read (give source, and depth: skim or deep); ' +
+            '`claim` = a fact you intend to put in the course (give the source ids that back it); ' +
+            '`todo`/`note` = anything else.',
+        },
+      ),
+    ),
+    text: Type.Optional(Type.String({ description: 'For `write`: one line. Keep it short.' })),
+    source: Type.Optional(
+      Type.String({ description: 'For `write` with kind=source: URL or materialId.' }),
+    ),
+    depth: Type.Optional(
+      Type.Union([Type.Literal('skim'), Type.Literal('deep')], {
+        description: 'For `write` with kind=source: did you skim it or read it properly?',
+      }),
+    ),
+    sources: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          'For `write` with kind=claim: the ids of the source items that back this claim. ' +
+          'A claim with fewer than two is reported back to you — find a second source or do not write it.',
+      }),
+    ),
+    conflictWith: Type.Optional(
+      Type.String({
+        description: 'For `write`: the id this item contradicts. Contradictions must surface.',
+      }),
+    ),
+    id: Type.Optional(
+      Type.String({ description: 'For `classify` / `promote`: the item id (e.g. s003).' }),
+    ),
+    status: Type.Optional(
+      Type.Union([Type.Literal('kept'), Type.Literal('dropped')], {
+        description: 'For `classify`: kept = still relevant; dropped = judged useless.',
+      }),
+    ),
+    topic: Type.Optional(
+      Type.String({
+        description: materialsEnabled
+          ? 'For `promote`: the **topic file** it went into (`update_materials` writes topic files and ' +
+            'does not return an id — the topic is the only real unit). Must be one that already exists; ' +
+            'only pass this **after** the learner accepted the material.'
+          : 'For `promote`: this deployment has no materials library, so nothing can be promoted. ' +
+            'Leave the item on the scratchpad.',
+      }),
+    ),
+    query: Type.Optional(
+      Type.String({ description: 'For `search`: substring over text/source/id.' }),
+    ),
+    sessionId: Type.Optional(
+      Type.String({ description: 'Who wrote it. Pass the current session id.' }),
+    ),
   });
 }
 
@@ -193,9 +203,7 @@ export interface ScratchToolDeps {
   materialTopics?: readonly string[] | null;
 }
 
-export function buildScratchTool(
-  deps: ScratchToolDeps,
-): AgentTool<ScratchParams, unknown> {
+export function buildScratchTool(deps: ScratchToolDeps): AgentTool<ScratchParams, unknown> {
   const materialsEnabled = deps.materialTopics != null;
   const knownTopics = deps.materialTopics ?? [];
 
@@ -225,9 +233,7 @@ export function buildScratchTool(
         const written = await writeScratchpad(deps.ownerId, next);
         if (!written) {
           return {
-            content: [
-              { type: 'text' as const, text: '草稿纸没能写盘 —— 这一条没有记下。' },
-            ],
+            content: [{ type: 'text' as const, text: '草稿纸没能写盘 —— 这一条没有记下。' }],
             details: {},
             isError: true,
           };
@@ -268,7 +274,10 @@ export function buildScratchTool(
               type: 'text' as const,
               text: hits.length
                 ? hits
-                    .map((item) => `${item.id} | ${item.kind} | ${item.text}${item.source ? ` ⟨${item.source}⟩` : ''}`)
+                    .map(
+                      (item) =>
+                        `${item.id} | ${item.kind} | ${item.text}${item.source ? ` ⟨${item.source}⟩` : ''}`,
+                    )
                     .join('\n')
                 : `草稿纸里没有匹配「${params.query ?? ''}」的条目（共 ${pad.items.length} 条）。`,
             },
@@ -281,9 +290,7 @@ export function buildScratchTool(
         const text = (params.text ?? '').trim();
         if (!text) {
           return {
-            content: [
-              { type: 'text' as const, text: 'write 需要 text（一句话）。' },
-            ],
+            content: [{ type: 'text' as const, text: 'write 需要 text（一句话）。' }],
             details: {},
             isError: true,
           };
@@ -324,7 +331,10 @@ export function buildScratchTool(
         };
       }
       if (!pad.items.some((item) => item.id === id)) {
-        const known = pad.items.slice(0, 20).map((item) => item.id).join(',');
+        const known = pad.items
+          .slice(0, 20)
+          .map((item) => item.id)
+          .join(',');
         return {
           content: [
             {

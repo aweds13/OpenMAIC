@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { quizQuestionsOf, sceneWriteDiagnostics } from '@/lib/server/agent-runtime/scene-diagnostics';
+import {
+  quizQuestionsOf,
+  sceneWriteDiagnostics,
+} from '@/lib/server/agent-runtime/scene-diagnostics';
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import type { Scene } from '@/lib/types/stage';
 

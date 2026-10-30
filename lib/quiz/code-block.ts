@@ -132,7 +132,14 @@ export function codeBlockVerdict(element: CodeBlockCandidate): CodeBlockVerdict 
   if (mono < paragraphs.length) return 'keep-inline';
 
   const lines = paragraphs
-    .map((part) => part.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&gt;/g, '>').replace(/&lt;/g, '<').trim())
+    .map((part) =>
+      part
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&gt;/g, '>')
+        .replace(/&lt;/g, '<')
+        .trim(),
+    )
     .filter((line) => line.length > 0);
 
   // ② ≥2 行：多行代码块才是"有行序可讲"的那批
@@ -155,7 +162,9 @@ export function codeBlockVerdict(element: CodeBlockCandidate): CodeBlockVerdict 
   //      这与本文件开头那句"中文注释不是排除条件"自相矛盾 —— 是判据写窄了，不是数据的问题。
   //      ★ 注意写成 `[;{}](\s*\/\/.*)?$` 而**不是**先把 `//` 之后切掉：后者会把
   //      `VALUES('x', 'http://x');` 里的 `//` 当注释切开（实测 p57 el12 会因此变红）。
-  const endings = codeLines.filter((line) => /[;{}](\s*\/\/.*)?$/.test(line) || line.includes('=>')).length;
+  const endings = codeLines.filter(
+    (line) => /[;{}](\s*\/\/.*)?$/.test(line) || line.includes('=>'),
+  ).length;
   if (endings * 2 <= codeLines.length) return 'keep-inline';
 
   return 'code-element';

@@ -30,16 +30,16 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { AUDIT_TOOL_NAMES, buildCourseAuditTool, courseAuditPromptBlock } from '@/lib/server/agent-runtime/audit-tools';
+import {
+  AUDIT_TOOL_NAMES,
+  buildCourseAuditTool,
+  courseAuditPromptBlock,
+} from '@/lib/server/agent-runtime/audit-tools';
 import {
   ASSESSMENT_MODES,
   assessmentModePromptBlock,
 } from '@/lib/server/agent-runtime/assessment-mode';
-import {
-  emptyPlanFreeze,
-  freezePlan,
-  planGate,
-} from '@/lib/server/agent-runtime/plan-freeze';
+import { emptyPlanFreeze, freezePlan, planGate } from '@/lib/server/agent-runtime/plan-freeze';
 import {
   PLAN_FREEZE_TOOL_NAMES,
   buildPlanFreezeTool,
@@ -176,8 +176,12 @@ describe('★ 我点名的工具必须真的存在（幽灵工具名 = 把 agent
   it('★ the conditional tool only shows up in the configuration that has it', () => {
     // update_materials 是条件注册的 —— 这条钉住"配置分叉真的分开了"，
     // 否则上面两条会因为两边都同意而一起失效。
-    const without = ownTexts(false).map((item) => item.text).join('\n');
-    const withLib = ownTexts(true).map((item) => item.text).join('\n');
+    const without = ownTexts(false)
+      .map((item) => item.text)
+      .join('\n');
+    const withLib = ownTexts(true)
+      .map((item) => item.text)
+      .join('\n');
     expect(without).not.toContain('update_materials');
     expect(withLib).toContain('update_materials');
   });

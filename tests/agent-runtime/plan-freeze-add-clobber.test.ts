@@ -21,8 +21,8 @@ import type { SceneOutline } from '@/lib/types/generation';
  */
 
 function textOf(result: unknown): string {
-  return (result as { content: Array<{ text?: string }> })
-    .content.map((part) => part.text ?? '')
+  return (result as { content: Array<{ text?: string }> }).content
+    .map((part) => part.text ?? '')
     .join('\n');
 }
 
@@ -65,7 +65,12 @@ function outlineWith(entries: Array<[number, string]>): AppDocumentOutline {
 
 describe('★ plan_freeze add 不许静默覆盖别的页', () => {
   it('往已被占用的 order 写【另一个标题】⇒ 拒，并说明这是什么情况', async () => {
-    const { h, call } = harness(outlineWith([[5, '条件语句'], [6, '循环']]));
+    const { h, call } = harness(
+      outlineWith([
+        [5, '条件语句'],
+        [6, '循环'],
+      ]),
+    );
     const result = await call({
       action: 'add',
       entries: [{ order: 6, title: '动手：写正负判断', brief: '新拆出来的一页' }],
@@ -80,7 +85,12 @@ describe('★ plan_freeze add 不许静默覆盖别的页', () => {
   });
 
   it('同一个 order + 【同一个标题】⇒ 放行（重写这一页的 brief 是 add 的正常用法）', async () => {
-    const { h, call } = harness(outlineWith([[5, '条件语句'], [6, '循环']]));
+    const { h, call } = harness(
+      outlineWith([
+        [5, '条件语句'],
+        [6, '循环'],
+      ]),
+    );
     const result = await call({
       action: 'add',
       entries: [{ order: 6, title: '循环', brief: '把 brief 写细一点' }],
@@ -92,7 +102,12 @@ describe('★ plan_freeze add 不许静默覆盖别的页', () => {
   });
 
   it('★ 别把正常写计划也拒掉：往【空 order】写 ⇒ 放行（补空洞就是这条路）', async () => {
-    const { h, call } = harness(outlineWith([[5, '条件语句'], [7, '循环']]));
+    const { h, call } = harness(
+      outlineWith([
+        [5, '条件语句'],
+        [7, '循环'],
+      ]),
+    );
     const result = await call({
       action: 'add',
       entries: [{ order: 6, title: '动手：写正负判断', brief: '补上缺的那条' }],
@@ -104,7 +119,12 @@ describe('★ plan_freeze add 不许静默覆盖别的页', () => {
   });
 
   it('多条一起写：只要有一条会覆盖，整批都不写（原子）', async () => {
-    const { h, call } = harness(outlineWith([[5, '条件语句'], [6, '循环']]));
+    const { h, call } = harness(
+      outlineWith([
+        [5, '条件语句'],
+        [6, '循环'],
+      ]),
+    );
     const result = await call({
       action: 'add',
       entries: [
@@ -185,7 +205,13 @@ describe('★ add 要把单元·角色·小点·难度真的写进计划', () =>
       action: 'add',
       entries: [
         { order: 2, title: '选择：哪条命令验证安装', type: 'quiz', brief: 'x', difficulty: 'easy' },
-        { order: 3, title: '写作：写一个 for', type: 'interactive', brief: 'y', difficulty: 'hard' },
+        {
+          order: 3,
+          title: '写作：写一个 for',
+          type: 'interactive',
+          brief: 'y',
+          difficulty: 'hard',
+        },
       ],
     });
     const written = (h.outline?.outlines ?? []) as unknown as Array<Record<string, unknown>>;
@@ -224,7 +250,13 @@ describe('★★ brief / description 是同一个字段的两个名字', () => {
     await call({
       action: 'add',
       entries: [
-        { order: 2, title: '第 2 页', type: 'slide', brief: '用 brief', description: '用 description' },
+        {
+          order: 2,
+          title: '第 2 页',
+          type: 'slide',
+          brief: '用 brief',
+          description: '用 description',
+        },
       ],
     });
     const written = (h.outline?.outlines ?? []) as unknown as Array<Record<string, unknown>>;
@@ -251,7 +283,12 @@ describe('★★ brief / description 是同一个字段的两个名字', () => {
  */
 describe('★★ add 撞标题时，拒绝信息要写出路', () => {
   it('★ 要点名 `revise` 的 `entries` 是覆盖写、没有这条守卫', async () => {
-    const { call } = harness(outlineWith([[5, '条件语句'], [6, '循环']]));
+    const { call } = harness(
+      outlineWith([
+        [5, '条件语句'],
+        [6, '循环'],
+      ]),
+    );
     const result = await call({
       action: 'add',
       entries: [{ order: 6, title: '完全不同的标题', type: 'slide', keyPoints: ['x'], unit: 'U1' }],

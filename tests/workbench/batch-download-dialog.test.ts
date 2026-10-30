@@ -38,7 +38,9 @@ vi.mock('@/lib/export/batch-export', async (importOriginal) => {
       async (
         courses: Array<{ id: string; name: string }>,
         selection: unknown,
-        options?: { onProgress?: (p: { done: number; total: number; currentName: string }) => void },
+        options?: {
+          onProgress?: (p: { done: number; total: number; currentName: string }) => void;
+        },
       ) => {
         builder.calls.push({ ids: courses.map((course) => course.id), selection });
         options?.onProgress?.({ done: 1, total: courses.length, currentName: courses[0].name });
@@ -92,7 +94,13 @@ describe('BatchDownloadDialog', () => {
 
   const renderDialog = () =>
     act(() =>
-      root.render(createElement(BatchDownloadDialog, { open: true, onOpenChange: () => {}, courses: COURSES })),
+      root.render(
+        createElement(BatchDownloadDialog, {
+          open: true,
+          onOpenChange: () => {},
+          courses: COURSES,
+        }),
+      ),
     );
 
   const query = (testId: string) => document.querySelector(`[data-testid="${testId}"]`);
@@ -118,9 +126,7 @@ describe('BatchDownloadDialog', () => {
     expect(query('batch-download-course-c1')?.textContent).toContain('机器学习');
     // The page count rides the rail's own `workspace.sceneCount` key (mocked to
     // its identity here), i.e. one wording for the count everywhere.
-    expect(query('batch-download-course-c3')?.textContent).toBe(
-      '编译原理workspace.sceneCount',
-    );
+    expect(query('batch-download-course-c3')?.textContent).toBe('编译原理workspace.sceneCount');
     expect(query('batch-download-count')?.textContent).toBe(
       'workspace.batchDownload.selectedSummary',
     );

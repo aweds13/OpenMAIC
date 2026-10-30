@@ -34,9 +34,7 @@ function describe(server: string, tool: string, description: string): string {
  * 一个"任意对象"的开放 schema，而不是拒绝注册：一个没有 schema 的工具仍然
  * 可用，一个不存在的工具则完全不可用。
  */
-function bridge(
-  entry: ResolvedMcpTools['tools'][number],
-): AgentTool<never, never> {
+function bridge(entry: ResolvedMcpTools['tools'][number]): AgentTool<never, never> {
   const schema =
     entry.inputSchema && typeof entry.inputSchema === 'object'
       ? entry.inputSchema
@@ -104,9 +102,7 @@ export async function buildMcpTools(): Promise<McpToolset> {
     return {
       tools: [],
       names: [],
-      failed: [
-        { server: '*', error: error instanceof Error ? error.message : String(error) },
-      ],
+      failed: [{ server: '*', error: error instanceof Error ? error.message : String(error) }],
     };
   }
 }
@@ -133,7 +129,7 @@ export function mcpPromptBlock(names: readonly string[]): string {
     '  papers — and use the local library for what it holds. **The two are complementary.**',
     '- When one fails, **say that the external service failed**. Do not silently fall back to your',
     '  own recollection and present it as if it came from the source.',
-    '- These tools cannot see the learner\'s local materials, and the local tools cannot see these',
+    "- These tools cannot see the learner's local materials, and the local tools cannot see these",
     '  services. Fetch from both when a task needs both.',
   ].join('\n');
 }

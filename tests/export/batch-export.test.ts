@@ -174,19 +174,29 @@ describe('buildBatchExportZip', () => {
 
   it('honours the content selection', async () => {
     const data = { c1: courseData('c1', [slideScene('s1'), interactiveScene('i1')]) };
-    const pptxOnly = await buildBatchExportZip([{ id: 'c1', name: 'A' }], {
-      includePptx: true,
-      includeInteractive: false,
-      includeClassroomZip: false,
-    }, { deps: fakeDeps(data) });
+    const pptxOnly = await buildBatchExportZip(
+      [{ id: 'c1', name: 'A' }],
+      {
+        includePptx: true,
+        includeInteractive: false,
+        includeClassroomZip: false,
+      },
+      { deps: fakeDeps(data) },
+    );
     expect(await zipEntries(pptxOnly.blob)).toEqual(['A/A.pptx']);
 
-    const interactiveOnly = await buildBatchExportZip([{ id: 'c1', name: 'A' }], {
-      includePptx: false,
-      includeInteractive: true,
-      includeClassroomZip: false,
-    }, { deps: fakeDeps(data) });
-    expect(await zipEntries(interactiveOnly.blob)).toEqual(['A/interactive/01_Spin the frame.html']);
+    const interactiveOnly = await buildBatchExportZip(
+      [{ id: 'c1', name: 'A' }],
+      {
+        includePptx: false,
+        includeInteractive: true,
+        includeClassroomZip: false,
+      },
+      { deps: fakeDeps(data) },
+    );
+    expect(await zipEntries(interactiveOnly.blob)).toEqual([
+      'A/interactive/01_Spin the frame.html',
+    ]);
   });
 
   it('marks a course with no slides or no interactive scenes as skipped, not failed', async () => {
@@ -311,10 +321,9 @@ describe('buildBatchExportZip', () => {
       ALL,
       { deps },
     );
-    expect((deps.loadCourse as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0])).toEqual([
-      'c1',
-      'c2',
-    ]);
+    expect((deps.loadCourse as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0])).toEqual(
+      ['c1', 'c2'],
+    );
   });
 });
 

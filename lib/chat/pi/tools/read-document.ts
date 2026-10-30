@@ -41,8 +41,8 @@ const ReadDocumentParams = Type.Object(
     }),
     mode: Type.Union([Type.Literal('peek'), Type.Literal('full')], {
       description:
-        'peek = opening text plus per-chunk first lines (a rough table of contents) — cheap, use it to judge relevance. '
-        + 'full = the document body — expensive, use it ONLY after the user confirmed they want this document included.',
+        'peek = opening text plus per-chunk first lines (a rough table of contents) — cheap, use it to judge relevance. ' +
+        'full = the document body — expensive, use it ONLY after the user confirmed they want this document included.',
     }),
     offset: Type.Optional(
       Type.Number({
@@ -256,7 +256,9 @@ async function executeReadDocument(
           type: 'text' as const,
           text: [
             `Document (full) — "${doc?.title ?? id}"` +
-              (doc ? ` · chars ${payload.offset ?? 0}–${(payload.offset ?? 0) + (payload.returned ?? 0)} of ${doc.chars}` : ''),
+              (doc
+                ? ` · chars ${payload.offset ?? 0}–${(payload.offset ?? 0) + (payload.returned ?? 0)} of ${doc.chars}`
+                : ''),
             '',
             payload.text ?? '',
             payload.hasMore
@@ -301,9 +303,9 @@ export function buildReadDocumentTool(
     name: 'read_document',
     label: 'Read a local document',
     description:
-      'Read a document from the learner\'s LOCAL DOCUMENT shelf (the same set course_search reaches with layer="L4"): their own PDFs, slide decks and Obsidian notes. '
-      + 'Use mode="peek" first to see a rough table of contents and judge relevance, then list the candidates to the user and let them choose; '
-      + 'only call mode="full" for documents the user confirmed they want included. Never invent a document id and never claim to have read something you did not read.',
+      'Read a document from the learner\'s LOCAL DOCUMENT shelf (the same set course_search reaches with layer="L4"): their own PDFs, slide decks and Obsidian notes. ' +
+      'Use mode="peek" first to see a rough table of contents and judge relevance, then list the candidates to the user and let them choose; ' +
+      'only call mode="full" for documents the user confirmed they want included. Never invent a document id and never claim to have read something you did not read.',
     parameters: ReadDocumentParams,
     executionMode: 'sequential',
     prepareArguments: (args) => {

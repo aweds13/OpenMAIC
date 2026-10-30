@@ -123,7 +123,8 @@ describe('read_document', () => {
   it('a 404 becomes not_found rather than a transport error', async () => {
     const tool = buildReadDocumentTool({
       config: { baseUrl: 'http://127.0.0.1:8720' },
-      fetchImpl: (async () => jsonResponse({ error: 'document not found' }, 404)) as unknown as typeof fetch,
+      fetchImpl: (async () =>
+        jsonResponse({ error: 'document not found' }, 404)) as unknown as typeof fetch,
     });
     const out = await tool.execute('c1', { id: 'doc:nope', mode: 'peek' });
 
@@ -150,8 +151,8 @@ describe('read_document', () => {
     const tool = buildReadDocumentTool({ config: { baseUrl: 'http://127.0.0.1:8720' } });
     const prepare = tool.prepareArguments as (args: unknown) => unknown;
 
-    expect(() => prepare({ id: DOC.id })).toThrow();               // mode 必填
-    expect(() => prepare({ id: DOC.id, mode: 'peek', extra: 1 })).toThrow();  // 多余字段
+    expect(() => prepare({ id: DOC.id })).toThrow(); // mode 必填
+    expect(() => prepare({ id: DOC.id, mode: 'peek', extra: 1 })).toThrow(); // 多余字段
     expect(() => prepare({ id: DOC.id, mode: 'read' })).toThrow(); // 非法 mode
     expect(prepare({ id: DOC.id, mode: 'peek' })).toEqual({ id: DOC.id, mode: 'peek' });
   });

@@ -68,7 +68,7 @@ export function learnerStatePromptBlock(state: string): string {
   return [
     '## Learner state (recorded on this machine, not guessed)',
     '',
-    'Machine-written from the learner\'s own quiz attempts. Treat it as fact.',
+    "Machine-written from the learner's own quiz attempts. Treat it as fact.",
     'It lists only what changes what you do next — so if a page is absent from it,',
     'that means nothing was recorded, **not** that the learner never studied it.',
     '',
@@ -131,8 +131,7 @@ export async function refreshLearnerStateFromRuntime(
   const practiceSection = formatPracticeResultsForState(practiceEntries);
 
   const db =
-    options.queryable ??
-    (await getServerPersistenceProvider(process.env.DATABASE_URL ?? '')).pool;
+    options.queryable ?? (await getServerPersistenceProvider(process.env.DATABASE_URL ?? '')).pool;
 
   // 1) 这个 owner 名下、有答题会话的课。ownership 的边界就是 stage_meta
   //    （与 owner-bound document store 同一张表）。
@@ -193,7 +192,17 @@ export async function refreshLearnerStateFromRuntime(
   const stageIds = [...new Set(fold.scenes.map((scene) => scene.stageId))];
   const sceneRows =
     sceneIds.length === 0
-      ? { rows: [] as { stage_id: string; id: string; scene_order: number; data: { title?: string; content?: { questions?: { id?: string; question?: string }[] } } }[] }
+      ? {
+          rows: [] as {
+            stage_id: string;
+            id: string;
+            scene_order: number;
+            data: {
+              title?: string;
+              content?: { questions?: { id?: string; question?: string }[] };
+            };
+          }[],
+        }
       : await db.query<{
           stage_id: string;
           id: string;
@@ -216,8 +225,9 @@ export async function refreshLearnerStateFromRuntime(
     order: row.scene_order,
     title: row.data.title ?? row.id,
     questions: (row.data.content?.questions ?? [])
-      .filter((question): question is { id: string; question: string } =>
-        typeof question.id === 'string' && typeof question.question === 'string',
+      .filter(
+        (question): question is { id: string; question: string } =>
+          typeof question.id === 'string' && typeof question.question === 'string',
       )
       .map((question) => ({ id: question.id, question: question.question })),
   }));
@@ -281,7 +291,9 @@ export async function refreshLearnerStateBestEffort(ownerId: string): Promise<vo
   try {
     await refreshLearnerStateFromRuntime({ ownerId });
   } catch (error) {
-    log.warn({ error: String(error), ownerId }, 'learner-state refresh failed; keeping the last file');
+    log.warn(
+      { error: String(error), ownerId },
+      'learner-state refresh failed; keeping the last file',
+    );
   }
 }
-

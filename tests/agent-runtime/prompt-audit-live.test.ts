@@ -40,8 +40,14 @@ import {
   fetchPromptBlock,
   untrustedContentPolicyPromptBlock,
 } from '@/lib/server/agent-runtime/fetch-url';
-import { learnerProfilePromptBlock, resolveLearnerProfile } from '@/lib/server/agent-runtime/learner-profile';
-import { learnerStatePromptBlock, resolveLearnerState } from '@/lib/server/agent-runtime/learner-state';
+import {
+  learnerProfilePromptBlock,
+  resolveLearnerProfile,
+} from '@/lib/server/agent-runtime/learner-profile';
+import {
+  learnerStatePromptBlock,
+  resolveLearnerState,
+} from '@/lib/server/agent-runtime/learner-state';
 import {
   materialsIndexPromptBlock,
   resolveMaterialsIndex,

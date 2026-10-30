@@ -108,8 +108,7 @@ vi.mock('@/lib/server/agent-runtime/course-search', async (importActual) => {
 });
 
 vi.mock('@/lib/server/agent-runtime/learner-profile', async (importActual) => {
-  const actual =
-    await importActual<typeof import('@/lib/server/agent-runtime/learner-profile')>();
+  const actual = await importActual<typeof import('@/lib/server/agent-runtime/learner-profile')>();
   return { ...actual, resolveLearnerProfile: mocks.resolveLearnerProfile };
 });
 
@@ -440,9 +439,10 @@ describe('★ assembled prompt: every capability combination', () => {
     // 漏了调用形状，却照样全绿）。
     //
     // 调用位（**不带反引号**）：
-    expect(calledToolTokens('call not_a_real_tool now'), '阳性对照失败：调用位抓不到编造的名字').toContain(
-      'not_a_real_tool',
-    );
+    expect(
+      calledToolTokens('call not_a_real_tool now'),
+      '阳性对照失败：调用位抓不到编造的名字',
+    ).toContain('not_a_real_tool');
     expect(calledToolTokens('use not_a_real_tool(...)')).toContain('not_a_real_tool');
     // 阴性对照一：上游的**改名对照表**是**故意**出现旧名的，不在调用位上，不许误报。
     expect(
@@ -544,9 +544,7 @@ describe('★ assembled prompt: every capability combination', () => {
       // ★ 另一半（§1.1）：注册了却**没放行** = 模型看得见、调不动，而且不报错。
       //   工具表是 assembleRunnerTools(...) 装的，允许表是**另外手写一遍**的能力清单 ——
       //   与第 13 轮那个 bug 是同一个形状（一个类型化的包 + 一个手写的消费者）。
-      const blocked = options.tools
-        .map((tool) => tool.name)
-        .filter((name) => !allowed.has(name));
+      const blocked = options.tools.map((tool) => tool.name).filter((name) => !allowed.has(name));
       if (blocked.length > 0) {
         problems.push(
           `web=${combo.web} course=${combo.course} browse=${combo.browse} → 注册了但没放行：${blocked.join(', ')}`,
@@ -647,10 +645,14 @@ describe('★ prompt blocks actually reach the model', () => {
     const PREV = process.env.OPENMAIC_PLAN_GATE;
     try {
       process.env.OPENMAIC_PLAN_GATE = '1';
-      expect((await runToBuildAgent()).systemPrompt).toContain('## The course plan is a durable artifact');
+      expect((await runToBuildAgent()).systemPrompt).toContain(
+        '## The course plan is a durable artifact',
+      );
 
       delete process.env.OPENMAIC_PLAN_GATE;
-      expect((await runToBuildAgent()).systemPrompt).not.toContain('## The course plan is a durable artifact');
+      expect((await runToBuildAgent()).systemPrompt).not.toContain(
+        '## The course plan is a durable artifact',
+      );
     } finally {
       if (PREV === undefined) delete process.env.OPENMAIC_PLAN_GATE;
       else process.env.OPENMAIC_PLAN_GATE = PREV;

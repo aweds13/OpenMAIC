@@ -790,11 +790,22 @@ export function buildCallAgentTool(opts: {
               })
             : []),
           buildNativeWebSearchTool({ config: opts.nativeWebSearchConfig }),
-          buildCourseSearchTool({ config: opts.courseSearchConfig }),
-          buildReadDocumentTool({
-            config: opts.readDocumentConfig ?? opts.courseSearchConfig,
-          }),
-          buildBrowseUrlTool({ config: opts.browseConfig }),
+          // 能力注册，不是开关 —— 与 `lib/server/agent-runtime/runner.ts`、
+          // `app/api/chat/pi/route.ts` 三处同一条口径：**没配这个服务就不注册
+          // 这个工具**。不给模型一个"在工具表里、一调就 not_configured"的死工具；
+          // 而 `availableToolNames` 会原样进子代理提示词（`buildNativeChildPrompt`
+          // 的最后一个参数），多出来的名字等于叫它去调一个本部署没有的能力。
+          ...(opts.courseSearchConfig
+            ? [
+                buildCourseSearchTool({ config: opts.courseSearchConfig }),
+                // ★ read_document 与 course_search **配套**：L4 命中只是一个
+                //   带 chunkIndex 的块，没有 read_document 就翻不开整篇文档。
+                buildReadDocumentTool({
+                  config: opts.readDocumentConfig ?? opts.courseSearchConfig,
+                }),
+              ]
+            : []),
+          ...(opts.browseConfig ? [buildBrowseUrlTool({ config: opts.browseConfig })] : []),
         ];
         const availableToolNames = nativeTools.map((tool) => tool.name);
         const sanitizeNativeDelta = createVisibleSpeechDeltaSanitizer();

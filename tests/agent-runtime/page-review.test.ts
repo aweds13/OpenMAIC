@@ -7,7 +7,10 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { collectPageWithEarlier, reviewPageWithContext } from '@/lib/server/agent-runtime/page-review';
+import {
+  collectPageWithEarlier,
+  reviewPageWithContext,
+} from '@/lib/server/agent-runtime/page-review';
 import type { VisibleTextPage } from '@/lib/quiz/page-text';
 
 const slide = (order: number, text: string): VisibleTextPage => ({
@@ -21,7 +24,14 @@ describe('★ 带上下文的单页审查', () => {
   it('★ 前面讲过的页要**一起**给模型，并且明说"学生已经读过"', async () => {
     const aiCall = vi.fn(async (_system: string, _user: string) => '第 3 页没问题。');
     const result = await reviewPageWithContext(
-      { scenes: [slide(1, 'byte 的范围是 -128 到 127'), slide(2, '算术运算符'), slide(3, '用 byte 存年龄')], order: 3 },
+      {
+        scenes: [
+          slide(1, 'byte 的范围是 -128 到 127'),
+          slide(2, '算术运算符'),
+          slide(3, '用 byte 存年龄'),
+        ],
+        order: 3,
+      },
       { aiCall: aiCall as never },
     );
     expect(result?.pages).toEqual([1, 2, 3]);
@@ -81,7 +91,10 @@ describe('★ 带上下文的单页审查', () => {
 
   it('★ 第一页也能审（前面没有任何页，规矩里说明白）', async () => {
     const aiCall = vi.fn(async (_system: string, _user: string) => '第 1 页没问题。');
-    await reviewPageWithContext({ scenes: [slide(1, '开场')], order: 1 }, { aiCall: aiCall as never });
+    await reviewPageWithContext(
+      { scenes: [slide(1, '开场')], order: 1 },
+      { aiCall: aiCall as never },
+    );
     expect(String(aiCall.mock.calls[0]![0])).toContain('这是第一页');
   });
 });

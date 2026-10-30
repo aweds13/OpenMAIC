@@ -49,7 +49,10 @@ describe('upsertOutlineEntry', () => {
       entry({ id: 'p1', order: 1, description: '旧的一页' }),
       entry({ id: 'p2', order: 2 }),
     ]);
-    const result = upsertOutlineEntry(before, entry({ id: 'p1', order: 1, description: '重生成后的' }));
+    const result = upsertOutlineEntry(
+      before,
+      entry({ id: 'p1', order: 1, description: '重生成后的' }),
+    );
 
     expect(result.changed).toBe(true);
     expect(result.outline?.outlines).toHaveLength(2);
@@ -60,7 +63,10 @@ describe('upsertOutlineEntry', () => {
 
   it('falls back to the page order when the id is unknown', () => {
     const before = outline([entry({ id: 'p1', order: 1 }), entry({ id: 'p2', order: 2 })]);
-    const result = upsertOutlineEntry(before, entry({ id: 'brand-new', order: 2, description: '覆盖第 2 页' }));
+    const result = upsertOutlineEntry(
+      before,
+      entry({ id: 'brand-new', order: 2, description: '覆盖第 2 页' }),
+    );
 
     expect(result.changed).toBe(true);
     expect(result.outline?.outlines).toHaveLength(2);

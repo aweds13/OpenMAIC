@@ -132,7 +132,7 @@ export const PATCH_COURSE_SCHEMA = Type.Object({
   overloadAcknowledged: Type.Optional(
     Type.Boolean({
       description:
-        'Set true ONLY after showing the learner this page\'s overload numbers and getting their ' +
+        "Set true ONLY after showing the learner this page's overload numbers and getting their " +
         'answer. Required when the page is overloaded (more new material than one page should ' +
         'carry) — patch_stage refuses it otherwise so a repair cannot silently skip the learner.',
     }),
@@ -736,10 +736,10 @@ function applyStrReplaceOp(scene: Scene, op: ResolvedPatchOp): PatchOpResult {
       error: 'str_replace path must start /content/ or /actions/; use edit_deck for scene metadata',
     };
   }
-    // ★ 先算"装不装得下" —— 拒绝就不写，整批原子（见 textFitRefusal 头部）
+  // ★ 先算"装不装得下" —— 拒绝就不写，整批原子（见 textFitRefusal 头部）
   const refusal = textFitRefusal(scene, path, op.newText);
   if (refusal) return { ok: false as const, error: refusal };
-const applied = applyStrReplace(scene, {
+  const applied = applyStrReplace(scene, {
     path,
     oldText: op.oldText,
     newText: op.newText,
@@ -789,11 +789,6 @@ function applyPatchOp(scene: Scene, raw: RawPatchOp): PatchOpResult {
   const path = canonicalSlidePath(scene, raw.path);
   if (path !== raw.path) notes.push(`path ${raw.path} read as ${path} (canonical form)`);
   const op: ResolvedPatchOp = { ...raw, op: resolvedName.op, path };
-  const withNotes = (result: PatchOpResult): PatchOpResult => {
-    if (!result.ok || notes.length === 0) return result;
-    const merged = [...notes, ...(result.details.notes ?? [])];
-    return { ...result, details: { ...result.details, notes: merged } };
-  };
   return applyResolvedPatchOp(scene, op, notes);
 }
 
@@ -823,7 +818,8 @@ function textFitRefusal(scene: Scene, path: string, newText: string): string | u
   if (!element || element.type !== 'text') return undefined;
   const { width, height } = element;
   if (typeof width !== 'number' || typeof height !== 'number') return undefined;
-  const fontPx = maxFontSizePx(newText) ?? (typeof element.fontSize === 'number' ? element.fontSize : 16);
+  const fontPx =
+    maxFontSizePx(newText) ?? (typeof element.fontSize === 'number' ? element.fontSize : 16);
   const needed = estimateTextHeightPx(newText, width, fontPx);
   if (needed <= height + 1) return undefined;
   const maxChars = Math.max(1, Math.floor((height / (fontPx * 1.6)) * (width / fontPx)));
@@ -1294,7 +1290,10 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
           if (empty.length > 0) {
             parts.push(
               `**${empty.length} 页是空的**：` +
-                empty.slice(0, 5).map((page) => `第 ${page.order} 页《${page.title}》`).join('、'),
+                empty
+                  .slice(0, 5)
+                  .map((page) => `第 ${page.order} 页《${page.title}》`)
+                  .join('、'),
             );
           }
           if (dangling.length > 0) {
@@ -1302,7 +1301,9 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
               `**${dangling.length} 处页码引用指向不存在或空的页**：` +
                 dangling
                   .slice(0, 5)
-                  .map((reference) => `第 ${reference.fromOrder} 页 → 第 ${reference.targetOrder} 页`)
+                  .map(
+                    (reference) => `第 ${reference.fromOrder} 页 → 第 ${reference.targetOrder} 页`,
+                  )
                   .join('、'),
             );
           }
@@ -1474,7 +1475,19 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
             },
             { reviewPage: deps.reviewPage },
           )
-        : { coverageGaps: [], coverageText: '', planIssues: [], planText: '', densityText: '', bodyChars: 0, layoutFindings: [], layoutText: '', layoutDelta: { added: [], removed: [], kept: [] }, layoutDeltaText: '', pageReviewText: '' };
+        : {
+            coverageGaps: [],
+            coverageText: '',
+            planIssues: [],
+            planText: '',
+            densityText: '',
+            bodyChars: 0,
+            layoutFindings: [],
+            layoutText: '',
+            layoutDelta: { added: [], removed: [], kept: [] },
+            layoutDeltaText: '',
+            pageReviewText: '',
+          };
 
       deps.onCheckpoint({
         tool: 'patch_stage',
@@ -1500,8 +1513,10 @@ export function buildDslCourseTools(deps: CourseToolDeps): AgentTool<never, neve
       const summary =
         `Updated scene "${next.title}": ${params.intent}` +
         `${diagnostics.coverageText}${diagnostics.planText}${diagnostics.densityText}${diagnostics.layoutText}${diagnostics.layoutDeltaText}${diagnostics.pageReviewText}` +
-        (notes.length ? `
-Notes: ${notes.join('; ')}` : '');
+        (notes.length
+          ? `
+Notes: ${notes.join('; ')}`
+          : '');
       return toolResult(summary, {
         intent: params.intent,
         updated: { sceneId: next.id, order: next.order, type: next.type, ops: params.ops.length },
@@ -1681,9 +1696,11 @@ Notes: ${notes.join('; ')}` : '');
             '**后面还有没扫的内容**。要确认"全课只有这些"，带 cursor 继续。'
         : '';
       return toolResult(
-        notice ? `${notice}
+        notice
+          ? `${notice}
 
-${JSON.stringify(details, null, 2)}` : JSON.stringify(details, null, 2),
+${JSON.stringify(details, null, 2)}`
+          : JSON.stringify(details, null, 2),
         details,
       );
     },

@@ -38,11 +38,7 @@
  * `skipped` 并带原因，**不静默丢弃**。一份悄悄变少的输入会让下游把
  * 「没记录」误读成「没答过」。
  */
-import {
-  isQuizAttemptSkeleton,
-  type QuizAttemptPhase,
-  type RuntimeRecord,
-} from '@openmaic/dsl';
+import { isQuizAttemptSkeleton, type QuizAttemptPhase, type RuntimeRecord } from '@openmaic/dsl';
 
 import type { QuestionResult } from '@/lib/quiz/grading';
 import type { QuizAnswers } from '@/lib/quiz/persistence';
@@ -138,7 +134,10 @@ export interface FoldQuizAttemptsInput {
 interface SceneAccumulator {
   stageId: string;
   sceneId: string;
-  records: { payload: { phase: QuizAttemptPhase; answers: QuizAnswers; results?: QuestionResult[] }; at: string }[];
+  records: {
+    payload: { phase: QuizAttemptPhase; answers: QuizAnswers; results?: QuestionResult[] };
+    at: string;
+  }[];
   sessionIds: Set<string>;
   attemptSessions: number;
 }
@@ -155,7 +154,9 @@ export function sceneKey(stageId: string, sceneId: string): string {
 
 /** 会话排序 —— 与 `lib/quiz/runtime.ts` 的 `compareSessionCreationOrder` 同口径。 */
 function compareSessions(left: QuizFoldSession, right: QuizFoldSession): number {
-  return Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id);
+  return (
+    Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id)
+  );
 }
 
 /**
@@ -197,9 +198,10 @@ function normalizeResults(value: readonly unknown[]): QuestionResult[] {
       questionId: candidate.questionId,
       status: candidate.status,
       correct: typeof candidate.correct === 'boolean' ? candidate.correct : null,
-      earned: typeof candidate.earned === 'number' && Number.isFinite(candidate.earned)
-        ? candidate.earned
-        : 0,
+      earned:
+        typeof candidate.earned === 'number' && Number.isFinite(candidate.earned)
+          ? candidate.earned
+          : 0,
     });
   }
   return results;

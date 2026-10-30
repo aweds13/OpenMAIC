@@ -45,7 +45,12 @@ function upstreamTree(): Set<string> | null {
       ['ls-tree', '-r', '--name-only', 'origin/main', '--', 'lib', 'app', 'components'],
       { encoding: 'utf8' },
     );
-    return new Set(out.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0));
+    return new Set(
+      out
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0),
+    );
   } catch {
     return null;
   }
@@ -59,7 +64,12 @@ function upstreamChanged(): Set<string> | null {
       ['-c', 'core.quotepath=false', 'diff', '--name-only', `${BASELINE}..origin/main`],
       { encoding: 'utf8' },
     );
-    return new Set(out.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0));
+    return new Set(
+      out
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0),
+    );
   } catch {
     return null;
   }
@@ -70,7 +80,16 @@ function forkAddedSources(): string[] | null {
   try {
     const out = execFileSync(
       'git',
-      ['diff', '--name-only', '--diff-filter=A', `${BASELINE}..HEAD`, '--', 'lib', 'app', 'components'],
+      [
+        'diff',
+        '--name-only',
+        '--diff-filter=A',
+        `${BASELINE}..HEAD`,
+        '--',
+        'lib',
+        'app',
+        'components',
+      ],
       { encoding: 'utf8' },
     );
     const upstream = upstreamTree();
@@ -91,9 +110,7 @@ describe('★ AGENTS.md 文件地图与现实对账', () => {
     //   （"改这个模块时先看这两条"）—— 文件名一改，文档就把人指向不存在的文件。
     //   这个洞是第 23 轮发现的：原来只匹配 `lib|app|components`。
     const paths = [
-      ...AGENTS.matchAll(
-        /`((?:lib|app|components|tests|scripts)\/[\w.\/-]+\.(?:ts|tsx|mjs|js))`/g,
-      ),
+      ...AGENTS.matchAll(/`((?:lib|app|components|tests|scripts)\/[\w.\/-]+\.(?:ts|tsx|mjs|js))`/g),
     ].map((m) => m[1]!);
     const unique = [...new Set(paths)];
     expect(unique.length, '一个源码路径都没解析到 —— 正则或文档格式变了').toBeGreaterThan(20);
@@ -112,7 +129,9 @@ describe('★ AGENTS.md 文件地图与现实对账', () => {
     expect(added.length, '一个新增文件都没解析到 —— 基线或路径过滤写错了').toBeGreaterThan(20);
 
     const missing = added.filter((path) => !AGENTS.includes(path.split('/').at(-1)!));
-    expect(missing, `这些是本 fork 新增的文件，但没写进 §2 地图：\n${missing.join('\n')}`).toEqual([]);
+    expect(missing, `这些是本 fork 新增的文件，但没写进 §2 地图：\n${missing.join('\n')}`).toEqual(
+      [],
+    );
   });
 });
 
@@ -158,7 +177,9 @@ describe('★ AGENTS.md 里点名的符号还在', () => {
     const blob = sourceBlob();
     expect(blob.length, '语料是空的 —— 目录名写错了').toBeGreaterThan(100_000);
 
-    const calls = [...new Set([...AGENTS.matchAll(/`([a-zA-Z_][A-Za-z0-9_]*)\(\)`/g)].map((m) => m[1]!))];
+    const calls = [
+      ...new Set([...AGENTS.matchAll(/`([a-zA-Z_][A-Za-z0-9_]*)\(\)`/g)].map((m) => m[1]!)),
+    ];
     const consts = [...new Set([...AGENTS.matchAll(/`([A-Z][A-Z0-9_]{3,})`/g)].map((m) => m[1]!))];
     expect(calls.length, '一个函数都没解析到 —— 正则或文档格式变了').toBeGreaterThan(3);
 

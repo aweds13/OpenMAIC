@@ -116,11 +116,10 @@ describe('★ 建会话时把材料库里的 URL 也登记进信任闸', { timeo
     const mod = await loadStore(dir);
     const { store, calls } = fakeStore(() => false);
 
-    await mod.registerBootstrapSessionUrls(
-      store as never,
-      TX,
-      { ...(META as Record<string, unknown>), prompt: '看 https://example.com/a' } as never,
-    );
+    await mod.registerBootstrapSessionUrls(store as never, TX, {
+      ...(META as Record<string, unknown>),
+      prompt: '看 https://example.com/a',
+    } as never);
 
     expect(calls.flatMap((c) => c.urls).some((url) => url.includes('example.com'))).toBe(true);
   });
@@ -131,7 +130,9 @@ describe('★ 建会话时把材料库里的 URL 也登记进信任闸', { timeo
     // 让"含 oracle 的那一批"抛。
     const { store } = fakeStore((urls) => urls.some((url) => url.includes('oracle')));
 
-    await expect(mod.registerBootstrapSessionUrls(store as never, TX, META)).resolves.toBeUndefined();
+    await expect(
+      mod.registerBootstrapSessionUrls(store as never, TX, META),
+    ).resolves.toBeUndefined();
   });
 
   it('★ 但提示词那一段失败【仍然要抛】——别把隔离做过头', async () => {
@@ -141,11 +142,10 @@ describe('★ 建会话时把材料库里的 URL 也登记进信任闸', { timeo
     const { store } = fakeStore((urls) => urls.length > 0);
 
     await expect(
-      mod.registerBootstrapSessionUrls(
-        store as never,
-        TX,
-        { ...(META as Record<string, unknown>), prompt: '看 https://example.com/a' } as never,
-      ),
+      mod.registerBootstrapSessionUrls(store as never, TX, {
+        ...(META as Record<string, unknown>),
+        prompt: '看 https://example.com/a',
+      } as never),
     ).rejects.toThrow();
   });
 

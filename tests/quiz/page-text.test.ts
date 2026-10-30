@@ -26,7 +26,10 @@ describe('staticPageText', () => {
           type: 'slide',
           canvas: {
             elements: [
-              { type: 'text', content: '<p style="font-size: 32px;">byte 的<strong>范围</strong></p>' },
+              {
+                type: 'text',
+                content: '<p style="font-size: 32px;">byte 的<strong>范围</strong></p>',
+              },
               { type: 'table', data: [[{ text: '运算' }, { text: '结果' }]] },
             ],
           },
@@ -137,7 +140,9 @@ describe('learnerVisibleText', () => {
       <script>
         document.getElementById('root').innerHTML = '<h1>起始代码</h1><pre>int n = -7;</pre><p>参考答案：用 if 判断正负</p>';
       </script></body></html>`;
-    const result = await learnerVisibleText(page({ type: 'interactive', order: 17, content: { html } }));
+    const result = await learnerVisibleText(
+      page({ type: 'interactive', order: 17, content: { html } }),
+    );
     expect(result.mode).toBe('rendered');
     expect(result.text).toContain('起始代码');
     expect(result.text).toContain('int n = -7;');
@@ -159,7 +164,8 @@ describe('learnerVisibleText', () => {
   });
 
   it('interactive: 渲染拿不到任何文字 ⇒ mode=source 且有 note（不许静默成空页）', async () => {
-    const html = '<!DOCTYPE html><html><body><script>document.body.remove();</script></body></html>';
+    const html =
+      '<!DOCTYPE html><html><body><script>document.body.remove();</script></body></html>';
     const result = await learnerVisibleText(
       page({
         type: 'interactive',
@@ -173,7 +179,10 @@ describe('learnerVisibleText', () => {
 
   it('interactive: 渲染抛错（而不是渲染出空）也退回源码', async () => {
     const result = await learnerVisibleText(
-      page({ type: 'interactive', content: { html: '<html><body>x</body></html>', widgetConfig: { solution: '答案' } } }),
+      page({
+        type: 'interactive',
+        content: { html: '<html><body>x</body></html>', widgetConfig: { solution: '答案' } },
+      }),
       {
         render: async () => {
           throw new Error('jsdom 起不来');
@@ -196,9 +205,12 @@ describe('learnerVisibleText', () => {
 
   it('slide 不必渲染（走静态）—— 渲染只对 interactive 花钱', async () => {
     const render = vi.fn();
-    const result = await learnerVisibleText(page({ content: { canvas: { elements: [{ type: 'text', content: 'hi' }] } } }), {
-      render,
-    });
+    const result = await learnerVisibleText(
+      page({ content: { canvas: { elements: [{ type: 'text', content: 'hi' }] } } }),
+      {
+        render,
+      },
+    );
     expect(result.mode).toBe('static');
     expect(render).not.toHaveBeenCalled();
   });

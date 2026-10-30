@@ -242,7 +242,14 @@ export async function learnerVisibleText(
   const html = (page.content as { html?: string } | null)?.html;
   const source = interactiveSourceText(page.content);
   if (typeof html !== 'string' || html.trim().length === 0) {
-    return { order: page.order, title, type, text: source, mode: 'source', note: '这一页没有存 HTML，只能读结构里的文字。' };
+    return {
+      order: page.order,
+      title,
+      type,
+      text: source,
+      mode: 'source',
+      note: '这一页没有存 HTML，只能读结构里的文字。',
+    };
   }
 
   const render = deps?.render ?? renderPageHtml;
@@ -255,7 +262,9 @@ export async function learnerVisibleText(
         type,
         text,
         mode: 'rendered',
-        ...(errors.length > 0 ? { note: `渲染时有脚本报错（正文仍按渲染结果给）：${errors.slice(0, 2).join(' / ')}` } : {}),
+        ...(errors.length > 0
+          ? { note: `渲染时有脚本报错（正文仍按渲染结果给）：${errors.slice(0, 2).join(' / ')}` }
+          : {}),
       };
     }
     return {

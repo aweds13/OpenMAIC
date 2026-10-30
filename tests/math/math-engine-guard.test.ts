@@ -66,6 +66,13 @@ const ALLOWLIST: Record<string, { kind: 'render-calls' | 'reviewed'; reason: str
       'lists the KaTeX auto-render file among the self-hosted assets that the interactive ' +
       'post-processor injects; it renders nothing itself',
   },
+  'lib/quiz/page-text.ts': {
+    kind: 'reviewed',
+    reason:
+      'renders nothing: it stubs the CDN globals (`katex.render` / `renderToString` return ' +
+      'empty) so a generated interactive page finishes its own `init()` under jsdom. The ' +
+      'stubbed object is an inert placeholder, never a math renderer',
+  },
 };
 
 const NON_PRODUCT_PATH_RE = /(^|\/)(tests?|__tests__|__snapshots__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;

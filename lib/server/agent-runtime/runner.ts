@@ -48,15 +48,11 @@ import {
 } from './fetch-url';
 import { assembleRunnerTools, buildRunnerCoursePrompt } from './runner-contract';
 import type { CoursePromptBlocks } from './course-tools';
-import { buildMaterialTools, MATERIAL_TOOL_NAMES } from './material-tools';
+import { buildMaterialTools } from './material-tools';
 import { defaultLocale, supportedLocaleOf, type Locale } from '@/lib/i18n/types';
 import { startExtractionWatcher, type ExtractionWatcher } from './extraction-watcher';
-import {
-  buildMaterialLibraryTools,
-  MATERIAL_LIBRARY_TOOL_NAMES,
-  type MaterialLibraryChange,
-} from './material-library-tools';
-import { buildRosterTools, ROSTER_TOOL_NAMES, ROSTER_TOOLS_PROMPT } from './roster-tools';
+import { buildMaterialLibraryTools, type MaterialLibraryChange } from './material-library-tools';
+import { buildRosterTools, ROSTER_TOOLS_PROMPT } from './roster-tools';
 import {
   buildVoiceCloneTools,
   hasConfiguredVoiceRegistrationCapability,
@@ -71,11 +67,7 @@ import {
   courseLibraryPromptBlock,
   resolveCourseSearchCapability,
 } from './course-search';
-import {
-  browsePromptBlock,
-  buildAgentBrowseUrlTool,
-  resolveBrowseCapability,
-} from './browse-url';
+import { browsePromptBlock, buildAgentBrowseUrlTool, resolveBrowseCapability } from './browse-url';
 import { learnerProfilePromptBlock, resolveLearnerProfile } from './learner-profile';
 import {
   learnerStatePromptBlock,
@@ -83,10 +75,7 @@ import {
   resolveLearnerState,
 } from './learner-state';
 import { buildMcpTools, mcpPromptBlock } from './mcp-tools';
-import {
-  buildPlanFreezeTool,
-  planFreezePromptBlock,
-} from './plan-freeze-tools';
+import { buildPlanFreezeTool, planFreezePromptBlock } from './plan-freeze-tools';
 import { planGateEnabled } from './plan-freeze';
 import { buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
 import { buildCourseReviewTool, courseReviewPromptBlock } from './review-tools';
@@ -156,10 +145,7 @@ import {
 } from './course-generation';
 import { assertCurrentStageMutationActive } from './mutation-fence';
 import { inventorySlide } from './course-edit/apply';
-import {
-  buildPersonalHistoryTools,
-  createPersonalHistorySource,
-} from './personal-history-tools';
+import { buildPersonalHistoryTools, createPersonalHistorySource } from './personal-history-tools';
 
 const log = createLogger('AgentRunner');
 const WORKER_ID = `${randomUUID().slice(0, 8)}:${process.pid}`;
@@ -1833,31 +1819,32 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     //   没有对应约束的写入口 —— 而且会让注册面的 pin 无谓地变。
     const planFreezeTools = planGateEnabled()
       ? [
-      buildPlanFreezeTool({
-        loadOutline: async (stageId) =>
-          (await ownerScopedStore.loadDocument(stageId))?.outline as
-            | import('@/lib/document-store/persistence-types').AppDocumentOutline
-            | undefined,
-        loadPages: async (stageId) =>
-          (await ownerScopedStore.loadDocument(stageId))?.scenes.map((scene) => ({
-            order: scene.order,
-            title: scene.title,
-            type: scene.type,
-          })) ?? null,
-        saveOutline: async (stageId, outline) => {
-          const current = await ownerScopedStore.loadDocument(stageId);
-          if (!current) return false;
-          await ownerScopedStore.saveDocument({ ...current, outline });
-          return true;
-        },
-      }),
+          buildPlanFreezeTool({
+            loadOutline: async (stageId) =>
+              (await ownerScopedStore.loadDocument(stageId))?.outline as
+                | import('@/lib/document-store/persistence-types').AppDocumentOutline
+                | undefined,
+            loadPages: async (stageId) =>
+              (await ownerScopedStore.loadDocument(stageId))?.scenes.map((scene) => ({
+                order: scene.order,
+                title: scene.title,
+                type: scene.type,
+              })) ?? null,
+            saveOutline: async (stageId, outline) => {
+              const current = await ownerScopedStore.loadDocument(stageId);
+              if (!current) return false;
+              await ownerScopedStore.saveDocument({ ...current, outline });
+              return true;
+            },
+          }),
         ]
       : [];
     // 课程审计：**无条件注册**。它只读、不依赖任何外部能力，而且是"修一门已有课程"
     // 唯一的入口 —— 没有它，course-audit.ts 就只是死代码（实测过：生产代码零引用）。
     const auditTools = [
       buildCourseAuditTool({
-        loadScenes: async (stageId) => (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
+        loadScenes: async (stageId) =>
+          (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
       }),
     ];
     // 对抗性内容审查：**无条件注册**（只读 + 一次隔离的模型调用，不依赖任何外部能力）。
@@ -1868,7 +1855,8 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // 审查工具与 dslTools 共用上面那个 `reviewedStages`。
     const reviewTools = [
       buildCourseReviewTool({
-        loadScenes: async (stageId) => (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
+        loadScenes: async (stageId) =>
+          (await ownerScopedStore.loadDocument(stageId))?.scenes ?? null,
         aiCall: createGenerationAiCallFactory()('course-review'),
         reviewedStages,
       }),
@@ -1964,46 +1952,48 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     //   至此整条链由编译器兜住：runner 设的键 ⊆ 接口 ⊆ PROMPT_BLOCK_ORDER ⊆ 真渲染。
     const buildPromptBlocks = (): CoursePromptBlocks => ({
       availableSkills: availableSkillsPromptBlock(currentSkills()),
-        // 技能清单是"有哪些"，这一段是"怎么用它们做选择" —— 让 agent 主动
-        // 推荐几个 + 把其余方法类列全，而不是等学习者点名（他不知道有这些）。
-        skillChoice: installedSkills.length ? skillChoicePromptBlock(installedSkills) : undefined,
-        // 「听课还是自学」—— 工作台这条路没有那个开关，所以让 agent 问。
-        studyMode: studyModePromptBlock(),
-        // 与 studyMode 是**正交的两条轴**（输入方式 vs 评估方式），见 assessment-mode.ts 头部。
-        assessmentMode: assessmentModePromptBlock(),
-        // 审计那几条 SDK 层建议的应用层版本：拆解、贯通、密度、术语、去水话。
-        courseDesign: courseDesignPromptBlock({
-          hasMaterials: Boolean(materialsIndex),
-          hasCourseLibrary: Boolean(courseLibrary),
-        }),
-        // ★ 门槛开着才提它（§1.1：不许提一个不存在的能力）。块本身无参、恒定，
-        //   状态走工具结果与拒绝消息，不进系统提示词（§1.2 前缀缓存；
-        //   也满足用户那句"避免提示词污染"）。开关由部署配置决定，进程内不翻转。
-        planFreeze: planGateEnabled() ? planFreezePromptBlock() : undefined,
-        // 无参、恒定；读数走工具结果。
-        courseAudit: courseAuditPromptBlock(),
-        review: courseReviewPromptBlock(),
-        // 无参、恒定；条目与状态走工具结果（§1.2）。
-        scratch: scratchPromptBlock(Boolean(materialsIndex)),
-        practice: practicePromptBlock(),
-        curriculum: CURRICULUM_TOOLS_PROMPT,
-        search: search ? searchPromptBlock() : undefined,
-        courseLibrary: courseLibrary ? courseLibraryPromptBlock({ hasWebSearch: Boolean(search) }) : undefined,
-        browse: browse ? browsePromptBlock({ hasWebSearch: Boolean(search) }) : undefined,
-        mcp: mcp.names.length ? mcpPromptBlock(mcp.names) : undefined,
-        materialsLibrary: materialsIndex ? materialsIndexPromptBlock(materialsIndex) : undefined,
-        learnerProfile: learnerProfile ? learnerProfilePromptBlock(learnerProfile) : undefined,
-        // fetch_url 没配能力时整块不出现：注册面、allowedToolNames、这里三处同源（§1.1）。
-        fetch: fetchConnection ? fetchPromptBlock() : undefined,
-        untrustedContent: untrustedContentPolicyPromptBlock(!!fetchConnection),
-        // Always: a conversation with nothing attached can still use the
-        // knowledge base.
-        materials: materialsPromptBlock(materials),
-        roster: ROSTER_TOOLS_PROMPT,
-        voice: voiceCloneToolsPrompt(voiceRegistrationEnabled),
-        // ★ 放在**最后**是刻意的：全提示词里唯一一块「学习者答一次题就变」的内容。
-        // 前缀缓存按前缀算，它后面没有别的块 ⇒ 变一次只让这一小段重读。
-        learnerState: learnerState ? learnerStatePromptBlock(learnerState) : undefined,
+      // 技能清单是"有哪些"，这一段是"怎么用它们做选择" —— 让 agent 主动
+      // 推荐几个 + 把其余方法类列全，而不是等学习者点名（他不知道有这些）。
+      skillChoice: installedSkills.length ? skillChoicePromptBlock(installedSkills) : undefined,
+      // 「听课还是自学」—— 工作台这条路没有那个开关，所以让 agent 问。
+      studyMode: studyModePromptBlock(),
+      // 与 studyMode 是**正交的两条轴**（输入方式 vs 评估方式），见 assessment-mode.ts 头部。
+      assessmentMode: assessmentModePromptBlock(),
+      // 审计那几条 SDK 层建议的应用层版本：拆解、贯通、密度、术语、去水话。
+      courseDesign: courseDesignPromptBlock({
+        hasMaterials: Boolean(materialsIndex),
+        hasCourseLibrary: Boolean(courseLibrary),
+      }),
+      // ★ 门槛开着才提它（§1.1：不许提一个不存在的能力）。块本身无参、恒定，
+      //   状态走工具结果与拒绝消息，不进系统提示词（§1.2 前缀缓存；
+      //   也满足用户那句"避免提示词污染"）。开关由部署配置决定，进程内不翻转。
+      planFreeze: planGateEnabled() ? planFreezePromptBlock() : undefined,
+      // 无参、恒定；读数走工具结果。
+      courseAudit: courseAuditPromptBlock(),
+      review: courseReviewPromptBlock(),
+      // 无参、恒定；条目与状态走工具结果（§1.2）。
+      scratch: scratchPromptBlock(Boolean(materialsIndex)),
+      practice: practicePromptBlock(),
+      curriculum: CURRICULUM_TOOLS_PROMPT,
+      search: search ? searchPromptBlock() : undefined,
+      courseLibrary: courseLibrary
+        ? courseLibraryPromptBlock({ hasWebSearch: Boolean(search) })
+        : undefined,
+      browse: browse ? browsePromptBlock({ hasWebSearch: Boolean(search) }) : undefined,
+      mcp: mcp.names.length ? mcpPromptBlock(mcp.names) : undefined,
+      materialsLibrary: materialsIndex ? materialsIndexPromptBlock(materialsIndex) : undefined,
+      learnerProfile: learnerProfile ? learnerProfilePromptBlock(learnerProfile) : undefined,
+      // fetch_url 没配能力时整块不出现：注册面、allowedToolNames、这里三处同源（§1.1）。
+      fetch: fetchConnection ? fetchPromptBlock() : undefined,
+      untrustedContent: untrustedContentPolicyPromptBlock(!!fetchConnection),
+      // Always: a conversation with nothing attached can still use the
+      // knowledge base.
+      materials: materialsPromptBlock(materials),
+      roster: ROSTER_TOOLS_PROMPT,
+      voice: voiceCloneToolsPrompt(voiceRegistrationEnabled),
+      // ★ 放在**最后**是刻意的：全提示词里唯一一块「学习者答一次题就变」的内容。
+      // 前缀缓存按前缀算，它后面没有别的块 ⇒ 变一次只让这一小段重读。
+      learnerState: learnerState ? learnerStatePromptBlock(learnerState) : undefined,
     });
     if (process.env.OPENMAIC_DEBUG_PROMPT_FINGERPRINT === '1') {
       try {

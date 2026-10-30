@@ -130,14 +130,21 @@ export function practiceTaskCount(page: AuditedPage): PracticePageShape {
     | undefined;
 
   if (page.type === 'quiz') {
-    return { tasks: Array.isArray(content?.questions) ? content.questions.length : null, followsContract: true };
+    return {
+      tasks: Array.isArray(content?.questions) ? content.questions.length : null,
+      followsContract: true,
+    };
   }
   if (page.type !== 'interactive') return { tasks: null, followsContract: true };
 
   const config = content?.widgetConfig;
   if (config && typeof config === 'object') {
     const cases = Array.isArray(config.testCases) ? config.testCases.length : undefined;
-    return { tasks: 1, ...(cases === undefined ? {} : { testCases: cases }), followsContract: true };
+    return {
+      tasks: 1,
+      ...(cases === undefined ? {} : { testCases: cases }),
+      followsContract: true,
+    };
   }
 
   const html = typeof content?.html === 'string' ? content.html : '';
@@ -235,7 +242,9 @@ export function pageReferencesOf(page: AuditedPage): PageReference[] {
       fromOrder: page.order,
       fromTitle: page.title,
       targetOrder: target,
-      context: text.slice(Math.max(0, (match.index ?? 0) - 30), (match.index ?? 0) + match[0].length + 16).trim(),
+      context: text
+        .slice(Math.max(0, (match.index ?? 0) - 30), (match.index ?? 0) + match[0].length + 16)
+        .trim(),
     });
   }
   return out;
@@ -364,12 +373,20 @@ export function auditCourse(
   const danglingReferences = pageReferences.flatMap<PageReference>((reference) => {
     if (!byOrder.has(reference.targetOrder)) {
       return [
-        { ...reference, problem: 'missing' as const, problemText: `第 ${reference.targetOrder} 页不存在（这门课只有 ${pages.length} 页）` },
+        {
+          ...reference,
+          problem: 'missing' as const,
+          problemText: `第 ${reference.targetOrder} 页不存在（这门课只有 ${pages.length} 页）`,
+        },
       ];
     }
     if (isStructurallyEmpty(byOrder.get(reference.targetOrder)!)) {
       return [
-        { ...reference, problem: 'empty' as const, problemText: `第 ${reference.targetOrder} 页是空的（没有任何内容）` },
+        {
+          ...reference,
+          problem: 'empty' as const,
+          problemText: `第 ${reference.targetOrder} 页是空的（没有任何内容）`,
+        },
       ];
     }
     return [];
@@ -465,7 +482,10 @@ export function formatCourseAudit(
       `· ★ **${audit.danglingReferences.length} 处页码引用指向不存在或空的页**：` +
         audit.danglingReferences
           .slice(0, maxItems)
-          .map((reference) => `第 ${reference.fromOrder} 页 → 第 ${reference.targetOrder} 页（${reference.problemText}）`)
+          .map(
+            (reference) =>
+              `第 ${reference.fromOrder} 页 → 第 ${reference.targetOrder} 页（${reference.problemText}）`,
+          )
           .join('、') +
         (audit.danglingReferences.length > maxItems ? ' …' : ''),
     );

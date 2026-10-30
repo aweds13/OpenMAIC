@@ -47,7 +47,13 @@ describe('★ 身份键由调用方选：过期的 id 不许偷别人的条目',
   it('★ matchBy: "order" ⇒ 写 order 28 只动 order 28，order 21 的条目纹丝不动', () => {
     const result = upsertOutlineEntry(
       outlineWith(SWAPPED),
-      { id: 'p28', order: 28, title: '乙改', type: 'slide', description: '新 brief' } as SceneOutline,
+      {
+        id: 'p28',
+        order: 28,
+        title: '乙改',
+        type: 'slide',
+        description: '新 brief',
+      } as SceneOutline,
       { matchBy: 'order' },
     );
     const after = result.outline?.outlines ?? [];

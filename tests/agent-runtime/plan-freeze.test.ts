@@ -56,7 +56,10 @@ describe('冻结', () => {
   });
 
   it('freezes a non-empty plan and remembers how many entries there were', () => {
-    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: [entry(1), entry(2), entry(3), entry(4)] });
+    const result = freezePlan(emptyPlanFreeze('stage-a'), {
+      at: T0,
+      entries: [entry(1), entry(2), entry(3), entry(4)],
+    });
     expect(result.error).toBeUndefined();
     expect(result.state.frozen).toBe(true);
     expect(result.state.frozenAt).toBe(T0);
@@ -155,7 +158,9 @@ describe('解析磁盘上的状态', () => {
 
 describe('状态行', () => {
   it('says未冻结 when it is not frozen', () => {
-    expect(formatPlanFreezeStatus(emptyPlanFreeze('s'), [entry(1), entry(2), entry(3)])).toContain('未冻结');
+    expect(formatPlanFreezeStatus(emptyPlanFreeze('s'), [entry(1), entry(2), entry(3)])).toContain(
+      '未冻结',
+    );
   });
 
   it('reports the revision count, and notices drift in the entry count', () => {
@@ -241,7 +246,9 @@ describe('★ 大纲阶段：单元 · 小点 · 讲/练 · 难度', () => {
     expect(block).toMatch(/【Unit U7 · explanation 1\/2/);
     expect(block).toMatch(/Not empty/);
     // 难度现在走**自己的字段**（`difficulty`），落进 brief 抬头；`quizConfig` 只在 quiz 页上另外填。
-    expect(block).toMatch(/`difficulty` \(`easy` \/ `medium` \/ `hard`\) on \*\*every practice entry\*\*/);
+    expect(block).toMatch(
+      /`difficulty` \(`easy` \/ `medium` \/ `hard`\) on \*\*every practice entry\*\*/,
+    );
     expect(block).toMatch(/lands in the brief prefix/);
   });
 });
@@ -277,8 +284,12 @@ describe('★★ 计划是不是规格：闸 + 诊断', () => {
 
   it('★ 练习页没写难度 ⇒ 也拒（难度是"由易到难"唯一的落点）', () => {
     const practice = {
-      id: 'p2', order: 2, title: '改错：三处', type: 'interactive',
-      keyPoints: ['小点'], description: '【Unit U1 · practice 1/1 · form: fix-the-bug】brief',
+      id: 'p2',
+      order: 2,
+      title: '改错：三处',
+      type: 'interactive',
+      keyPoints: ['小点'],
+      description: '【Unit U1 · practice 1/1 · form: fix-the-bug】brief',
     } as SceneOutline;
     const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: [practice] });
     expect(result.state.frozen).toBe(false);
@@ -295,7 +306,10 @@ describe('★★ 计划是不是规格：闸 + 诊断', () => {
   });
 
   it('★ 合格的条目照常冻结（闸不能把正常路挡住）', () => {
-    const result = freezePlan(emptyPlanFreeze('stage-a'), { at: T0, entries: [entry(1), entry(2)] });
+    const result = freezePlan(emptyPlanFreeze('stage-a'), {
+      at: T0,
+      entries: [entry(1), entry(2)],
+    });
     expect(result.error).toBeUndefined();
     expect(result.state.frozenEntryCount).toBe(2);
   });

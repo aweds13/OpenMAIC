@@ -159,10 +159,9 @@ export function BatchDownloadDialog({ open, onOpenChange, courses }: BatchDownlo
       } else {
         saveAs(result.blob, result.fileName);
         if (failed.length > 0) {
-          toast.warning(
-            t('workspace.batchDownload.doneWithFailures', { failed: failed.length }),
-            { description: failed.map((course) => course.name).join('、') },
-          );
+          toast.warning(t('workspace.batchDownload.doneWithFailures', { failed: failed.length }), {
+            description: failed.map((course) => course.name).join('、'),
+          });
         } else {
           toast.success(t('workspace.batchDownload.done', { files: result.totalFiles }));
         }
@@ -238,9 +237,7 @@ export function BatchDownloadDialog({ open, onOpenChange, courses }: BatchDownlo
                 id="batch-content-pptx"
                 checked={contents.includePptx}
                 disabled={running}
-                onCheckedChange={(next) =>
-                  setContents((prev) => ({ ...prev, includePptx: next }))
-                }
+                onCheckedChange={(next) => setContents((prev) => ({ ...prev, includePptx: next }))}
                 label={t('workspace.batchDownload.contentPptx')}
               />
               <ContentToggle
@@ -356,7 +353,10 @@ export function BatchDownloadDialog({ open, onOpenChange, courses }: BatchDownlo
                 <Progress value={job.total ? (job.done / job.total) * 100 : 0} />
               </div>
             ) : (
-              <span className="text-[12px] text-muted-foreground" data-testid="batch-download-count">
+              <span
+                className="text-[12px] text-muted-foreground"
+                data-testid="batch-download-count"
+              >
                 {t('workspace.batchDownload.selectedSummary', {
                   selected: picked.length,
                   total: courses.length,
@@ -447,9 +447,7 @@ function ContentToggle({
       />
       <label htmlFor={id} className="cursor-pointer text-[13px] leading-tight">
         {label}
-        {hint ? (
-          <span className="ml-1.5 text-[11px] text-muted-foreground">{hint}</span>
-        ) : null}
+        {hint ? <span className="ml-1.5 text-[11px] text-muted-foreground">{hint}</span> : null}
       </label>
     </div>
   );

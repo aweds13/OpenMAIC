@@ -19,8 +19,14 @@ import { SELF_STUDY_SLIDE_OVERRIDE } from '@/lib/server/self-study-mode';
 /** 见 AGENTS.md：密度规则一度被当硬阀门用，代价是砍主谓宾（2026-10-08）。 */
 describe('★ 内容与页面的六条优先级（用户定序，一处定义三处引用）', () => {
   it('★ 六条按序：内容 > 语义完整准确 > 语言合适 > 结构完整 > 不用人猜 > 画面布局', () => {
-    const order = ['Substance first', 'Meaning complete and accurate', 'Language that fits',
-      'Structure complete', 'Nothing left to guess', 'Layout that holds'];
+    const order = [
+      'Substance first',
+      'Meaning complete and accurate',
+      'Language that fits',
+      'Structure complete',
+      'Nothing left to guess',
+      'Layout that holds',
+    ];
     let last = -1;
     for (const marker of order) {
       const at = CONTENT_PRIORITY.indexOf(marker);

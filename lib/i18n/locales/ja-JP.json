@@ -2232,7 +2232,6 @@
     "webFetchSharedKeyHint": "このキーは同じプロバイダーとのチャットにも使用されます。変更や削除はチャットにも影響します。"
   },
   "workspace": {
-
     "batchDownload": {
       "title": "一括ダウンロード",
       "description": "コースを選んで 1 つの ZIP としてダウンロードします（コースごとに 1 フォルダー）。コースは開きません。",
@@ -2392,7 +2391,6 @@
       "conversationFailure": {
         "serviceUnavailable": "この種類のファイルに対応する解析サービスが設定されていません。管理者に設定を依頼してください。"
       }
-
     },
     "untitledCourse": "未命名课堂",
     "sceneCount": "{{count}} 页",

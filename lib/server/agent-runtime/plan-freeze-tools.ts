@@ -24,12 +24,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { AppDocumentOutline } from '@/lib/document-store/persistence-types';
 import type { SceneOutline } from '@/lib/types/generation';
 import { shiftOutlineOrders, upsertOutlineEntry } from './course-outline-write';
-import {
-  formatPlanFreezeStatus,
-  freezePlan,
-  planSpecGaps,
-  revisePlan,
-} from './plan-freeze';
+import { formatPlanFreezeStatus, freezePlan, planSpecGaps, revisePlan } from './plan-freeze';
 import { readPlanFreeze, writePlanFreeze } from './plan-freeze-store';
 
 export const PLAN_FREEZE_TOOL_NAMES = ['plan_freeze'] as const;
@@ -369,7 +364,9 @@ export function buildPlanFreezeTool(
         }
         let next = outline;
         for (const entry of list) {
-          const result = upsertOutlineEntry(next, outlineEntryFromPlanEntry(entry), { matchBy: 'order' });
+          const result = upsertOutlineEntry(next, outlineEntryFromPlanEntry(entry), {
+            matchBy: 'order',
+          });
           if (result.outline) next = result.outline;
         }
         const saved = await deps.saveOutline(params.stageId, next);
@@ -401,13 +398,18 @@ export function buildPlanFreezeTool(
         }
         let next = outline;
         for (const page of missing) {
-          const result = upsertOutlineEntry(next, {
-            id: `p${page.order}`,
-            order: page.order,
-            title: page.title,
-            type: page.type,
-            description: 'backfilled from the existing page (the original brief was never recorded)',
-          } as SceneOutline, { matchBy: 'order' });
+          const result = upsertOutlineEntry(
+            next,
+            {
+              id: `p${page.order}`,
+              order: page.order,
+              title: page.title,
+              type: page.type,
+              description:
+                'backfilled from the existing page (the original brief was never recorded)',
+            } as SceneOutline,
+            { matchBy: 'order' },
+          );
           if (result.outline) next = result.outline;
         }
         const saved = await deps.saveOutline(params.stageId, next);
@@ -472,13 +474,17 @@ export function buildPlanFreezeTool(
         const before = next?.outlines ?? [];
         const kept = before.filter((entry) => !drop.has(entry.order));
         if (next) next = { ...next, outlines: kept };
-        changes.push(`删掉 ${before.length - kept.length} 条条目（order ${params.removeOrders.join('、')}）`);
+        changes.push(
+          `删掉 ${before.length - kept.length} 条条目（order ${params.removeOrders.join('、')}）`,
+        );
       }
 
       if (params.entries?.length) {
         let working = next;
         for (const entry of params.entries) {
-          const written = upsertOutlineEntry(working, outlineEntryFromPlanEntry(entry), { matchBy: 'order' });
+          const written = upsertOutlineEntry(working, outlineEntryFromPlanEntry(entry), {
+            matchBy: 'order',
+          });
           if (written.outline) working = written.outline;
         }
         next = working;
@@ -594,7 +600,7 @@ export function planFreezePromptBlock(): string {
     '  page has no stated job.',
     '- `difficulty` (`easy` / `medium` / `hard`) on **every practice entry** — pass it as its own',
     '  field. It lands in the brief prefix (and in `quizConfig` as well when the page is a `quiz`).',
-    '  Leaving it unset is exactly what makes a unit\'s gradient unknowable later.',
+    "  Leaving it unset is exactly what makes a unit's gradient unknowable later.",
     '',
     '- Write the entries first, confirm the set and the order with the learner once (`ask_user`),',
     '  then call `plan_freeze { action: "freeze" }`.',
@@ -614,5 +620,3 @@ export function planFreezePromptBlock(): string {
     '  entries it adds are marked as derived rather than original.',
   ].join('\n');
 }
-
-

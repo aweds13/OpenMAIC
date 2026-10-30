@@ -91,7 +91,9 @@ describe('review_course 的隔离性', () => {
  */
 describe('★ 审查输出收紧（44/64 页那一跑的根因）', () => {
   it('★ 机械候选要进 system prompt，且明说「只在这些里确认」', async () => {
-    const aiCall = vi.fn(async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。');
+    const aiCall = vi.fn(
+      async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。',
+    );
     const built = buildCourseReviewTool({
       loadScenes: async () => [SLIDE(1, 'byte 的范围是 -128 到 127'), SLIDE(2, '用 byte 存年龄')],
       aiCall: aiCall as never,
@@ -117,7 +119,9 @@ describe('★ 审查输出收紧（44/64 页那一跑的根因）', () => {
    * 审查者照候选把它们判成"真缺口"。**假阳性是工具自己造出来的。**
    */
   it('★★ 从中途开始审（fromOrder 落在第二页）时，前面那一页的词**仍然不算候选**', async () => {
-    const aiCall = vi.fn(async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。');
+    const aiCall = vi.fn(
+      async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。',
+    );
     const built = buildCourseReviewTool({
       loadScenes: async () => [SLIDE(1, 'byte 的范围是 -128 到 127'), SLIDE(2, '用 byte 存年龄')],
       aiCall: aiCall as never,
@@ -138,7 +142,9 @@ describe('★ 审查输出收紧（44/64 页那一跑的根因）', () => {
    * 两段都是这么错的 —— 那是审出来的假阳性里最大的一类（跨页引用被当成悬空引用）。
    */
   it('★★ 说清"全课共 N 页"并列出目录，别让模型把这一段当成整门课', async () => {
-    const aiCall = vi.fn(async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。');
+    const aiCall = vi.fn(
+      async (_system: string, _user: string) => '第 2 页：轴 2 —— 掉了一个动词。',
+    );
     const built = buildCourseReviewTool({
       loadScenes: async () => [
         SLIDE(1, 'byte 的范围是 -128 到 127', '类型'),
@@ -158,7 +164,8 @@ describe('★ 审查输出收紧（44/64 页那一跑的根因）', () => {
     expect(system).not.toContain('课程页面（共');
   });
 
-  it('★ 每页最多两条 + 轴 1–4 先报 + 「不清楚」不许单独报', async () => {    const aiCall = vi.fn(async (_system: string, _user: string) => '第 1 页：没问题。');
+  it('★ 每页最多两条 + 轴 1–4 先报 + 「不清楚」不许单独报', async () => {
+    const aiCall = vi.fn(async (_system: string, _user: string) => '第 1 页：没问题。');
     const built = buildCourseReviewTool({
       loadScenes: async () => [SLIDE(1, '内容')],
       aiCall: aiCall as never,
@@ -183,7 +190,12 @@ describe('★ 字符预算：一次审查不许把整门课塞进去', () => {
       reply: '第 2 页用了前面没讲的东西。',
     });
     const result = (await built.execute('call-1', { stageId: 'stage-x' })) as {
-      details: { charsBudget: number; charsUsed: number; remainingPages: number; pageCount: number };
+      details: {
+        charsBudget: number;
+        charsUsed: number;
+        remainingPages: number;
+        pageCount: number;
+      };
       content: { text: string }[];
     };
     // 默认预算 120k，而这里每页只有 900 字 —— 先确认没被误伤（三页全进）
@@ -222,7 +234,9 @@ describe('review_course 的诚实性', () => {
     const [system] = aiCall.mock.calls[0]!;
     expect(String(system)).toContain('[NOT RENDERED]');
     expect(String(system)).toMatch(/not executed|source/i);
-    expect((result as { details: { notRenderedPages: number[] } }).details.notRenderedPages).toEqual([2]);
+    expect(
+      (result as { details: { notRenderedPages: number[] } }).details.notRenderedPages,
+    ).toEqual([2]);
     expect(JSON.stringify(result)).toContain('没能渲染');
   });
 
@@ -243,18 +257,27 @@ describe('review_course 的诚实性', () => {
       scenes: [SLIDE(1, 'x')],
       reply: '整体上有些地方讲得不够清楚，建议补充更多例子。',
     });
-    const result = (await built.execute('call-1', { stageId: 'stage-x' })) as { isError?: boolean; content: { text: string }[] };
+    const result = (await built.execute('call-1', { stageId: 'stage-x' })) as {
+      isError?: boolean;
+      content: { text: string }[];
+    };
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toMatch(/带页码|不算数/);
   });
 
   it('空页会被点名，并进 details（全量出口）', async () => {
     const { built } = tool({
-      scenes: [SLIDE(1, '有正文'), { order: 19, type: 'slide', title: '嵌套循环', content: { canvas: { elements: [] } } }],
+      scenes: [
+        SLIDE(1, '有正文'),
+        { order: 19, type: 'slide', title: '嵌套循环', content: { canvas: { elements: [] } } },
+      ],
       reply: '第 19 页整页没有正文（第 1 页有）。',
     });
     const result = (await built.execute('call-1', { stageId: 'stage-x' })) as {
-      details: { emptyPages: number[]; pageModes: { order: number; mode: string; chars: number }[] };
+      details: {
+        emptyPages: number[];
+        pageModes: { order: number; mode: string; chars: number }[];
+      };
       content: { text: string }[];
     };
     expect(result.details.emptyPages).toEqual([19]);
@@ -390,7 +413,9 @@ describe('★★ 孤立阅读：越界点名的"没解释"要用机器作废', (
       ['Stream', 60],
     ]);
     // 没有标记词 ⇒ 不看
-    expect(outOfScopeGapClaims('第 50 页：轴 1 —— `main` 那句话讲反了。', firstSeen, 44)).toEqual([]);
+    expect(outOfScopeGapClaims('第 50 页：轴 1 —— `main` 那句话讲反了。', firstSeen, 44)).toEqual(
+      [],
+    );
     // 首现在本段**之后** ⇒ 那是"这一页之后才讲"，不该被机器抹掉
     expect(outOfScopeGapClaims('第 50 页：`Stream` 没解释。', firstSeen, 44)).toEqual([]);
     // 首现落在**本段之内** ⇒ 是候选，可能是真缺口

@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { QuizFoldSkip, QuizQuestionState, QuizSceneState } from '@/lib/quiz/attempt-fold';
-import {
-  renderLearnerState,
-  type LearnerStateSceneContent,
-} from '@/lib/quiz/learner-state';
+import { renderLearnerState, type LearnerStateSceneContent } from '@/lib/quiz/learner-state';
 
 function question(
   questionId: string,
@@ -76,9 +73,7 @@ describe('renderLearnerState', () => {
         }),
       ],
       contents: [
-        content('scene-p9', 9, '多态', [
-          { id: 'q8', question: '下面哪一段体现了多态？' },
-        ]),
+        content('scene-p9', 9, '多态', [{ id: 'q8', question: '下面哪一段体现了多态？' }]),
       ],
     });
 
@@ -234,9 +229,7 @@ describe('renderLearnerState', () => {
         }),
       ],
       contents: [
-        content('scene-p9', 9, '多态', [
-          { id: 'q8', question: '第一行\n第二行\n第三行' },
-        ]),
+        content('scene-p9', 9, '多态', [{ id: 'q8', question: '第一行\n第二行\n第三行' }]),
       ],
     });
 

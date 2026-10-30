@@ -25,9 +25,7 @@ const SPEC = {
   brief: '读两个整数，打印它们的和。判据：对 1 2 输出 3。',
   language: 'node' as const,
   files: [{ path: 'main.mjs', content: 'console.log(0);\n' }],
-  checks: [
-    { name: '输出是 3', command: 'node main.mjs', expectStdoutContains: ['3'] },
-  ],
+  checks: [{ name: '输出是 3', command: 'node main.mjs', expectStdoutContains: ['3'] }],
 };
 
 let root: string;
@@ -130,9 +128,10 @@ describe('生成的文件', () => {
   });
 
   it('tells the learner about the GBK trap in the README for java', () => {
-    const readme = buildScaffold({ ...SPEC, language: 'java' }, { stageId: 's', order: 1 }).files.find(
-      (f) => f.path === 'README.md',
-    )?.content;
+    const readme = buildScaffold(
+      { ...SPEC, language: 'java' },
+      { stageId: 's', order: 1 },
+    ).files.find((f) => f.path === 'README.md')?.content;
     expect(readme).toContain('-encoding UTF-8');
     expect(readme).toContain('stdout.encoding=UTF-8');
   });
@@ -296,7 +295,9 @@ describe('practice_result（把结果读回来给 agent）', () => {
     // ★ 模型可见的文字里**不许出现我的表名** —— 它不需要知道，而且第 8 轮那条
     //   不变式（tool-name-invariant）正是靠这个把表名当幽灵工具抓了出来。
     expect(text).not.toContain('runtime_records');
-    const details = (read as { details: { persistedToRuntimeRecords: boolean; feedsLearnerState: boolean } }).details;
+    const details = (
+      read as { details: { persistedToRuntimeRecords: boolean; feedsLearnerState: boolean } }
+    ).details;
     expect(details.persistedToRuntimeRecords).toBe(false);
     expect(details.feedsLearnerState).toBe(true);
   });

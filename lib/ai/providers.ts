@@ -959,31 +959,21 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
         },
       },
       {
-        id: 'deepseek-v4-flash',
         /**
-         * 显示名对齐官方。`deepseek-v4-flash` 是别名 —— 官方 API 的模型列表里
-         * 这个模型 id 是 `deepseek-flash`、name 是 **DeepSeek-V4.1-Flash**，
-         * 实测调用也返回 `{"model":"deepseek-flash"}`。原来写 "V4 Flash"
-         * 会让人以为没有 V4.1 可选（第三方 tokendance 就是叫它 v4.1-flash）。
-         * 只改显示名，**id 不动** —— id 是调用时真正发出去的字符串。
+         * **id 必须是 `deepseek-flash`**：这是官方 API 真正认的字符串
+         * （调用返回 `{"model":"deepseek-flash"}`）。上游 v1.3.0（`bf6fe340`）
+         * 把退役的 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` 从
+         * catalog 里删了，只留这一行、并且把 vision 合进它 —— 因为退役 id
+         * 现在由 `lib/ai/model-aliases.ts` 映射到这里，能力必须齐；
+         * 留一个 `vision: false` 的同名两行会让「文档图片在生成时被静默丢弃」
+         * 这种回归重新长出来。
+         *
+         * **只改显示名**：`name` 对齐官方（官方模型列表里它叫
+         * **DeepSeek-V4.1-Flash**；第三方 tokendance 叫它 v4.1-flash）。
+         * 原来写 "DeepSeek Flash" 会让人以为没有 V4.1 可选。
          */
+        id: 'deepseek-flash',
         name: 'DeepSeek V4.1 Flash',
-        contextWindow: 1048576,
-        outputWindow: 393216,
-        capabilities: {
-          streaming: true,
-          tools: true,
-          vision: false,
-          thinking: {
-            toggleable: true,
-            budgetAdjustable: true,
-            defaultEnabled: true,
-          },
-        },
-      },
-      {
-        id: 'deepseek-v4-flash-vision-exp',
-        name: 'DeepSeek V4 Flash Vision (Exp)',
         contextWindow: 1048576,
         outputWindow: 393216,
         capabilities: {

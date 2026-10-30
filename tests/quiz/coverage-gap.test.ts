@@ -145,9 +145,9 @@ describe('findUncoveredTerms', () => {
     expect(findUncoveredTerms({ questions, taughtText: taught }).map((gap) => gap.term)).toEqual([
       '动态绑定',
     ]);
-    expect(
-      findUncoveredTerms({ questions, taughtText: taught, deferred: ['动态绑定'] }),
-    ).toEqual([]);
+    expect(findUncoveredTerms({ questions, taughtText: taught, deferred: ['动态绑定'] })).toEqual(
+      [],
+    );
   });
 
   it('compares content blocks, not characters — boundaries come from function words', () => {

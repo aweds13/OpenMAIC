@@ -56,9 +56,7 @@ export function paramLikeTokens(text: string): string[] {
 }
 
 /** 收集一组工具的**参数名**（顶层 + 数组元素那一层）。 */
-export function declaredParamNames(
-  tools: readonly { parameters?: unknown }[],
-): Set<string> {
+export function declaredParamNames(tools: readonly { parameters?: unknown }[]): Set<string> {
   const names = new Set<string>();
   const walk = (schema: unknown, depth: number): void => {
     if (!schema || typeof schema !== 'object' || depth > 2) return;
@@ -124,10 +122,11 @@ export function calledToolTokens(text: string): string[] {
   }
 
   // ② "call / use / run / invoke / try + 名字" —— 祈使句里让人去调。
-  for (const match of text.matchAll(/\b(?:call|use|run|invoke|try)\s+([a-z][a-z0-9]*_[a-z0-9_]+)\b/gi)) {
+  for (const match of text.matchAll(
+    /\b(?:call|use|run|invoke|try)\s+([a-z][a-z0-9]*_[a-z0-9_]+)\b/gi,
+  )) {
     if (!isQualified(text, match.index!, match[1]!)) found.add(match[1]!);
   }
 
   return [...found];
 }
-

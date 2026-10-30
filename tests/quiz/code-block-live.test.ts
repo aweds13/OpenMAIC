@@ -25,7 +25,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Check, Errors } from 'typebox/value';
 
-import { codeBlockVerdict, codeElementFromText, type CodeBlockSource, type CodeBlockVerdict } from '@/lib/quiz/code-block';
+import {
+  codeBlockVerdict,
+  codeElementFromText,
+  type CodeBlockSource,
+  type CodeBlockVerdict,
+} from '@/lib/quiz/code-block';
 import { SlideElementInputSchema } from '@/lib/server/agent-runtime/course-edit/element-schema';
 
 const TSV = process.env.OPENMAIC_CODE_BLOCK_LIVE_TSV;
@@ -101,37 +106,42 @@ function collect(tsv: string): Candidate[] {
       });
     });
   }
-  return found.sort((left, right) => left.order - right.order || left.elementIndex - right.elementIndex);
+  return found.sort(
+    (left, right) => left.order - right.order || left.elementIndex - right.elementIndex,
+  );
 }
 
-describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1' || !TSV)('存量代码块候选 → 两张单子（真课程）', () => {
-  it('splits every candidate into "convert to a code element" and "leave in the body"', () => {
-    const tsv = TSV as string;
-    const candidates = collect(tsv);
-    const convert = candidates.filter((item) => item.verdict === 'code-element');
-    const leave = candidates.filter((item) => item.verdict === 'keep-inline');
+describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1' || !TSV)(
+  '存量代码块候选 → 两张单子（真课程）',
+  () => {
+    it('splits every candidate into "convert to a code element" and "leave in the body"', () => {
+      const tsv = TSV as string;
+      const candidates = collect(tsv);
+      const convert = candidates.filter((item) => item.verdict === 'code-element');
+      const leave = candidates.filter((item) => item.verdict === 'keep-inline');
 
-    const show = (item: Candidate) =>
-      `  p${String(item.order).padStart(2)} el${String(item.elementIndex).padStart(2)}  ` +
-      `${item.plain.replace(/\s+/g, ' ').slice(0, 96)}`;
+      const show = (item: Candidate) =>
+        `  p${String(item.order).padStart(2)} el${String(item.elementIndex).padStart(2)}  ` +
+        `${item.plain.replace(/\s+/g, ' ').slice(0, 96)}`;
 
-    console.log(`\n候选共 ${candidates.length} 个（宽尺）—— 两张单子：`);
-    console.log(`\n【第一批 · 建议转 code 元素】${convert.length} 个`);
-    for (const item of convert) console.log(show(item));
-    console.log(`\n【第二批 · 建议留在 text 里】${leave.length} 个`);
-    for (const item of leave) console.log(show(item));
-    console.log('');
+      console.log(`\n候选共 ${candidates.length} 个（宽尺）—— 两张单子：`);
+      console.log(`\n【第一批 · 建议转 code 元素】${convert.length} 个`);
+      for (const item of convert) console.log(show(item));
+      console.log(`\n【第二批 · 建议留在 text 里】${leave.length} 个`);
+      for (const item of leave) console.log(show(item));
+      console.log('');
 
-    // 结构契约：两批互斥、并集相等（防"分流时漏掉几条"这种静默）。
-    expect(candidates.length).toBeGreaterThan(0);
-    expect(convert.length + leave.length).toBe(candidates.length);
-    expect(convert.every((item) => item.verdict === 'code-element')).toBe(true);
-    expect(leave.every((item) => item.verdict === 'keep-inline')).toBe(true);
-    // 两批都必须非空，否则"分两批"这个说法当场不成立。
-    expect(convert.length).toBeGreaterThan(0);
-    expect(leave.length).toBeGreaterThan(0);
-  }, 60_000);
-});
+      // 结构契约：两批互斥、并集相等（防"分流时漏掉几条"这种静默）。
+      expect(candidates.length).toBeGreaterThan(0);
+      expect(convert.length + leave.length).toBe(candidates.length);
+      expect(convert.every((item) => item.verdict === 'code-element')).toBe(true);
+      expect(leave.every((item) => item.verdict === 'keep-inline')).toBe(true);
+      // 两批都必须非空，否则"分两批"这个说法当场不成立。
+      expect(convert.length).toBeGreaterThan(0);
+      expect(leave.length).toBeGreaterThan(0);
+    }, 60_000);
+  },
+);
 
 /**
  * ★ **真的把一页转掉**（写库）—— 两道开关同时给才跑：
@@ -172,20 +182,32 @@ describe.skipIf(
     if (!source) throw new Error(`第 ${order} 页没有下标 ${elementIndex} 的元素`);
 
     // 闸 ①：判据说该转，才允许动手。
-    expect(codeBlockVerdict(source), `第 ${order} 页 el${elementIndex} 判据不认为该转，拒绝写入`).toBe('code-element');
+    expect(
+      codeBlockVerdict(source),
+      `第 ${order} 页 el${elementIndex} 判据不认为该转，拒绝写入`,
+    ).toBe('code-element');
 
-    const draft = codeElementFromText(source, { id: source.id ?? `code_p${order}e${elementIndex}`, language });
+    const draft = codeElementFromText(source, {
+      id: source.id ?? `code_p${order}e${elementIndex}`,
+      language,
+    });
     // 闸 ②：合同。
     const { id: _id, ...contract } = draft;
-    expect(Check(SlideElementInputSchema, contract), JSON.stringify(Errors(SlideElementInputSchema, contract))).toBe(
-      true,
-    );
+    expect(
+      Check(SlideElementInputSchema, contract),
+      JSON.stringify(Errors(SlideElementInputSchema, contract)),
+    ).toBe(true);
 
     const { Client } = await import('pg');
     const client = new Client({ connectionString });
     await client.connect();
     try {
-      const before = await client.query<{ id: string; order: number; data: unknown; revision: string | null }>(
+      const before = await client.query<{
+        id: string;
+        order: number;
+        data: unknown;
+        revision: string | null;
+      }>(
         `SELECT s.id, s.scene_order AS order, s.data,
                 (SELECT rev::text FROM document_scene_revision r WHERE r.stage_id = s.stage_id AND r.scene_id = s.id) AS revision
            FROM document_scenes s WHERE s.stage_id = $1 AND s.scene_order = $2`,
@@ -240,7 +262,10 @@ describe.skipIf(
           source.content,
         ],
       );
-      expect(updated.rowCount, '一行都没改 —— 目标位置已经不是那个 text 元素了（有人动过这一页）').toBe(1);
+      expect(
+        updated.rowCount,
+        '一行都没改 —— 目标位置已经不是那个 text 元素了（有人动过这一页）',
+      ).toBe(1);
 
       // 写完读回来比对（不看 UPDATE 的行数就下结论是不算的）。
       const after = await client.query<{ element: unknown; revision: string | null }>(

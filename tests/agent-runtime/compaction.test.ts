@@ -191,9 +191,7 @@ describe('maybeCompactAgentSession', () => {
 
   it('leaves the transcript untouched while under budget', async () => {
     const onCall = vi.fn();
-    const session = await sessionWith([
-      { role: 'user', content: 'short question', timestamp: 1 },
-    ]);
+    const session = await sessionWith([{ role: 'user', content: 'short question', timestamp: 1 }]);
 
     const trace = await maybeCompactAgentSession({
       session,

@@ -74,12 +74,16 @@ const PRACTICE_PARAMS = Type.Object({
       Type.Literal('shell'),
       Type.Literal('git'),
     ],
-    { description: 'Drives the VS Code encoding settings; the checks themselves are just commands.' },
+    {
+      description: 'Drives the VS Code encoding settings; the checks themselves are just commands.',
+    },
   ),
   files: Type.Optional(
     Type.Array(
       Type.Object({
-        path: Type.String({ description: 'Relative path inside the exercise folder. No "..", no drive.' }),
+        path: Type.String({
+          description: 'Relative path inside the exercise folder. No "..", no drive.',
+        }),
         content: Type.String(),
       }),
       { description: 'Starter files the learner will edit. Keep them small.' },
@@ -99,8 +103,7 @@ const PRACTICE_PARAMS = Type.Object({
     }),
     {
       minItems: 1,
-      description:
-        'At least one. Without a check this is not an exercise — it is "have a go".',
+      description: 'At least one. Without a check this is not an exercise — it is "have a go".',
     },
   ),
   overwrite: Type.Optional(
@@ -157,7 +160,10 @@ export function buildPracticeScaffoldTool(
           { stageId: params.stageId, order: params.order },
         );
       } catch (error) {
-        return text(`练习脚手架不合格：${error instanceof Error ? error.message : String(error)}`, true);
+        return text(
+          `练习脚手架不合格：${error instanceof Error ? error.message : String(error)}`,
+          true,
+        );
       }
 
       const target = join(stageDir, scaffold.dirName);
@@ -187,7 +193,9 @@ export function buildPracticeScaffoldTool(
         }
         await mkdir(dirname(filePath), { recursive: true });
         await writeFile(filePath, file.content, 'utf8');
-        written.push(file.generated ? `${file.path}（生成，别改）` : `${file.path}（要改的就是它）`);
+        written.push(
+          file.generated ? `${file.path}（生成，别改）` : `${file.path}（要改的就是它）`,
+        );
       }
 
       return {
@@ -218,7 +226,8 @@ const RESULT_PARAMS = Type.Object({
   order: Type.Integer({ minimum: 1, description: 'The page the exercise came from.' }),
   title: Type.Optional(
     Type.String({
-      description: 'Only needed when several exercises exist for the same page — pass one of the names it lists back.',
+      description:
+        'Only needed when several exercises exist for the same page — pass one of the names it lists back.',
     }),
   ),
 });
@@ -334,10 +343,11 @@ export function buildPracticeResultTool(
         `练习 \`${picked[0]}\` 的结果（${parsed.ranAt ?? '时间未知'}）：` +
           `**${parsed.passed ?? 0}/${parsed.total ?? 0} 通过**`,
         '',
-        ...(parsed.results ?? []).map((item) =>
-          `  ${item.ok ? '✓' : '✗'} ${item.name ?? '(无名)'}${
-            item.problems?.length ? ` —— ${item.problems.join('；')}` : ''
-          }`,
+        ...(parsed.results ?? []).map(
+          (item) =>
+            `  ${item.ok ? '✓' : '✗'} ${item.name ?? '(无名)'}${
+              item.problems?.length ? ` —— ${item.problems.join('；')}` : ''
+            }`,
         ),
       ];
       if ((parsed.failed ?? 0) > 0) {
@@ -385,9 +395,9 @@ export function practicePromptBlock(): string {
     '- **Every check must be falsifiable by the learner alone**: they should be able to tell whether',
     '  they are done without asking you. `brief` must say how it is judged.',
     '- The tool never overwrites an existing exercise folder unless you pass `overwrite: true`',
-    '  (that deletes the learner\'s own work there — do not pass it casually).',
+    "  (that deletes the learner's own work there — do not pass it casually).",
     '- It does **not** open VS Code and does **not** run anything: it only creates files. Running is',
-    '  the learner\'s step, on their own machine, where they can see it happen.',
+    "  the learner's step, on their own machine, where they can see it happen.",
     '- After they say they ran the checks, read it back with `practice_result { stageId, order }`.',
     '  A failing check tells you **what to go back and teach** — do not just re-issue the exercise.',
     '  That reads a file on disk. The result is not a quiz attempt, but the state refresh picks these',

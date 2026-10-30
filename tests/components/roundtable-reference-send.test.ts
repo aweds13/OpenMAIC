@@ -73,7 +73,11 @@ describe('reference rejection preserves the question composer', () => {
     const onMessageSend = vi.fn();
     await act(async () =>
       root.render(
-        createElement(Roundtable, { canSendMessage: () => false, onMessageSend, readingPage: false }),
+        createElement(Roundtable, {
+          canSendMessage: () => false,
+          onMessageSend,
+          readingPage: false,
+        }),
       ),
     );
     act(() => audio.onTranscription?.('Explain the selected equation.'));

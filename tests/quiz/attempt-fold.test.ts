@@ -110,8 +110,9 @@ describe('foldQuizAttempts', () => {
 
     const result = fold({ sessions: [session('s1', T0)], records });
 
-    expect(result.scenes.reduce((total, scene) => total + scene.records, 0) +
-      result.skipped.length).toBe(records.length);
+    expect(
+      result.scenes.reduce((total, scene) => total + scene.records, 0) + result.skipped.length,
+    ).toBe(records.length);
     expect(result.scenes[0].records).toBe(1);
     expect(result.skipped.map((skip) => skip.reason).sort()).toEqual([
       'unanchored',
@@ -379,7 +380,11 @@ describe('foldQuizAttempts', () => {
             graded('q1', false, 0),
             { status: 'correct' } as unknown as QuestionResult,
             { questionId: 'q3', status: 'maybe', earned: 5 } as unknown as QuestionResult,
-            { questionId: 'q4', status: 'correct', earned: Number.NaN } as unknown as QuestionResult,
+            {
+              questionId: 'q4',
+              status: 'correct',
+              earned: Number.NaN,
+            } as unknown as QuestionResult,
           ]),
         }),
       ],

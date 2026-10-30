@@ -55,7 +55,13 @@ describe('草稿纸文件层', () => {
 
 describe('scratch 工具', () => {
   it('★ write returns the new id AND the whole index back (that is the notification)', async () => {
-    const result = await call({ action: 'write', kind: 'source', text: '某篇讲封装', source: 'https://x', depth: 'deep' });
+    const result = await call({
+      action: 'write',
+      kind: 'source',
+      text: '某篇讲封装',
+      source: 'https://x',
+      depth: 'deep',
+    });
     const text = textOf(result);
     expect(text).toContain('s001');
     expect(text).toContain('== 草稿纸');
@@ -65,11 +71,21 @@ describe('scratch 工具', () => {
 
   it('★ names a claim that has fewer than two sources', async () => {
     await call({ action: 'write', kind: 'source', text: '来源一', source: 'https://a' });
-    const one = await call({ action: 'write', kind: 'claim', text: '封装把数据藏起来', sources: ['s001'] });
+    const one = await call({
+      action: 'write',
+      kind: 'claim',
+      text: '封装把数据藏起来',
+      sources: ['s001'],
+    });
     expect(textOf(one)).toContain('只有 1 个来源');
     expect(textOf(one)).toContain('别把它写进课里');
 
-    const two = await call({ action: 'write', kind: 'claim', text: '有了两个来源', sources: ['s001', 's002'] });
+    const two = await call({
+      action: 'write',
+      kind: 'claim',
+      text: '有了两个来源',
+      sources: ['s001', 's002'],
+    });
     // ★ 断言要收紧到**这一条**：索引回读里可能因为别的未归类条目而出现同一句提醒
     //   （第一版就栽在这里 —— 它断的是整段文本，被 s001 的提醒穿透了）。
     expect(textOf(two)).not.toContain('★ s003');
@@ -87,7 +103,10 @@ describe('scratch 工具', () => {
     await call({ action: 'write', text: '要进材料库的' });
     // ★ 这条路的语义只在**配了材料库**时成立（没配库时 promote 直接整体拒绝，见下一组用例）。
     const refuse = (params: Record<string, unknown>) =>
-      buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: ['java-basics'] }).execute('c', params as never);
+      buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: ['java-basics'] }).execute(
+        'c',
+        params as never,
+      );
     const refused = await refuse({ action: 'promote', id: 's001' });
     expect((refused as { isError?: boolean }).isError).toBe(true);
     expect(textOf(refused)).toContain('只收用户确认要用的');
@@ -179,7 +198,10 @@ describe('★ 能力注册：没配材料库的部署里，不许提材料库工
   });
 
   it('names it when the library is configured', () => {
-    const withLibrary = buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: ['java-basics'] });
+    const withLibrary = buildScratchTool({
+      ownerId: 'anon:test-owner',
+      materialTopics: ['java-basics'],
+    });
     const without = buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: null });
 
     // `update_materials` 出现在**参数描述**里（promote 的 materialId 那一项），

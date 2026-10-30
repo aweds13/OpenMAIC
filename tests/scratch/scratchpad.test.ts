@@ -22,7 +22,12 @@ const T0 = 1_700_000_000_000;
 
 function write(
   pad: Scratchpad,
-  input: { kind?: 'source' | 'claim' | 'todo' | 'note'; text: string; createdAt?: number; [key: string]: unknown },
+  input: {
+    kind?: 'source' | 'claim' | 'todo' | 'note';
+    text: string;
+    createdAt?: number;
+    [key: string]: unknown;
+  },
 ) {
   return addScratchItem(pad, {
     kind: 'note',
@@ -125,8 +130,17 @@ describe('★ 可算的"不断求证"读数', () => {
   });
 
   it('surfaces contradictions instead of letting them be digested silently', () => {
-    let pad = write(emptyScratchpad(), { kind: 'claim', text: '说法 A', sources: ['s001', 's002'] }).pad;
-    pad = write(pad, { kind: 'claim', text: '与 A 冲突', conflictWith: 's001', sources: ['s003', 's004'] }).pad;
+    let pad = write(emptyScratchpad(), {
+      kind: 'claim',
+      text: '说法 A',
+      sources: ['s001', 's002'],
+    }).pad;
+    pad = write(pad, {
+      kind: 'claim',
+      text: '与 A 冲突',
+      conflictWith: 's001',
+      sources: ['s003', 's004'],
+    }).pad;
     expect(scratchConflicts(pad).map((item) => item.id)).toEqual(['s002']);
   });
 });
@@ -147,9 +161,26 @@ describe('归类与升级', () => {
 describe('索引', () => {
   it('renders two sections and marks what needs attention', () => {
     let pad = emptyScratchpad();
-    pad = write(pad, { kind: 'source', text: '某篇讲封装', source: 'https://x', depth: 'deep', createdAt: T0 }).pad;
-    pad = write(pad, { kind: 'claim', text: '封装把数据藏起来', sources: ['s001'], createdAt: T0 + 1 }).pad;
-    pad = write(pad, { kind: 'claim', text: '冲突的说法', conflictWith: 's002', sources: ['s001', 's003'], createdAt: T0 + 2 }).pad;
+    pad = write(pad, {
+      kind: 'source',
+      text: '某篇讲封装',
+      source: 'https://x',
+      depth: 'deep',
+      createdAt: T0,
+    }).pad;
+    pad = write(pad, {
+      kind: 'claim',
+      text: '封装把数据藏起来',
+      sources: ['s001'],
+      createdAt: T0 + 1,
+    }).pad;
+    pad = write(pad, {
+      kind: 'claim',
+      text: '冲突的说法',
+      conflictWith: 's002',
+      sources: ['s001', 's003'],
+      createdAt: T0 + 2,
+    }).pad;
     // 升级**备用条目**，不是来源条目 —— 否则来源条目离开临时段，就钉不住"精读"标记。
     pad = write(pad, { kind: 'note', text: '值得进材料库的', createdAt: T0 + 3 }).pad;
     pad = markScratchPromoted(pad, 's004', 'mat_zzz');
@@ -191,7 +222,11 @@ describe('索引', () => {
 describe('检索', () => {
   it('matches on text, source and id', () => {
     let pad = emptyScratchpad();
-    pad = write(pad, { text: 'Java 的条件语句', source: 'https://docs.oracle.com/x', createdAt: T0 }).pad;
+    pad = write(pad, {
+      text: 'Java 的条件语句',
+      source: 'https://docs.oracle.com/x',
+      createdAt: T0,
+    }).pad;
     pad = write(pad, { text: 'Python 缩进', createdAt: T0 + 1 }).pad;
 
     expect(searchScratchItems(pad, 'java').map((item) => item.id)).toEqual(['s001']);
@@ -234,7 +269,11 @@ describe('提醒', () => {
   it('stays silent when nothing is owed', () => {
     // ★ 注意：一条"有 2 个来源"的 claim 只要还 open，就**仍然**是欠的判断题 ——
     //   所以"沉默"的前提是它已经被归类。第一版测试漏了这一步（断言错了）。
-    let pad = write(emptyScratchpad(), { kind: 'claim', text: '有据可查', sources: ['s001', 's002'] }).pad;
+    let pad = write(emptyScratchpad(), {
+      kind: 'claim',
+      text: '有据可查',
+      sources: ['s001', 's002'],
+    }).pad;
     expect(formatScratchReminder(pad)).toContain('还没归类');
     pad = classifyScratchItem(pad, 's001', 'kept');
     expect(formatScratchReminder(pad)).toBe('');
@@ -244,7 +283,12 @@ describe('提醒', () => {
   it('names the counts of unclassified / conflicting / single-source items', () => {
     let pad = emptyScratchpad();
     pad = write(pad, { kind: 'claim', text: '一个来源', sources: ['s001'] }).pad;
-    pad = write(pad, { kind: 'claim', text: '矛盾', conflictWith: 's001', sources: ['s002', 's003'] }).pad;
+    pad = write(pad, {
+      kind: 'claim',
+      text: '矛盾',
+      conflictWith: 's001',
+      sources: ['s002', 's003'],
+    }).pad;
     const reminder = formatScratchReminder(pad);
     expect(reminder).toContain('还没归类');
     expect(reminder).toContain('矛盾没处理');

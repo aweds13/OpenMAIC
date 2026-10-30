@@ -2232,7 +2232,6 @@
     "webFetchSharedKeyHint": "This key is also used for chat with this provider. Changing or removing it affects chat."
   },
   "workspace": {
-
     "batchDownload": {
       "title": "Batch download",
       "description": "Pick courses and download them as one ZIP, one folder per course. This does not open them.",
@@ -2392,7 +2391,6 @@
       "conversationFailure": {
         "serviceUnavailable": "No parser is configured for this file type. Ask an administrator to configure one."
       }
-
     },
     "untitledCourse": "Untitled course",
     "sceneCount": "{{count}} pages",

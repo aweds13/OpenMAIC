@@ -41,7 +41,9 @@ describe('★★ 版面检查（agent 看不见画面时的替代）', () => {
 
   it('★ 文字装不下：按字号和宽度估算高度，超过盒高就报', () => {
     const long = `<p style="font-size: 20px;">${'这一句话很长，'.repeat(40)}</p>`;
-    const findings = checkLayout([{ type: 'text', left: 40, top: 40, width: 400, height: 60, content: long }]);
+    const findings = checkLayout([
+      { type: 'text', left: 40, top: 40, width: 400, height: 60, content: long },
+    ]);
     expect(findings.some((f) => f.code === 'text-does-not-fit')).toBe(true);
     expect(formatLayoutFindings(findings)).toContain('加一页');
   });
@@ -64,7 +66,15 @@ describe('★★ 版面检查（agent 看不见画面时的替代）', () => {
 
   it('★ 元素自己的 lineHeight 优先（渲染器读的就是它）', () => {
     const html = `<p style="font-size: 16px;">${'字'.repeat(60)}</p>`;
-    const box = { type: 'text', left: 0, top: 0, width: 360, height: 72, content: html, lineHeight: 2 };
+    const box = {
+      type: 'text',
+      left: 0,
+      top: 0,
+      width: 360,
+      height: 72,
+      content: html,
+      lineHeight: 2,
+    };
     // 1.5 时刚好 72 ⇒ 放得下；元素说 2 倍行高 ⇒ 96 ⇒ 装不下
     expect(checkLayout([box]).some((f) => f.code === 'text-does-not-fit')).toBe(true);
   });
@@ -105,7 +115,14 @@ describe('★★ 版面检查（agent 看不见画面时的替代）', () => {
 
   it('★ 字号过小：低于 14px 要报（"缩成灰块"是学习者点过名的失败模式）', () => {
     const findings = checkLayout([
-      { type: 'text', left: 40, top: 40, width: 400, height: 120, content: '<p style="font-size: 11px;">短句</p>' },
+      {
+        type: 'text',
+        left: 40,
+        top: 40,
+        width: 400,
+        height: 120,
+        content: '<p style="font-size: 11px;">短句</p>',
+      },
     ]);
     expect(findings.some((f) => f.code === 'font-too-small')).toBe(true);
   });
@@ -158,7 +175,11 @@ describe('★★ 版面检查（agent 看不见画面时的替代）', () => {
   it('★ 正常的页**一个字都不多说**（诊断不能变成噪声）', () => {
     const findings = checkLayout([
       {
-        type: 'text', left: 40, top: 40, width: 920, height: 200,
+        type: 'text',
+        left: 40,
+        top: 40,
+        width: 920,
+        height: 200,
         content: `<p style="font-size: 24px;">${'一句话。'.repeat(6)}</p>`,
       },
     ]);
@@ -171,7 +192,9 @@ describe('★★ 版面检查（agent 看不见画面时的替代）', () => {
   });
 
   it('★ 两个小工具：取最大字号 / 估算高度', () => {
-    expect(maxFontSizePx('<p style="font-size: 16px;">a</p><p style="font-size: 32px;">b</p>')).toBe(32);
+    expect(
+      maxFontSizePx('<p style="font-size: 16px;">a</p><p style="font-size: 32px;">b</p>'),
+    ).toBe(32);
     expect(maxFontSizePx('<p>没有字号</p>')).toBeUndefined();
     expect(estimateTextHeightPx('<p>一</p>', 400, 20)).toBeGreaterThan(0);
   });
@@ -222,7 +245,12 @@ describe('★★ 页面余量：满了但没溢出', () => {
  */
 describe('★★ 版面差集：这次改动引入了什么 / 哪些是既有的', () => {
   const box = (height: number, content: string) => ({
-    type: 'text', left: 0, top: 0, width: 400, height, content,
+    type: 'text',
+    left: 0,
+    top: 0,
+    width: 400,
+    height,
+    content,
   });
   // 2 行 = 48px，盒高 30 ⇒ 边界（差额 18px < 一行 24px）
   const overflowing = `<p style="font-size: 16px;">${'字'.repeat(24)}</p>`;
@@ -259,19 +287,29 @@ describe('★★ 版面差集：这次改动引入了什么 / 哪些是既有的
   });
 
   it('★ 换了一个元素出问题 ⇒ 是**新增**（身份带元素下标）', () => {
-    const before = checkLayout([box(30, overflowing), { type: 'text', left: 0, top: 200, width: 400, height: 30, content: fine }]);
-    const after = checkLayout([{ type: 'text', left: 0, top: 0, width: 400, height: 30, content: fine }, box(30, overflowing)]);
+    const before = checkLayout([
+      box(30, overflowing),
+      { type: 'text', left: 0, top: 200, width: 400, height: 30, content: fine },
+    ]);
+    const after = checkLayout([
+      { type: 'text', left: 0, top: 0, width: 400, height: 30, content: fine },
+      box(30, overflowing),
+    ]);
     const delta = layoutDelta(before, after);
     expect(delta.added.map((f) => f.elementIndex)).toEqual([1]);
     expect(delta.removed.map((f) => f.elementIndex)).toEqual([0]);
   });
 
   it('★ 什么都没变 ⇒ 空串（调用方就别多说话）', () => {
-    expect(formatLayoutDelta(layoutDelta(checkLayout([box(30, fine)]), checkLayout([box(30, fine)])))).toBe('');
+    expect(
+      formatLayoutDelta(layoutDelta(checkLayout([box(30, fine)]), checkLayout([box(30, fine)]))),
+    ).toBe('');
   });
 
   it('★ 页面级的发现（没有元素下标）身份就是 code 本身', () => {
     expect(layoutFindingKey({ code: 'no-headroom', message: 'x' })).toBe('no-headroom');
-    expect(layoutFindingKey({ code: 'overlaps', message: 'x', elementIndex: 1, elementIndex2: 3 })).toBe('overlaps:1,3');
+    expect(
+      layoutFindingKey({ code: 'overlaps', message: 'x', elementIndex: 1, elementIndex2: 3 }),
+    ).toBe('overlaps:1,3');
   });
 });

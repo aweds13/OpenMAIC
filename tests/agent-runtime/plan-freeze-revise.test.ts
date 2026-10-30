@@ -23,8 +23,8 @@ import type { SceneOutline } from '@/lib/types/generation';
  */
 
 function textOf(result: unknown): string {
-  return (result as { content: Array<{ text?: string }> })
-    .content.map((part) => part.text ?? '')
+  return (result as { content: Array<{ text?: string }> }).content
+    .map((part) => part.text ?? '')
     .join('\n');
 }
 
@@ -77,9 +77,10 @@ function harness(outline: AppDocumentOutline | undefined) {
     h,
     orders: () => (h.outline?.outlines ?? []).map((entry) => entry.order),
     call: (params: Record<string, unknown>) =>
-      (
-        tool as unknown as { execute(id: string, params: unknown): Promise<unknown> }
-      ).execute('c', { stageId: 'stage-1', ...params }),
+      (tool as unknown as { execute(id: string, params: unknown): Promise<unknown> }).execute('c', {
+        stageId: 'stage-1',
+        ...params,
+      }),
   };
 }
 

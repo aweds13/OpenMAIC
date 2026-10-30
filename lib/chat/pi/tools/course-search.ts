@@ -38,20 +38,23 @@ const CourseSearchParams = Type.Object(
         'What to look for: a topic ("distributed systems"), a technique ("paxos"), or a course code ("6.824"). Chinese works too.',
     }),
     layer: Type.Optional(
-      Type.Union([
-        Type.Literal('auto'),
-        Type.Literal('L0'),
-        Type.Literal('L1'),
-        Type.Literal('L2'),
-        Type.Literal('L3'),
-        Type.Literal('L4'),
-      ], {
-        description:
-          'auto = find courses (L0+L2). L3 = only inside lecture materials (slides/notes/transcripts). '
-          + 'L4 = the LOCAL DOCUMENT shelf (the learner\'s own PDFs, slides and Obsidian notes, '
-          + '~3k documents) — use it when the question is about material the learner already has '
-          + 'rather than about courses that exist somewhere.',
-      }),
+      Type.Union(
+        [
+          Type.Literal('auto'),
+          Type.Literal('L0'),
+          Type.Literal('L1'),
+          Type.Literal('L2'),
+          Type.Literal('L3'),
+          Type.Literal('L4'),
+        ],
+        {
+          description:
+            'auto = find courses (L0+L2). L3 = only inside lecture materials (slides/notes/transcripts). ' +
+            "L4 = the LOCAL DOCUMENT shelf (the learner's own PDFs, slides and Obsidian notes, " +
+            '~3k documents) — use it when the question is about material the learner already has ' +
+            'rather than about courses that exist somewhere.',
+        },
+      ),
     ),
     maxResults: Type.Optional(
       Type.Integer({

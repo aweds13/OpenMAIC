@@ -104,12 +104,18 @@ describe('plan_freeze backfill', () => {
 
   it('refuses loudly when there is nothing to derive from', async () => {
     const empty = harness({ outline: outlineWith([]), pages: [] });
-    const noPages = await empty.tool.execute('c', { stageId: 'stage-a', action: 'backfill' } as never);
+    const noPages = await empty.tool.execute('c', {
+      stageId: 'stage-a',
+      action: 'backfill',
+    } as never);
     expect((noPages as { isError?: boolean }).isError).toBe(true);
     expect(textOf(noPages)).toContain('没有任何已落盘的页面');
 
     const noEnvelope = harness({ outline: undefined, pages: PAGES });
-    const noOutline = await noEnvelope.tool.execute('c', { stageId: 'stage-a', action: 'backfill' } as never);
+    const noOutline = await noEnvelope.tool.execute('c', {
+      stageId: 'stage-a',
+      action: 'backfill',
+    } as never);
     expect((noOutline as { isError?: boolean }).isError).toBe(true);
     expect(textOf(noOutline)).toContain('没有计划信封');
   });
@@ -134,7 +140,9 @@ describe('plan_freeze 仍有的动作没被 backfill 弄坏', () => {
   });
 
   it('status says it is not frozen', async () => {
-    expect(textOf(await h.tool.execute('c', { stageId: 's', action: 'status' } as never))).toContain('未冻结');
+    expect(
+      textOf(await h.tool.execute('c', { stageId: 's', action: 'status' } as never)),
+    ).toContain('未冻结');
   });
 
   it('add still writes entries and freeze still refuses an empty plan', async () => {

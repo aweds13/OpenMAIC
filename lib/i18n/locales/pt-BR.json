@@ -2232,7 +2232,6 @@
     "webFetchSharedKeyHint": "Esta chave também é usada no chat com este provedor. Alterá-la ou removê-la afeta o chat."
   },
   "workspace": {
-
     "batchDownload": {
       "title": "Download em lote",
       "description": "Escolha cursos e baixe tudo em um único ZIP, uma pasta por curso. Os cursos não são abertos.",
@@ -2392,7 +2391,6 @@
       "conversationFailure": {
         "serviceUnavailable": "Não há um serviço de análise configurado para este tipo de arquivo. Peça a um administrador para configurá-lo."
       }
-
     },
     "untitledCourse": "未命名课堂",
     "sceneCount": "{{count}} 页",

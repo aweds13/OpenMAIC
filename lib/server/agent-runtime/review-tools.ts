@@ -63,13 +63,25 @@ export interface CourseReviewDeps {
   /** 与 `patch_stage` 共享：审完把 stageId 记进去（B 方案那道闸的依据，run 内）。 */
   reviewedStages?: Set<string>;
   /** 落盘凭据（跨 run）。测试可注入；默认写 `OPENMAIC_PLAN_FREEZE_DIR` 下的小文件。 */
-  writeReceipt?: (receipt: { stageId: string; reviewedAt: string; pageCount: number; reportChars: number }) => Promise<boolean>;
+  writeReceipt?: (receipt: {
+    stageId: string;
+    reviewedAt: string;
+    pageCount: number;
+    reportChars: number;
+  }) => Promise<boolean>;
 }
 
 const REVIEW_PARAMS = Type.Object({
   stageId: Type.String({ description: 'The stage to review.' }),
-  fromOrder: Type.Optional(Type.Integer({ minimum: 1, description: 'First page order to review (default 1).' })),
-  toOrder: Type.Optional(Type.Integer({ minimum: 1, description: 'Last page order to review (default: the last page).' })),
+  fromOrder: Type.Optional(
+    Type.Integer({ minimum: 1, description: 'First page order to review (default 1).' }),
+  ),
+  toOrder: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description: 'Last page order to review (default: the last page).',
+    }),
+  ),
 });
 
 const DEFAULT_MAX_PAGES = 60;
@@ -184,7 +196,16 @@ export const COURSE_REVIEW_RULES = [
 ].join('\n');
 
 /** 一行一页：页码 + 标题 + 渲染状态 + 正文。 */
-function formatPages(pages: readonly { order: number; title: string; type: string; mode: string; note?: string; text: string }[]): string {
+function formatPages(
+  pages: readonly {
+    order: number;
+    title: string;
+    type: string;
+    mode: string;
+    note?: string;
+    text: string;
+  }[],
+): string {
   return pages
     .map((page) => {
       const flag = page.mode === 'rendered' ? '' : page.mode === 'source' ? ' [NOT RENDERED]' : '';
@@ -234,7 +255,9 @@ export function outOfScopeGapClaims(
   for (const raw of report.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || !GAP_CLAIM_MARKER.test(line)) continue;
-    const quoted = [...line.matchAll(/[`「『]([^`」』\n]{1,40})[`」』]/g)].map((match) => match[1].trim());
+    const quoted = [...line.matchAll(/[`「『]([^`」』\n]{1,40})[`」』]/g)].map((match) =>
+      match[1].trim(),
+    );
     // 被引号标出来的整词优先：`System.out.println` 在库里是 System/out/println 三块，
     // 不去重的话同一处会报出四条（三条碎片 + 一条完整的），把回话搞成噪音。
     const tokens = new Set<string>([
@@ -254,7 +277,9 @@ export function outOfScopeGapClaims(
     }
     if (found.size >= limit) break;
   }
-  return [...found.values()].sort((left, right) => left.firstOrder - right.firstOrder).slice(0, limit);
+  return [...found.values()]
+    .sort((left, right) => left.firstOrder - right.firstOrder)
+    .slice(0, limit);
 }
 
 /**
@@ -297,7 +322,9 @@ export function courseReviewPromptBlock(): string {
   ].join(String.fromCharCode(10));
 }
 
-export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof REVIEW_PARAMS, unknown> {
+export function buildCourseReviewTool(
+  deps: CourseReviewDeps,
+): AgentTool<typeof REVIEW_PARAMS, unknown> {
   return {
     name: 'review_course',
     label: '审查一门课',
@@ -309,7 +336,10 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       if (!scenes || scenes.length === 0) {
         return {
           content: [
-            { type: 'text' as const, text: `review_course: 这一门没有页面（stageId=${params.stageId}）。先用 \`list_scenes\` 确认 id。` },
+            {
+              type: 'text' as const,
+              text: `review_course: 这一门没有页面（stageId=${params.stageId}）。先用 \`list_scenes\` 确认 id。`,
+            },
           ],
           details: {},
           isError: true,
@@ -324,7 +354,12 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
         .slice(0, deps.maxPages ?? DEFAULT_MAX_PAGES);
       if (selected.length === 0) {
         return {
-          content: [{ type: 'text' as const, text: `review_course: 第 ${from}–${to === Number.POSITIVE_INFINITY ? '末' : to} 页里没有页面。` }],
+          content: [
+            {
+              type: 'text' as const,
+              text: `review_course: 第 ${from}–${to === Number.POSITIVE_INFINITY ? '末' : to} 页里没有页面。`,
+            },
+          ],
           details: {},
           isError: true,
         };
@@ -335,7 +370,10 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       const pages = [];
       let used = 0;
       for (const scene of selected) {
-        const page = await learnerVisibleText(scene, deps.render ? { render: deps.render } : undefined);
+        const page = await learnerVisibleText(
+          scene,
+          deps.render ? { render: deps.render } : undefined,
+        );
         if (pages.length > 0 && used + page.text.length > budget) break;
         pages.push(page);
         used += page.text.length;
@@ -397,11 +435,19 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       for (const page of pages) {
         const chunks = contentChunks(page.text);
         const fresh = chunks.filter((chunk) => !earlierChunks.has(chunk)).slice(0, 8);
-        if (fresh.length > 0) candidateLines.push(`第 ${page.order} 页候选：${fresh.join("、")}`);
+        if (fresh.length > 0) candidateLines.push(`第 ${page.order} 页候选：${fresh.join('、')}`);
         for (const chunk of chunks) earlierChunks.add(chunk);
       }
       const candidatesText = candidateLines.length
-        ? String.fromCharCode(10) + String.fromCharCode(10) + '# 机械候选（5a 新概念）—— **只在这些里确认，别的不要自己列**' + String.fromCharCode(10) + String.fromCharCode(10) + candidateLines.join(String.fromCharCode(10)) + String.fromCharCode(10) + String.fromCharCode(10) + '★ 这些是**机器算出来**的（这一页用到、前面所有页都没出现过）。你要判的只是：**这一页（含它的后文）有没有把它讲清楚**。候选的定义就是「前面所有页都没出现过」—— 所以「前面讲过没有」**不是你能核对的**，别去猜、也别用你自己的先验知识补；**没出现在候选里的词一律不许报**（机器已经确认它在本课更早的页出现过）。'
+        ? String.fromCharCode(10) +
+          String.fromCharCode(10) +
+          '# 机械候选（5a 新概念）—— **只在这些里确认，别的不要自己列**' +
+          String.fromCharCode(10) +
+          String.fromCharCode(10) +
+          candidateLines.join(String.fromCharCode(10)) +
+          String.fromCharCode(10) +
+          String.fromCharCode(10) +
+          '★ 这些是**机器算出来**的（这一页用到、前面所有页都没出现过）。你要判的只是：**这一页（含它的后文）有没有把它讲清楚**。候选的定义就是「前面所有页都没出现过」—— 所以「前面讲过没有」**不是你能核对的**，别去猜、也别用你自己的先验知识补；**没出现在候选里的词一律不许报**（机器已经确认它在本课更早的页出现过）。'
         : '';
       // ★ 说清"这是**全课**的第几页到第几页"，并给一份**全课目录**（2026-10-09 修）。
       //   原来这一行写的是「课程页面（共 N 页）」，而 N 是**本次调用**拿到的页数 ⇒
@@ -409,7 +455,9 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
       //   实测第 22–29、30–33 两段都是这么错的（那是 12 条假阳性里最大的一类）。
       //   跨页引用要能核对，就必须先知道**全课有哪些页**（"声明可引用的东西"）。
       const allScenes = [...scenes].sort((left, right) => left.order - right.order);
-      const courseIndex = allScenes.map((scene) => `第 ${scene.order} 页《${scene.title ?? ''}》`).join('；');
+      const courseIndex = allScenes
+        .map((scene) => `第 ${scene.order} 页《${scene.title ?? ''}》`)
+        .join('；');
       const span = `第 ${pages[0]?.order ?? 0}–${pages[pages.length - 1]?.order ?? 0} 页`;
       const systemPrompt =
         `${COURSE_REVIEW_RULES}${candidatesText}\n\n` +
@@ -458,7 +506,9 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
         ? `\n\n★ **机器复核：下面这些条目不算数。** 报告把它们当成"没解释"，` +
           `但机器按同一把尺确认它们在本课**更早的页**已经出现过 —— 而"本课没讲过 X"` +
           `不是"只看到第 ${pages[0]?.order}–${stoppedAt} 页"能推出来的：\n` +
-          outOfScope.map((claim) => `· \`${claim.term}\` —— 首次出现在**第 ${claim.firstOrder} 页**`).join('\n') +
+          outOfScope
+            .map((claim) => `· \`${claim.term}\` —— 首次出现在**第 ${claim.firstOrder} 页**`)
+            .join('\n') +
           `\n这些条目请**直接丢掉**。如果你真正想说的是"本页把一个已经出现过的词讲糊了"，` +
           `那属于 1–4 的**表达**问题：按那个轴重写，并引本页原句。`
         : '';
@@ -468,8 +518,12 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
         remaining > 0
           ? `★ 还有 ${remaining} 页没进这次调用（字符预算 ${budget}）—— **另跑一次**，用 \`fromOrder: ${stoppedAt + 1}\` 接着审。别把没审的页当成"审过了"。`
           : '',
-        notRendered.length > 0 ? `★ ${notRendered.length} 页没能渲染（第 ${notRendered.map((page) => page.order).join(', ')} 页）—— 那几页读的是源码，结论要按提示词里的注明降级` : '',
-        empty.length > 0 ? `★ ${empty.length} 页一个字都没有（第 ${empty.map((page) => page.order).join(', ')} 页）` : '',
+        notRendered.length > 0
+          ? `★ ${notRendered.length} 页没能渲染（第 ${notRendered.map((page) => page.order).join(', ')} 页）—— 那几页读的是源码，结论要按提示词里的注明降级`
+          : '',
+        empty.length > 0
+          ? `★ ${empty.length} 页一个字都没有（第 ${empty.map((page) => page.order).join(', ')} 页）`
+          : '',
       ]
         .filter(Boolean)
         .join('\n');
@@ -483,7 +537,11 @@ export function buildCourseReviewTool(deps: CourseReviewDeps): AgentTool<typeof 
           notRenderedPages: notRendered.map((page) => page.order),
           emptyPages: empty.map((page) => page.order),
           /** 全量出口：逐页的取文方式，正文只给样本时用得上。 */
-          pageModes: pages.map((page) => ({ order: page.order, mode: page.mode, chars: page.text.length })),
+          pageModes: pages.map((page) => ({
+            order: page.order,
+            mode: page.mode,
+            chars: page.text.length,
+          })),
           candidatePages: candidateLines.length,
           /** 被机器作废的"新概念"条目：词 + 它真正首次出现的页。 */
           outOfScopeClaims: outOfScope,

@@ -183,9 +183,9 @@ describe('fetch_url network and extraction', () => {
       article,
       '</p></article></body></html>',
     ].join('');
-    const fetchImpl = vi.fn().mockResolvedValue(
-      new Response(html, { headers: { 'content-type': 'text/html' } }),
-    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(html, { headers: { 'content-type': 'text/html' } }));
 
     const result = await fetchAndExtractUrl('https://example.com/article', {
       fetchImpl,

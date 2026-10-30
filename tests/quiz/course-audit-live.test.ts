@@ -10,7 +10,12 @@
 import { describe, expect, it } from 'vitest';
 import { Client } from 'pg';
 
-import { auditCourse, formatCourseAudit, practiceTaskCount, type AuditedPage } from '@/lib/quiz/course-audit';
+import {
+  auditCourse,
+  formatCourseAudit,
+  practiceTaskCount,
+  type AuditedPage,
+} from '@/lib/quiz/course-audit';
 
 const live = process.env.TEST_LOAD_LOCAL_ENV === '1' && !!process.env.DATABASE_URL;
 
@@ -108,7 +113,8 @@ describe.skipIf(!live)('course audit against real courses', () => {
         }
       }
       const novels = novelByTeachingPage.map((row) => row.novel).sort((a, b) => a - b);
-      const pick = (q: number): number => novels[Math.min(novels.length - 1, Math.floor(novels.length * q))] ?? 0;
+      const pick = (q: number): number =>
+        novels[Math.min(novels.length - 1, Math.floor(novels.length * q))] ?? 0;
       console.log(
         `[标定] 讲解页 novel 分布（n=${novels.length}）：` +
           `min=${novels[0]} p50=${pick(0.5)} p75=${pick(0.75)} p90=${pick(0.9)} max=${novels.at(-1)}`,

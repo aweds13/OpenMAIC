@@ -88,8 +88,9 @@ export const CONTENT_PRIORITY = [
   '6. **Layout that holds.** Fits the fixed canvas at a readable size; tables keep their columns;',
   '   nothing is cut off or shrunk into a grey block.',
   '',
-  'The character count is #6 territory, not #1: ' + PAGE_DENSITY_TARGET.replace('350-400', '350–400') +
-  ' is a measured page CAPACITY,',
+  'The character count is #6 territory, not #1: ' +
+    PAGE_DENSITY_TARGET.replace('350-400', '350–400') +
+    ' is a measured page CAPACITY,',
   'not a quota and not a limit. If the material does not fit, **add a page or rewrite** — never',
   'compress the sentence.',
 ].join(String.fromCharCode(10));
@@ -98,7 +99,7 @@ export function studyModePromptBlock(): string {
   return [
     '## Listen, or read it yourself',
     '',
-    'The learner\'s profile records their input preference — **read the profile first**. For this',
+    "The learner's profile records their input preference — **read the profile first**. For this",
     'learner the standing default is **self-study**: they read the material rather than listen to it.',
     '',
     'Resolve the mode in this order, and stop at the first that applies:',
@@ -109,7 +110,7 @@ export function studyModePromptBlock(): string {
     '3. **Only if the profile records nothing** — ask once, together with the other planning',
     '   questions.',
     '',
-    '| | Listen | Self-study (this learner\'s default) |',
+    "| | Listen | Self-study (this learner's default) |",
     '|---|---|---|',
     '| Where the content lives | Mostly in the **narration** | **On the page itself** |',
     '| Page text | Sparse is fine — the spoken line carries the explanation | Target ' +
@@ -135,6 +136,6 @@ export function studyModePromptBlock(): string {
     '',
     'For a **quiz / self-check page**, `generate_scene.quizConfig.questionCount` is the number the',
     'page will really contain. Say the number you told the learner — leaving it out gives the',
-    'generator\'s fallback, not the number in your sentence.',
+    "generator's fallback, not the number in your sentence.",
   ].join('\n');
 }

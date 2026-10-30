@@ -46,76 +46,100 @@ const OUT =
 const BUDGET = Number(process.env.OPENMAIC_REVIEW_LIVE_BUDGET ?? 120_000);
 const MAX_ROUNDS = 12;
 
-describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')('live: review_course on the real course', () => {
-  it('whole course, chunk boundaries local, chunks in parallel', async () => {
-    if (!TSV || !STAGE) throw new Error('需要 OPENMAIC_REVIEW_LIVE_TSV 与 OPENMAIC_REVIEW_LIVE_STAGE');
-    const pages: VisibleTextPage[] = [];
-    for (const line of readFileSync(TSV, 'utf8').split('\n')) {
-      const fields = line.split('\t');
-      if (fields.length < 4) continue;
-      const data = JSON.parse(fields[3]) as { type?: string; title?: string; content?: unknown };
-      pages.push({ order: Number(fields[0]), type: data.type, title: data.title, content: data.content });
-    }
-    if (pages.length === 0) throw new Error(`TSV 里没有页面：${TSV}`);
-    pages.sort((left, right) => left.order - right.order);
-
-    // ① 分界点：跟工具同一条预算规则，本地累加即可（不花模型）。
-    const starts: number[] = [pages[0]!.order];
-    let used = 0;
-    for (const page of pages) {
-      const text = await learnerVisibleText(page);
-      if (used > 0 && used + text.text.length > BUDGET) {
-        starts.push(page.order);
-        used = 0;
+describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')(
+  'live: review_course on the real course',
+  () => {
+    it('whole course, chunk boundaries local, chunks in parallel', async () => {
+      if (!TSV || !STAGE)
+        throw new Error('需要 OPENMAIC_REVIEW_LIVE_TSV 与 OPENMAIC_REVIEW_LIVE_STAGE');
+      const pages: VisibleTextPage[] = [];
+      for (const line of readFileSync(TSV, 'utf8').split('\n')) {
+        const fields = line.split('\t');
+        if (fields.length < 4) continue;
+        const data = JSON.parse(fields[3]) as { type?: string; title?: string; content?: unknown };
+        pages.push({
+          order: Number(fields[0]),
+          type: data.type,
+          title: data.title,
+          content: data.content,
+        });
       }
-      used += text.text.length;
-    }
-    if (starts.length > MAX_ROUNDS) {
-      throw new Error(`分界点算出 ${starts.length} 段（上限 ${MAX_ROUNDS}）—— 调大预算或调小范围`);
-    }
+      if (pages.length === 0) throw new Error(`TSV 里没有页面：${TSV}`);
+      pages.sort((left, right) => left.order - right.order);
 
-    // ② 各段并行（互不依赖）。一段失败不影响别的段。
-    const tool = buildCourseReviewTool({
-      loadScenes: async () => pages,
-      aiCall: createGenerationAiCallFactory()('course-review'),
-      maxChars: BUDGET,
-    });
-    const startedAt = Date.now();
-    const results = await Promise.all(
-      starts.map(async (from, index) => {
-        try {
-          const result = (await tool.execute(`call-${index + 1}`, { stageId: STAGE, fromOrder: from })) as {
-            content: { text: string }[];
-            details: { pageCount: number; charsUsed: number; remainingPages: number; candidatePages: number };
-          };
-          return { from, text: result.content[0]?.text ?? '', details: result.details, error: '' };
-        } catch (error) {
-          return { from, text: '', details: null, error: String(error).slice(0, 300) };
+      // ① 分界点：跟工具同一条预算规则，本地累加即可（不花模型）。
+      const starts: number[] = [pages[0]!.order];
+      let used = 0;
+      for (const page of pages) {
+        const text = await learnerVisibleText(page);
+        if (used > 0 && used + text.text.length > BUDGET) {
+          starts.push(page.order);
+          used = 0;
         }
-      }),
-    );
+        used += text.text.length;
+      }
+      if (starts.length > MAX_ROUNDS) {
+        throw new Error(
+          `分界点算出 ${starts.length} 段（上限 ${MAX_ROUNDS}）—— 调大预算或调小范围`,
+        );
+      }
 
-    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    const lines = [
-      existsSync(OUT) ? '' : '# 收尾审查实跑 · 持续追加',
-      '',
-      `## ${stamp} ｜ ${pages.length} 页 · ${starts.length} 段 · 并行 · ${Math.round((Date.now() - startedAt) / 1000)}s`,
-      '',
-      `stage=${STAGE}  tsv=${TSV}  预算=${BUDGET}`,
-      '',
-    ];
-    for (const item of [...results].sort((left, right) => left.from - right.from)) {
-      lines.push(
-        `## fromOrder=${item.from}`,
-        item.details
-          ? `pageCount=${item.details.pageCount} chars=${item.details.charsUsed} candidatePages=${item.details.candidatePages} remaining=${item.details.remainingPages}`
-          : `（这一段失败：${item.error}）`,
-        '',
-        item.text,
-        '',
+      // ② 各段并行（互不依赖）。一段失败不影响别的段。
+      const tool = buildCourseReviewTool({
+        loadScenes: async () => pages,
+        aiCall: createGenerationAiCallFactory()('course-review'),
+        maxChars: BUDGET,
+      });
+      const startedAt = Date.now();
+      const results = await Promise.all(
+        starts.map(async (from, index) => {
+          try {
+            const result = (await tool.execute(`call-${index + 1}`, {
+              stageId: STAGE,
+              fromOrder: from,
+            })) as {
+              content: { text: string }[];
+              details: {
+                pageCount: number;
+                charsUsed: number;
+                remainingPages: number;
+                candidatePages: number;
+              };
+            };
+            return {
+              from,
+              text: result.content[0]?.text ?? '',
+              details: result.details,
+              error: '',
+            };
+          } catch (error) {
+            return { from, text: '', details: null, error: String(error).slice(0, 300) };
+          }
+        }),
       );
-    }
-    appendFileSync(OUT, lines.join(String.fromCharCode(10)) + String.fromCharCode(10), 'utf8');
-    console.log(`报告：${OUT}（${lines.length} 段）`);
-  }, 1_800_000);
-});
+
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      const lines = [
+        existsSync(OUT) ? '' : '# 收尾审查实跑 · 持续追加',
+        '',
+        `## ${stamp} ｜ ${pages.length} 页 · ${starts.length} 段 · 并行 · ${Math.round((Date.now() - startedAt) / 1000)}s`,
+        '',
+        `stage=${STAGE}  tsv=${TSV}  预算=${BUDGET}`,
+        '',
+      ];
+      for (const item of [...results].sort((left, right) => left.from - right.from)) {
+        lines.push(
+          `## fromOrder=${item.from}`,
+          item.details
+            ? `pageCount=${item.details.pageCount} chars=${item.details.charsUsed} candidatePages=${item.details.candidatePages} remaining=${item.details.remainingPages}`
+            : `（这一段失败：${item.error}）`,
+          '',
+          item.text,
+          '',
+        );
+      }
+      appendFileSync(OUT, lines.join(String.fromCharCode(10)) + String.fromCharCode(10), 'utf8');
+      console.log(`报告：${OUT}（${lines.length} 段）`);
+    }, 1_800_000);
+  },
+);

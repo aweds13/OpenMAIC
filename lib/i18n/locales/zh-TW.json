@@ -2217,7 +2217,6 @@
     "webFetchSharedKeyHint": "此金鑰也用於與同一供應商進行對話。修改或移除金鑰也會影響對話。"
   },
   "workspace": {
-
     "batchDownload": {
       "title": "批次下載",
       "description": "勾選若干課程，打包下載為一個 ZIP（每門課一個資料夾）。不會開啟這些課程。",
@@ -2377,7 +2376,6 @@
       "conversationFailure": {
         "serviceUnavailable": "尚未設定可處理此類檔案的解析服務，請聯絡管理員完成設定。"
       }
-
     },
     "untitledCourse": "未命名课堂",
     "sceneCount": "{{count}} 页",

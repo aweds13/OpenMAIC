@@ -2232,7 +2232,6 @@
     "webFetchSharedKeyHint": "此密钥也用于与同一服务商进行对话。修改或移除密钥也会影响对话。"
   },
   "workspace": {
-
     "batchDownload": {
       "title": "批量下载",
       "description": "勾选若干课程，打包下载为一个 ZIP（每门课一个文件夹）。不会打开这些课程。",
@@ -2392,7 +2391,6 @@
       "conversationFailure": {
         "serviceUnavailable": "尚未配置可处理此类文件的解析服务，请联系管理员完成配置。"
       }
-
     },
     "untitledCourse": "未命名课堂",
     "sceneCount": "{{count}} 页",

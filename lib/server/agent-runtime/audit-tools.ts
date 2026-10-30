@@ -82,8 +82,13 @@ export function buildCourseAuditTool(deps: AuditToolDeps): AgentTool<typeof AUDI
         const write = deps.writeAccepted ?? writeAcceptedReadings;
         const previous = (await read(params.stageId))?.pages ?? {};
         const pages: Record<string, { novel?: number; reason: string }> = { ...previous } as never;
-        for (const order of params.accept.pages) pages[String(order)] = { reason: params.accept.reason };
-        const ok = await write({ stageId: params.stageId, pages, updatedAt: new Date().toISOString() });
+        for (const order of params.accept.pages)
+          pages[String(order)] = { reason: params.accept.reason };
+        const ok = await write({
+          stageId: params.stageId,
+          pages,
+          updatedAt: new Date().toISOString(),
+        });
         return {
           content: [
             {
@@ -128,13 +133,13 @@ export function buildCourseAuditTool(deps: AuditToolDeps): AgentTool<typeof AUDI
           {
             type: 'text' as const,
             text: formatCourseAudit(audit, {
-            maxItems: params.maxItems ?? 8,
-            acceptedPages: new Set(
-              Object.keys((await (deps.readAccepted ?? readAcceptedReadings)(params.stageId))?.pages ?? {}).map(
-                (order) => Number(order),
+              maxItems: params.maxItems ?? 8,
+              acceptedPages: new Set(
+                Object.keys(
+                  (await (deps.readAccepted ?? readAcceptedReadings)(params.stageId))?.pages ?? {},
+                ).map((order) => Number(order)),
               ),
-            ),
-          }),
+            }),
           },
         ],
         details: {
@@ -144,7 +149,10 @@ export function buildCourseAuditTool(deps: AuditToolDeps): AgentTool<typeof AUDI
             title: page.title,
             novel: page.novel,
           })),
-          unattached: audit.unattachedPages.map((page) => ({ order: page.order, title: page.title })),
+          unattached: audit.unattachedPages.map((page) => ({
+            order: page.order,
+            title: page.title,
+          })),
           averageCarryRatio: Number(audit.averageCarryRatio.toFixed(3)),
           medianNovel: audit.medianNovel,
         },

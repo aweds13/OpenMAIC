@@ -53,11 +53,11 @@ export function buildAgentCourseSearchTool(
     ...base,
     label: 'Search the local course library and document shelf',
     description:
-      'Search the learner\'s LOCAL library (no network). It holds two different things, ' +
+      "Search the learner's LOCAL library (no network). It holds two different things, " +
       'selected by `layer`:\n' +
       '  · the university course catalog (~22k real courses: numbers, terms, prerequisites, ' +
       'whether materials exist) — `layer: "auto"` (L0+L2), or L3 for inside lecture materials;\n' +
-      '  · the learner\'s OWN document shelf (~3k PDFs / slides / notes, tens of millions of ' +
+      "  · the learner's OWN document shelf (~3k PDFs / slides / notes, tens of millions of " +
       'characters) — `layer: "L4"`.\n' +
       'Use L4 when the question is about material the learner already has; use auto when you ' +
       'need to know what courses exist. Results carry `parentId` + `chunkIndex` for L4 hits: ' +
@@ -137,7 +137,7 @@ export function courseLibraryPromptBlock(capabilities: CourseLibraryCapabilities
     '- **Course catalog** (`auto` = L0+L2, or `L3` for inside lecture materials): ~22k real',
     '  university courses with numbers, terms, units and prerequisites. Grounds "what is actually',
     '  taught" instead of an invented syllabus.',
-    '- **Document shelf** (`L4`): ~3k of the learner\'s own PDFs, slides and notes.',
+    "- **Document shelf** (`L4`): ~3k of the learner's own PDFs, slides and notes.",
     '',
     '**`read_document` finishes what `course_search` starts.** An L4 hit is a *chunk*, not a whole',
     'document. It carries `parentId` and `chunkIndex`/`chunkOf`. To use it properly:',

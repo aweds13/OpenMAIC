@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { practiceTaskCount, auditCourse, formatCourseAudit, NOVEL_P90, type AuditedPage } from '@/lib/quiz/course-audit';
+import {
+  practiceTaskCount,
+  auditCourse,
+  formatCourseAudit,
+  NOVEL_P90,
+  type AuditedPage,
+} from '@/lib/quiz/course-audit';
 
 /**
  * ★ 超载线**只对 slide 有效** —— 项目页不该被判超载（2026-10-07 修）。
@@ -32,7 +38,7 @@ function heavyBody(seed = 0): string {
   //   判据才是在测"分类对不对"，而不是在测"阈值等于几"。
   return Array.from(
     { length: 90 },
-    (_, i) => `术语${String.fromCharCode(0x4e00 + (i + seed * 100) % 0x5000)}码`,
+    (_, i) => `术语${String.fromCharCode(0x4e00 + ((i + seed * 100) % 0x5000))}码`,
   ).join('，');
 }
 
@@ -133,7 +139,10 @@ describe('★ 机械层：结构空页与页码引用', () => {
       order: 2,
       title: '动手：写正负判断',
       type: 'interactive',
-      content: { type: 'interactive', html: '<!DOCTYPE html><html><body><div id="r"></div><script>init()</script></body></html>' },
+      content: {
+        type: 'interactive',
+        html: '<!DOCTYPE html><html><body><div id="r"></div><script>init()</script></body></html>',
+      },
     };
     const audit = auditCourse([slideWith(1, '有正文'), interactive]);
     expect(audit.emptyPages).toEqual([]);
@@ -142,7 +151,11 @@ describe('★ 机械层：结构空页与页码引用', () => {
   it('★ 引用指向空页 ⇒ danglingReferences（problem = empty）', () => {
     const audit = auditCourse([slideWith(1, '双层 for 见第 2 页'), emptySlide(2)]);
     expect(audit.danglingReferences).toHaveLength(1);
-    expect(audit.danglingReferences[0]).toMatchObject({ fromOrder: 1, targetOrder: 2, problem: 'empty' });
+    expect(audit.danglingReferences[0]).toMatchObject({
+      fromOrder: 1,
+      targetOrder: 2,
+      problem: 'empty',
+    });
     expect(formatCourseAudit(audit)).toContain('指向不存在或空的页');
   });
 
@@ -170,7 +183,10 @@ describe('★ 机械层：结构空页与页码引用', () => {
   });
 
   it('★ 引用总清单与"可判定的错"分开报 —— 前者不做内容判定', () => {
-    const audit = auditCourse([slideWith(1, '见第 2 页'), slideWith(2, '内容不对也可能，但这一层不管')]);
+    const audit = auditCourse([
+      slideWith(1, '见第 2 页'),
+      slideWith(2, '内容不对也可能，但这一层不管'),
+    ]);
     expect(audit.pageReferences).toHaveLength(1);
     expect(audit.danglingReferences).toEqual([]);
     expect(formatCourseAudit(audit)).toContain('处写死的页码引用');
@@ -241,37 +257,60 @@ describe('★ 已接受的读数：不再重复报成待修', () => {
  *   ③ `interactive` 没带 ⇒ 自己造的 UI，**认不出就 `null`，绝不返回 0**。
  */
 describe('★ practiceTaskCount：练习页上压了几组题', () => {
-  const page = (order: number, type: string, content: unknown) =>
-    ({ stageId: 'stage-x', sceneId: `scene-p${order}`, order, title: `P${order}`, type, content });
+  const page = (order: number, type: string, content: unknown) => ({
+    stageId: 'stage-x',
+    sceneId: `scene-p${order}`,
+    order,
+    title: `P${order}`,
+    type,
+    content,
+  });
 
   it('quiz：按 questions 数（Day02 P29 八道题 = 8）', () => {
     const questions = Array.from({ length: 8 }, (_, i) => ({ question: `q${i}` }));
-    expect(practiceTaskCount(page(29, 'quiz', { questions }))).toEqual({ tasks: 8, followsContract: true });
+    expect(practiceTaskCount(page(29, 'quiz', { questions }))).toEqual({
+      tasks: 8,
+      followsContract: true,
+    });
   });
 
   it('interactive 带 widgetConfig ⇒ 合同上就是**一个任务**；testCases 是"查了几件事"', () => {
-    const shape = practiceTaskCount(page(26, 'interactive', { widgetConfig: { starterCode: 'x', testCases: [1, 2, 3, 4, 5, 6, 7, 8] } }));
+    const shape = practiceTaskCount(
+      page(26, 'interactive', {
+        widgetConfig: { starterCode: 'x', testCases: [1, 2, 3, 4, 5, 6, 7, 8] },
+      }),
+    );
     expect(shape).toEqual({ tasks: 1, testCases: 8, followsContract: true });
   });
 
   it('interactive **没带** widgetConfig ⇒ 从 HTML 的 TASKS 里数，按 `title:` 不按 `id:`', () => {
     // 真实形状（Day02 P19）：每个任务有 title，任务**内部**还会有别的 id。
     const html =
-      "const TASKS = [\n" +
+      'const TASKS = [\n' +
       "{\n  id: 'sign',\n  title: '任务 1：正负判断',\n  tests: [{ id: 'a' }]\n},\n" +
       "{\n  id: 'grade',\n  title: '任务 2：成绩等级',\n  tests: [{ id: 'b' }, { id: 'c' }]\n},\n" +
       "{\n  id: 'leap',\n  title: '任务 3：闰年',\n  tests: []\n}\n];\n";
-    expect(practiceTaskCount(page(19, 'interactive', { html }))).toEqual({ tasks: 3, followsContract: false });
+    expect(practiceTaskCount(page(19, 'interactive', { html }))).toEqual({
+      tasks: 3,
+      followsContract: false,
+    });
   });
 
   it('★ 认不出来就是 `null`（**不是 0**）—— 把"不知道"说成"没有任务"是本仓反复栽过的静默', () => {
-    const shape = practiceTaskCount(page(11, 'interactive', { html: '<html>自己造的 UI，没有 TASKS</html>' }));
+    const shape = practiceTaskCount(
+      page(11, 'interactive', { html: '<html>自己造的 UI，没有 TASKS</html>' }),
+    );
     expect(shape.tasks).toBeNull();
     expect(shape.tasks).not.toBe(0);
   });
 
   it('★ 整条场景也能收（仓库里两种调用点都有，只认一种会静默返回"不知道"）', () => {
-    const scene = { id: 's', type: 'interactive', order: 19, content: { html: "const TASKS = [\n{\n title: '一'\n}\n];\n" } };
+    const scene = {
+      id: 's',
+      type: 'interactive',
+      order: 19,
+      content: { html: "const TASKS = [\n{\n title: '一'\n}\n];\n" },
+    };
     expect(practiceTaskCount(page(19, 'interactive', scene)).tasks).toBe(1);
   });
 

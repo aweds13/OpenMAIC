@@ -83,8 +83,18 @@ describe('读练习结果', () => {
   });
 
   it('sorts the most recent first, and tolerates a missing ranAt', async () => {
-    putResult('stage-a', '01-早', { total: 1, passed: 1, failed: 0, ranAt: '2026-01-01T00:00:00.000Z' });
-    putResult('stage-a', '02-晚', { total: 1, passed: 0, failed: 1, ranAt: '2026-12-31T00:00:00.000Z' });
+    putResult('stage-a', '01-早', {
+      total: 1,
+      passed: 1,
+      failed: 0,
+      ranAt: '2026-01-01T00:00:00.000Z',
+    });
+    putResult('stage-a', '02-晚', {
+      total: 1,
+      passed: 0,
+      failed: 1,
+      ranAt: '2026-12-31T00:00:00.000Z',
+    });
     putResult('stage-a', '03-没时间', { total: 1, passed: 1, failed: 0 });
     const entries = await readPracticeResults(root);
     expect(entries.map((entry) => entry.dirName)).toEqual(['02-晚', '01-早', '03-没时间']);
@@ -131,7 +141,12 @@ describe('渲染成学习状态的一节', () => {
   });
 
   it('lists a fully-passed exercise without the "go back and teach" line', async () => {
-    putResult('stage-a', '01-过了', { total: 1, passed: 1, failed: 0, ranAt: '2026-10-07T00:00:00Z' });
+    putResult('stage-a', '01-过了', {
+      total: 1,
+      passed: 1,
+      failed: 0,
+      ranAt: '2026-10-07T00:00:00Z',
+    });
     const text = formatPracticeResultsForState(await readPracticeResults(root));
     expect(text).toContain('1/1 通过');
     expect(text).not.toContain('该回去讲的东西');

@@ -40,7 +40,7 @@ function optionLabels(options: unknown): string[] {
 }
 
 describe.skipIf(!live)('coverage gaps against a real course', () => {
-  it('reports what a course\'s self-checks ask about that earlier pages never taught', async () => {
+  it("reports what a course's self-checks ask about that earlier pages never taught", async () => {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error('DATABASE_URL missing');
 
@@ -71,7 +71,9 @@ describe.skipIf(!live)('coverage gaps against a real course', () => {
       // ★ 传**全部页面**：讲解页也要进去贡献"已教文本"，只是不会被报告。
       const pages: CoveragePage[] = [];
       for (const scene of scenes) {
-        const sceneQuestions = (scene.data.type === 'quiz' ? scene.data.content?.questions ?? [] : [])
+        const sceneQuestions = (
+          scene.data.type === 'quiz' ? (scene.data.content?.questions ?? []) : []
+        )
           .filter(
             (question): question is QuestionRow & { id: string; question: string } =>
               typeof question.id === 'string' && typeof question.question === 'string',

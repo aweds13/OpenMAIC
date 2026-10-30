@@ -2232,7 +2232,6 @@
     "webFetchSharedKeyHint": "يُستخدم هذا المفتاح أيضًا للدردشة مع هذا المزوّد. تغييره أو حذفه يؤثر في الدردشة."
   },
   "workspace": {
-
     "batchDownload": {
       "title": "تنزيل دفعي",
       "description": "اختر الدورات ونزّلها في ملف ZIP واحد، بمجلد لكل دورة. لا يتم فتح الدورات.",
@@ -2392,7 +2391,6 @@
       "conversationFailure": {
         "serviceUnavailable": "لم تُهيأ خدمة تحليل لهذا النوع من الملفات. اطلب من المسؤول تهيئتها."
       }
-
     },
     "untitledCourse": "未命名课堂",
     "sceneCount": "{{count}} 页",

@@ -288,7 +288,8 @@ export function formatScratchIndex(
         `${marks.length ? `  [${marks.join(' / ')}]` : ''}`,
     );
   }
-  if (scratch.length > shown.length) lines.push(`  …还有 ${scratch.length - shown.length} 条更早的`);
+  if (scratch.length > shown.length)
+    lines.push(`  …还有 ${scratch.length - shown.length} 条更早的`);
 
   if (promoted.length) {
     lines.push(`== 已进材料库（${promoted.length} 条；内容在材料库里，这里只是指针）==`);
@@ -298,7 +299,8 @@ export function formatScratchIndex(
   }
   if (options.includeDropped) {
     const dropped = pad.items.filter((item) => item.status === 'dropped');
-    if (dropped.length) lines.push(`== 已弃（${dropped.length} 条）== ${dropped.map((i) => i.id).join(',')}`);
+    if (dropped.length)
+      lines.push(`== 已弃（${dropped.length} 条）== ${dropped.map((i) => i.id).join(',')}`);
   }
   return lines.join('\n');
 }
@@ -312,7 +314,11 @@ export function formatScratchIndex(
 export function searchScratchItems(
   pad: Scratchpad,
   query: string,
-  options: { kinds?: readonly ScratchKind[]; statuses?: readonly ScratchStatus[]; limit?: number } = {},
+  options: {
+    kinds?: readonly ScratchKind[];
+    statuses?: readonly ScratchStatus[];
+    limit?: number;
+  } = {},
 ): ScratchItem[] {
   const needle = query.trim().toLowerCase();
   const limit = options.limit ?? 20;
@@ -354,7 +360,13 @@ export function formatScratchReminder(pad: Scratchpad): string {
   const needsSource = claimsNeedingSecondSource(pad);
   if (open.length === 0 && conflicts.length === 0 && needsSource.length === 0) return '';
   const parts: string[] = [];
-  if (open.length) parts.push(`**${open.length} 条还没归类**（${open.slice(0, 5).map((i) => i.id).join(',')}）`);
+  if (open.length)
+    parts.push(
+      `**${open.length} 条还没归类**（${open
+        .slice(0, 5)
+        .map((i) => i.id)
+        .join(',')}）`,
+    );
   if (conflicts.length) {
     parts.push(`**${conflicts.length} 条矛盾没处理**（${conflicts.map((i) => i.id).join(',')}）`);
   }

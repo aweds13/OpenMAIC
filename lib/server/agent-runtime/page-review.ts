@@ -97,12 +97,19 @@ const REVIEW_ONE_PAGE_RULES = [
 export async function collectPageWithEarlier(
   input: PageReviewInput,
   deps: Pick<PageReviewDeps, 'render' | 'maxContextChars'>,
-): Promise<{ target: { order: number; title: string; text: string; mode: string }; earlier: { order: number; title: string; text: string }[]; chars: number } | null> {
+): Promise<{
+  target: { order: number; title: string; text: string; mode: string };
+  earlier: { order: number; title: string; text: string }[];
+  chars: number;
+} | null> {
   const sorted = [...input.scenes].sort((left, right) => left.order - right.order);
   const target = sorted.find((scene) => scene.order === input.order);
   if (!target) return null;
 
-  const targetText = await learnerVisibleText(target, deps.render ? { render: deps.render } : undefined);
+  const targetText = await learnerVisibleText(
+    target,
+    deps.render ? { render: deps.render } : undefined,
+  );
   const before = sorted.filter((scene) => scene.order < input.order);
   const budget = deps.maxContextChars ?? DEFAULT_CONTEXT_CHARS;
 
@@ -121,7 +128,12 @@ export async function collectPageWithEarlier(
   }
 
   return {
-    target: { order: targetText.order, title: targetText.title, text: targetText.text, mode: targetText.mode },
+    target: {
+      order: targetText.order,
+      title: targetText.title,
+      text: targetText.text,
+      mode: targetText.mode,
+    },
     earlier,
     chars: used + targetText.text.length,
   };

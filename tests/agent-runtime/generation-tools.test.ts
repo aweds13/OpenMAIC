@@ -51,7 +51,8 @@ function document(scenes: Scene[]): CourseDocument {
   // ★ generate_scene 现在有**阶段冻结**的门槛（计划非空 + 已冻结 + 这一页在计划里）。
   //   夹具的计划条目本来就有，缺的只是"已冻结" —— 这里把它补上。
   //   这不是松弛判据，是把真实前置条件补进夹具；判据本身另有 plan-freeze.test.ts 钉住。
-  const freezeDir = process.env.OPENMAIC_PLAN_FREEZE_DIR ?? join(process.cwd(), 'data', 'plan-freeze');
+  const freezeDir =
+    process.env.OPENMAIC_PLAN_FREEZE_DIR ?? join(process.cwd(), 'data', 'plan-freeze');
   mkdirSync(freezeDir, { recursive: true });
   writeFileSync(
     join(freezeDir, 'stage-test.json'),
@@ -967,9 +968,8 @@ describe('generate_scene — self-study narration suppression', () => {
     vi.resetModules();
     vi.stubEnv('OPENMAIC_SELF_STUDY', 'true');
     try {
-      const { buildGenerationTools: buildFresh } = await import(
-        '@/lib/server/agent-runtime/generation-tools'
-      );
+      const { buildGenerationTools: buildFresh } =
+        await import('@/lib/server/agent-runtime/generation-tools');
       const current = state(document([]));
       const generateActions = actionsSpy();
       const generate = find(
@@ -1194,7 +1194,10 @@ describe('★ 阶段冻结的门槛（OPENMAIC_PLAN_GATE=1 时才生效）', () 
   it('★ 计划为空 ⇒ 拒，并告诉它先写计划', async () => {
     process.env.OPENMAIC_PLAN_GATE = '1';
     const current = state(document([]));
-    const generate = find(buildGenerationTools(deps(current.store, { aiCall: vi.fn() })), 'generate_scene');
+    const generate = find(
+      buildGenerationTools(deps(current.store, { aiCall: vi.fn() })),
+      'generate_scene',
+    );
     const response = await generate.execute('call', {
       stageId: 'stage-test',
       order: 1,
@@ -1210,7 +1213,10 @@ describe('★ 阶段冻结的门槛（OPENMAIC_PLAN_GATE=1 时才生效）', () 
     process.env.OPENMAIC_PLAN_GATE = '1';
     const current = state(document([slide('s1', 1)]));
     setFrozen(false);
-    const generate = find(buildGenerationTools(deps(current.store, { aiCall: vi.fn() })), 'generate_scene');
+    const generate = find(
+      buildGenerationTools(deps(current.store, { aiCall: vi.fn() })),
+      'generate_scene',
+    );
     const response = await generate.execute('call', {
       stageId: 'stage-test',
       order: 1,
@@ -1227,7 +1233,10 @@ describe('★ 阶段冻结的门槛（OPENMAIC_PLAN_GATE=1 时才生效）', () 
     process.env.OPENMAIC_PLAN_GATE = '1';
     const current = state(document([slide('s1', 1)]));
     setFrozen(true, 1);
-    const generate = find(buildGenerationTools(deps(current.store, { aiCall: vi.fn() })), 'generate_scene');
+    const generate = find(
+      buildGenerationTools(deps(current.store, { aiCall: vi.fn() })),
+      'generate_scene',
+    );
     const response = await generate.execute('call', {
       stageId: 'stage-test',
       order: 9,

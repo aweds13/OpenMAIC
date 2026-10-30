@@ -9,7 +9,12 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { sceneWriteDiagnosticsWithReview, sceneWriteDiagnostics, OVERFLOW_RISK_CHARS, THIN_PAGE_CHARS } from '@/lib/server/agent-runtime/scene-diagnostics';
+import {
+  sceneWriteDiagnosticsWithReview,
+  sceneWriteDiagnostics,
+  OVERFLOW_RISK_CHARS,
+  THIN_PAGE_CHARS,
+} from '@/lib/server/agent-runtime/scene-diagnostics';
 import type { Scene } from '@/lib/types/stage';
 
 const slide = (text: string): Scene =>
@@ -50,7 +55,10 @@ describe('★ 字数带（机械层）', () => {
   });
 
   it('★ 非 slide 页不算字数（正文不在 canvas 里）', () => {
-    const quiz = { ...(slide('字'.repeat(10)) as unknown as Record<string, unknown>), type: 'quiz' } as unknown as Scene;
+    const quiz = {
+      ...(slide('字'.repeat(10)) as unknown as Record<string, unknown>),
+      type: 'quiz',
+    } as unknown as Scene;
     const result = sceneWriteDiagnostics({ scenes: [quiz], scene: quiz, outline: undefined });
     expect(result.bodyChars).toBe(0);
     expect(result.densityText).toBe('');
@@ -66,7 +74,11 @@ describe('★ 字数带（机械层）', () => {
  * ③ 没传 ⇒ **一个字不加**（部署没配模型时，行为与以前完全一致）。
  */
 describe('★ 写入后带上下文再审一遍（LLM 那一半）', () => {
-  const input = () => ({ scenes: [slide('这一页的内容')], scene: slide('这一页的内容'), outline: undefined });
+  const input = () => ({
+    scenes: [slide('这一页的内容')],
+    scene: slide('这一页的内容'),
+    outline: undefined,
+  });
 
   it('★ 传了 reviewPage ⇒ 结论与"带前面讲过的页"一起拼进回话', async () => {
     const result = await sceneWriteDiagnosticsWithReview(input(), {
@@ -109,7 +121,9 @@ describe('★★ 版面差集：patch_stage 才拿得到"改前那一页"', () =
       title: '一页',
       content: {
         type: 'slide',
-        canvas: { elements: [{ type: 'text', left: 0, top: 0, width: 400, height, content: text }] },
+        canvas: {
+          elements: [{ type: 'text', left: 0, top: 0, width: 400, height, content: text }],
+        },
       },
       actions: [],
     }) as unknown as Scene;

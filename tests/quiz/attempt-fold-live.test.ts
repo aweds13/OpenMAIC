@@ -58,7 +58,8 @@ describe.skipIf(!live)('foldQuizAttempts against the live runtime store', () => 
         id: row.id,
         stageId: row.stage_id,
         status: row.status,
-        createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+        createdAt:
+          row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
       }));
 
       const recordRows = await client.query<{ data: RuntimeRecord }>(
