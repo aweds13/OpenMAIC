@@ -704,42 +704,25 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 11. ★ 多窗口并发：两个对话窗口共用一个工作区
 
-2026-10-06 实测过一次真事故：两个窗口都在改 `AGENTS.md`，一次 `git add AGENTS.md`
-把对方那一段一起提交了 —— 提交信息只讲 139，内容里却多了一整个章节；
-文档从此**描述了一个代码还没进 git 的功能**，别人 checkout 会看到指向不存在文件的文档。
+2026-10-06 真事故：两个窗口都改 `AGENTS.md`，一次 `git add` 把对方那段一起提交了 ——
+文档从此**描述了一个代码还没进 git 的功能**。
 
-**规矩（按根治力度排序）：**
-
-1. **要并行干不相干的活，用 `git worktree` 分开**，不要共用一个工作区。
-   这是唯一根治，前两条只是减损：
-
-   ```bash
-   git worktree add ../OpenMAIC-<主题> -b <分支>
-   ```
-
-   工程侧本来就是这个口径（每张卡一棵 worktree）。隔离之后还要装节点，见
-   [`docs/implementation/运维.md`](docs/implementation/运维.md) §四 —— 新建的 worktree
-   **默认开不起来**，还差四步，且 `node_modules` 必须用 PowerShell 的
-   `New-Item -ItemType Junction`（`cmd //c mklink /J` 会静默失败）。
-
-2. **提交前永远用显式路径**：`git add <明确的文件>`。
-   **绝不用 `git add -A` / `git add .` / `git commit -a`** —— 工作区里随时可能有
-   另一个窗口的半成品，一次顺手就卷进你的提交，而**提交信息会撒谎**。
-   （反过来说，`git add <单个文件>` 也**不**安全 —— 如果那个文件两边都在改。）
-
-3. **开工前先看有没有别人在动**：`git status --short` 里有没有**不是自己建的**文件；
-   有没有文件的 mtime 比上次操作还新；`git rev-parse --short HEAD` **现算**一次
-   （§0.1 记的 HEAD 是写那一刻的快照，看到不符先 `git log --oneline <记的>..HEAD`
-   查是谁推进的，**别当成数据损坏**）。
-
-4. **`AGENTS.md` 是共享文件**：只加不改旧段（§0.1 与 §8 例外，那两处就是要就地更新）。
+1. **并行干不相干的活用 `git worktree add ../OpenMAIC-<主题> -b <分支>`** —— 唯一根治。新建的
+   worktree **默认开不起来**（还差四步，`node_modules` 用 PowerShell `New-Item -ItemType Junction`，
+   `cmd //c mklink /J` 会静默失败）→ [`docs/implementation/运维.md`](docs/implementation/运维.md) §四
+2. **只用显式路径 `git add <文件>`**，**绝不用 `-A` / `.` / `commit -a`**（别的窗口的半成品会卷进来，
+   而**提交信息会撒谎**）。单个文件也**不**安全 —— 两边都在改时。
+3. **开工先看有没有别人在动**：`git status --short` 有没有不是自己建的文件、mtime 比上次操作新；
+   `git rev-parse --short HEAD` **现算**（§0.1 记的是快照，不符先 `git log --oneline <记的>..HEAD`
+   查是谁推进的，**别当数据损坏**）。
+4. **`AGENTS.md` 只加不改旧段**（§0.1 与 §8 例外，那两处就是要就地更新）。
 
 ---
 
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
 目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分。
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **22 个工具**（`openmaic-course` **17** +
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **26 个工具**（`openmaic-course` **21** +
 `openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
 
 - 宿主半 `index.js` ⇒ 改完**重启 DSH**；浏览器半 `client.src.js` ⇒ `node build.mjs` → 再重启（`client.js` 13.9 MB 是产物）
@@ -751,4 +734,9 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 **诊断/冻结/纸/材料/练习 10 个工具**都走 `lib/diag.mts` 桥（index.js 取数据走 stdin，桥不碰库）：tsx 点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx` 是 shell 脚本）、别名须 `import * as m` 再 `m.default ?? m`；**都不复刻**、直调仓内同名 builder → §1.16/§1.17。
 - 纸与材料落文件系统：草稿纸 `data/scratchpad/<owner>.json`（本机唯一 owner，`sNNN` **永不复用**）；材料库 `个人数据/材料清单/*.md`（目录读 `.env.local`，**没配不回默认值**）★ 写走沙盒且**先把真文件复制进去**（否则丢原内容）
 - 练习落 `课程与学习/练习/<stage>/`（桥纯算、宿主判越界与不覆盖）★ 沙盒 env 必须设**在 import 之前**（常量加载期求值）→ §1.18
+**编排四件**（`stage_admin` 六动作 / `whoami` / `read_document` / `quiz_fold`）：stage_admin 的 list·outline 走桥（
+`mergeStageOutline` 判据只一份）、四条写走 `db-write.mjs`（**index.js 里不拼 SQL**）→ §1.20
+- ★ **归属只在 `stage_meta`**（`document_stages.owner_id` 恒 null）；库里 9 行、本机 owner 看得见 **7 门**
+- ★ **`generation_complete` 两处独立**：`stage_meta` 全 false、计划信封全 true ⇒ 桥按**信封**判（同 `curriculum-tools.ts`）
+- ★ quiz 记录必须按 `data->'payload' ? 'phase'` 过滤（只判 payload 非空会混进 pbl 事件）
 **写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；默认 `dryRun:true` 只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
