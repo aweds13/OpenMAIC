@@ -74,7 +74,10 @@ next-env.d.ts
 /logs
 
 # docs
-/docs
+# 上游忽略 /docs（本地生成的文档构建产物）。
+# 我们自有的五层文档在 docs/ 且必须入库 —— 见 docs/README.md。
+/docs/*
+!/docs/**
 # Eval results
 eval/whiteboard-shapes/results/
 eval/whiteboard-layout/results/

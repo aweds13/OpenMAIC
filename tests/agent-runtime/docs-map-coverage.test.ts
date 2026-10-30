@@ -242,7 +242,16 @@ describe('★ 动过的一级条目都写在手册里', () => {
     expect(roots.length, '一个改动都没解析到 —— 基线写错了').toBeGreaterThan(3);
 
     // 这几项**就是**文档自身，当然不会在正文里被"提到"。
-    const selfReferential = new Set(['AGENTS.md', '二开说明.md', '复盘']);
+    const selfReferential = new Set([
+      'AGENTS.md',
+      // 三份仓根文档已于 2026-10-30 并入五层 docs/ 并删除（彻底重构，历史在 git 里）。
+      // 它们的名字仍留在集合里：BASELINE..HEAD 这个历史区间永远包含这三个路径，
+      // 一旦从集合里摘掉，判据会要求 AGENTS.md 去「提到」三个已不存在的文件。
+      '二开说明.md',
+      '怎么用.md',
+      '架构图.md',
+      '复盘',
+    ]);
     const missing = roots.filter((root) => !selfReferential.has(root) && !AGENTS.includes(root));
     expect(missing, `这些顶层条目被改过，但手册里没有它们 —— 新窗口不会去那里找：`).toEqual([]);
   });

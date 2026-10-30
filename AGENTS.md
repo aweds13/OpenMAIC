@@ -7,35 +7,48 @@
 > 写法约定：**只写操作知识**（顺序、前置检查、常见错、该看哪个产物）。判据在代码里。
 > 一条结论只有在**实测过**之后才写进来，并附上能复现它的命令。
 
-## 六份文件，六个读者 —— 别混
+## 文档分五层 + 三份活文件 —— 读对那一层
 
-| 文件 | 给谁看 | 装什么 | 什么时候改 |
-|---|---|---|---|
-| [`二开说明.md`](二开说明.md) | **人** | 这个二开**做了什么、为什么**（每条附实测读数）+ 怎么跑 + 目录地图 | 加/改了一个**功能**时 |
-| **本文件**（`AGENTS.md`） | **agent** | **规则**：改哪一层、文件地图、证据命令、坑、已结案的结论 | 发现新规则 / 新坑 / 新结论时 |
-| [`复盘/新窗口交接卡.md`](复盘/新窗口交接卡.md) | **agent** | **状态**：当前 CHECKPOINT + **新窗口照抄的第一条消息** | 每干完一件事 |
-| [`复盘/已结案结论.md`](复盘/已结案结论.md) | **agent** | **已量过、已结案**的结论（每条附复现命令）。**动手前先读** | 有新结论时 |
-| [`怎么用.md`](怎么用.md) | **人（使用者）** | **怎么开口 + 结果去哪看 + 怎么判断没坏**（自检表 + 出问题怎么办） | 加了一个**使用者能感知**的功能时 |
-| [`架构图.md`](架构图.md) | **人 + agent** | **结构**：一张 ASCII 图看完（入口 / 运行期 / 工具组 / 两条写入路径与闸 / 数据落哪 / 审查管线 / 索引式引用 / 旁挂服务 / 已知边界） | **结构变了**（加了一层、加了闸、数据换了地方）时 |
+**为什么这么分见 [`docs/文档架构.md`](docs/文档架构.md)。** 查资料走五层，干活读三份活文件：
+
+| 层 | 入口 | 装什么 |
+|---|---|---|
+| 意图 | [`docs/intention/needs.md`](docs/intention/needs.md) | N1–N23 需求全表（要什么，不管怎么做） |
+| 规格 | [`docs/specification/traceability.md`](docs/specification/traceability.md) | 十域 F1–F10、50 条 SR；`domains/` 下逐域规则 |
+| 契约 | [`docs/contracts/interactions.md`](docs/contracts/interactions.md) | OP-1…OP-6 操作契约；`flows.md` 的 FLOW-1…FLOW-4 |
+| 实现 | [`docs/implementation/modules.md`](docs/implementation/modules.md) | M1–M13 模块索引；`coverage.md` 的判据矩阵 |
+| 品味 | [`docs/taste/README.md`](docs/taste/README.md) | 产品 / 架构 / 工程品味与红线、冲突排序 |
+
+| 活文件 | 给谁看 | 装什么 |
+|---|---|---|
+| **本文件**（`AGENTS.md`） | **agent** | **规则**：改哪一层、文件地图、证据命令、坑。★ **会被注入，预算 56000 字节** |
+| [`复盘/新窗口交接卡.md`](复盘/新窗口交接卡.md) | **agent** | **状态**：当前 CHECKPOINT + **新窗口照抄的第一条消息** |
+| [`复盘/已结案结论.md`](复盘/已结案结论.md) | **agent** | **已量过、已结案**的结论（每条附复现命令）。**动手前先读** |
 
 **新窗口的第一条消息在交接卡里，照抄即可。** 本文件是被它引用的规则层。
-`怎么用.md` 是**给人**的操作手册（agent 用不着它，但改了功能要顺手更新它）。
 
-★ **别把功能说明写进本文件**：那是 `二开说明.md` 的位置。这里只写"怎么不出错"，
-那里只写"做了什么、为什么"。两处都写必然漂。
+原 `二开说明.md` / `怎么用.md` / `架构图.md` 已并入五层（产品说明 → 意图 + 品味；
+使用手册 → 实现层「自检」的 §5「怎么说」；结构图 → 实现层「架构图」）。
+原 `复盘/上游合并清单.md` 与 `复盘/多窗口并行-worktree.md` 里**日后还要照着敲**的部分
+已并入 [`docs/implementation/运维.md`](docs/implementation/运维.md)，其余随文件删除（历史在 git 里）。
+
+★ **别把功能说明写进本文件**：这里只写"怎么不出错"。功能"做了什么、为什么"在 `docs/intention/`。
+两处都写必然漂。
 
 ---
 
 ## 0. 一句话现状
 
-这是 THU-MAIC **OpenMAIC** 的二开分支（`my-extensions`，基线 `57fbcc4`）。
-改动落在 `lib/` `app/` **`components/`** `tests/` `skills/`，外加 `next.config.ts` 与
+这是 THU-MAIC **OpenMAIC** 的二开分支（`upgrade/v1.3.0`）。
+改动落在 `lib/` `app/` **`components/`** `tests/`，外加 `next.config.ts` 与
 `package.json` / `pnpm-lock.yaml`（`jsdom` 进了 `dependencies`，见 §2 的 `page-text.ts`）。
-**以 `git diff --name-only 57fbcc4..HEAD` 为准**（**含 `components/`** —— 漏看就会以为
-"改动只在服务端"）。**2026-10-17 已合上游 1.2.0-rc.1（`b2ce2f4`）**：上游带来的文件不算本 fork 改动（`docs-map`
-按 `origin/main` 剔除）；逐处取舍见 **`复盘/上游合并清单.md`**。
-唯一**一行没动**的是 `packages/@openmaic/**`（上游，当只读用；
-`git diff --stat 57fbcc4..HEAD -- packages/@openmaic` 为空可复验）。
+**以 `git diff --name-only origin/main..HEAD` 为准**（**含 `components/`** —— 漏看就会以为
+"改动只在服务端"）。上游基线是 `origin/main` = `3618238d`；`57fbcc4` 只是**祖先**，
+`docs-map` 判据仍拿它当历史锚点，不代表当前基线。
+
+★ **`packages/@openmaic/**` 并非"一行没动"**：实测
+`git diff --stat 57fbcc4..HEAD -- packages/@openmaic` = **165 files / +14826 / −792**。
+旧文档里"为空可复验"是**假绿灯**（相对 `3618238d` 才是 0）。默认仍不改它，但别以为它干净。
 
 使用者是**一个自学者**（天津大学计算机大一，备二面）。他对产物的要求是实测出来的，
 不是偏好：
@@ -165,13 +178,13 @@
 | `components/generation/self-study-button.tsx` | 首页那条链上的「自学」开关（经典路径，与工作台的 `study-mode.ts` 不同一条路） | 在工作台路径上搜不到 `selfStudy` |
 | `lib/quiz/code-block.ts` | **「这段文字该不该是 `code` 元素」两批规则**（`codeBlockVerdict`）+ **转换器**（`codeElementFromText`，几何不变、行首缩进保留） | 2026-10-09 复量：判据原来要求 `;` 是**最后一个字符** ⇒ **带行尾注释的真代码块整批落进第二批**（28 个候选里 **6** 个）。复现 `OPENMAIC_CODE_BLOCK_LIVE_TSV=<dump> TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/code-block-live.test.ts`。<br>★★ **转换时"几何不变"是个陷阱（实测栽过）**：`code` 元素的开销与 `text` 不同 —— 内边距 **24px**（`py-3 px-3`）、每行 **1.6 × fontSize**（14px ⇒ 22.4px）、边框 2px、等宽字符宽 **≈ 0.64em**（14px ⇒ ≈ 8.96px/字符）。照搬 `text` 的盒子 ⇒ 第 5 行的 `}` 看不见、最长一行右边被切。**盒子要按内容算，别照抄** |
 | `components/slide-renderer/components/element/CodeElement/BaseCodeElement.tsx` | 幻灯片上 `code` 元素**长什么样**（顶栏 / 行号 / 圆角 / 投影 / 内边距全在这里） | ★ 2026-10-09 用户否掉了原版（原话「**感觉这个代码块丑丑的**」），量出来不只是丑：仿 macOS 顶栏 **32px** 占盒子高度 **26%**、行号槽 **49px** 占宽度 **20%** ⇒ **纵向溢出 35px / 横向溢出 47px**。现在：**顶栏整条删掉**、**行号默认 `false`**、6px 圆角 + 1px 细边框 + **无投影**。判据 `tests/components/slide-renderer/code-element-chrome.test.ts`（5 条 + 三道变异） |
-| `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 没有渲染预览** —— `render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就**不注册这个工具**（§1.1），所以它看不到画面；而这几件事**不需要画面也能算**（元素本来就带坐标）。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 真跑第一次就误报：**「底板 + 文字」被当成重叠**（学习者：「第 27 页版式没问题，那批重叠只是底板+文字的套叠」）⇒ 判据改成**包含不算、涉及文字的部分相交才算**。<br>★★ **量余量要用「最大全空矩形」不是「空白面积占比」** —— 后者把"两栏排满"（空白 24%，但全是页边距那种细条）判成有余量，夹具当场纠正过。<br>★★★ **参数必须与渲染器同源**（真 Edge 量；两个常数见 `lib/slide/text-metrics.ts`）；差额 ≤ 一行时**不许冒充结论**。<br>★★★ **改前/改后差集**（`layoutDelta`）：`patch_stage` 会直说「这次引入了什么 / 哪些是**改前就有**的」—— **"是不是我改坏的"不用人眼**。读数与工具 → 结论库那条。 |
+| `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 没有渲染预览** —— `render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就**不注册这个工具**（§1.1），所以它看不到画面；而这几件事**不需要画面也能算**（元素本来就带坐标）。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 「底板 + 文字」**不算重叠**（包含不算，涉及文字的部分相交才算）。<br>★★ 量余量用**最大全空矩形**，不是空白面积占比。<br>★★★ 参数必须与渲染器同源（见 `lib/slide/text-metrics.ts`）。<br>★★★ `layoutDelta` 给改前/改后差集 ⇒ **"是不是我改坏的"不用人眼**。 |
 | `lib/slide/text-metrics.ts` | **文本框行高/内边距的唯一来源**：渲染器**写进 DOM**，`lib/quiz/layout-check.ts` 直接 import | ★ 原先是两处会各漂的字面量（class `leading-[1.5]` vs 检查器 `1.6`）⇒ 24 个盒子里 **19 条假阳性**；**库里 1084 个 text 元素只有 5 个带 `lineHeight`**（改这里=改所有页面的行高）。判据 `tests/components/slide-renderer/text-line-height-pin.test.ts`（6 条 + 三道变异） |
 | `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页的正文只在 `<script>` 里**（第 17/28/36/38/42/44/52/57 页）；实测第 28 页 48,080 字符 html → **34,952 字**正文。★ 与 `extractTaughtText` **方向相反**（那个故意少收、偏误报），只能共用 `stripMarkup`，别合并。★★ **三个已知缺口（2026-10-09 逐条核出来的，全都会变成审查的假阳性）**：① 收的是 jsdom 的 `body.textContent` ⇒ **内联 `<script>`/widget-config 的文字也进来**（第 34 页的 `type`/`code`/`language`/`description` 因此被判成"真缺口"）；② **配置写在 `<head>` 的那 1 页反而收不到提示**（20 个 interactive 页：head 配置 **1** / body 配置 **17** / 无配置 2 —— 第 32 页的提示因此被判成"全页没说"）；③ **压平了 `left`/`top`** ⇒ 审查会把**两栏**读成"挤在一行"（实测 6 条版面误报全出在这里） |
 | `lib/server/agent-runtime/page-review.ts` | **写入后带上下文再审一页**（`sceneWriteDiagnosticsWithReview()` 用的那半，6 条判据） | ★ **还没在真会话里跑过**（见交接卡"下一步"）；三条纪律有判据：结论进回话 / 抛错被吞掉写入照常 / 没传就一个字不加 |
 | `lib/server/agent-runtime/review-tools.ts` | **`review_course`**：对抗性内容审查 —— **一次隔离的模型调用**（system 里只有页面文本 + 规矩），**没有会话历史 / 画像 / 工具**；结论必须带页码引用，否则 `isError`。★ 候选机制 + **`outOfScopeGapClaims()`**：报告把**本段之前就出现过**的词说成"没解释" ⇒ **指名作废**（见 §6.10 第 4 条） | 用户原话「审查 agent 要**完全没有任何基础**，不能想『噢原来是这个』」。判据 `tests/agent-runtime/review-tools.test.ts`（20 条 + 十道变异） |
 | `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
-| `lib/playback/reading-navigation.ts` | **阅读页滚轮翻页的判据**（阈值 12 / 去抖 450ms / 两道闸：用户开关 + 页内还能滚） | 实现在 `二开说明.md` §八；`readingPage` 是**必填**布尔量，漏传只是静默还回播放键 |
+| `lib/playback/reading-navigation.ts` | **阅读页滚轮翻页的判据**（阈值 12 / 去抖 450ms / 两道闸：用户开关 + 页内还能滚） | 规格见 `docs/specification/domains/F2-reading-pace.md`；`readingPage` 是**必填**布尔量，漏传只是静默还回播放键 |
 
 **运行期可变目录** —— **五个都在 `/api/whoami` 的 `runtime` 里回显**，"它到底写哪去了"随时可查：
 
@@ -200,82 +213,73 @@
 
 ### 3.1 先跑测试，别先跑产品
 
+**改完固定四步，顺序不要换**（前三步是 CI 的门，第四步是文档层）：
+
 ```bash
 cd D:/文档/jelly_ware/program/OpenMAIC
-npx vitest run tests/agent-runtime/          # 主战场（2026-10-07 实测 1255 个用例 / 66s —— **数字会涨，以末尾那行 `Tests N passed` 为准**，别照这里的数掐时间）
-npx tsc --noEmit -p tsconfig.json            # 必须 0 error
-npx eslint <改过的文件>                       # 必须 clean
+node node_modules/prettier/bin/prettier.cjs --write <改过的文件>   # 别用 npx：本机 python 里 npx 抛 WinError 2
+npx tsc --noEmit                                                   # 必须 0 error
+node scripts/check-i18n-keys.mjs                                   # 别用 pnpm：store 权限报 os error 5
+python -X utf8 scripts/check-layers.py                             # 末行要 LAYER CHECKS: PASS ✅
 ```
 
-**已知假红**：`tests/agent-runtime/voice-clone-tools.test.ts` 的
-`clips to a 24 kHz mono PCM WAV` 在整包并行时会 **5s 超时**，单跑 1.2s 过。
-它是 CPU 抢占，不是回归 —— 单跑确认一遍再下结论。
+★ **`npx tsc --noEmit` 的必要前置**：`packages/@openmaic/renderer/dist/` 里只有 `.js`
+没有 `.d.ts`（`types` 指向 `./dist/index.d.ts`），导出会全部退化成 `any`，**凭空冒出 33 个 error**。
+修法是补一次声明文件，不是去改代码：
 
-**第二条已知假红**：`tests/workbench/workspace-rail-session-rename.test.ts` 的
-`shows the name the user gave it…` 在整包并行时 **5s 超时**，**其余 4 条连锁失败**
-（第一条没渲染完，后面的行就找不到）。单跑 **~2.8s** 过。已 A/B 实测过两次，
-都不是它自己坏了：把改动 `git stash` 掉、或把新加的测试文件移走，**同样红**。
-真凶是机器负载（dev server / msedge / 一堆常驻服务）。单跑一遍再判。
+```bash
+cd packages/@openmaic/renderer && npx tsc --emitDeclarationOnly --declarationDir dist
+```
 
-**新加的两处测试**（批量下载）：
-- `tests/export/batch-export.test.ts` —— 组合逻辑，注入假 deps，node 环境，快。
-- `tests/export/batch-export-real-builders.test.ts` —— **用真的三个 builder** 组装，
-  jsdom + `fake-indexeddb`。真 PPTX 是 CPU 密集的，自带 **30s** 超时（5s 默认值并跑会误红）。
+**单元测试按需跑，别拿全量当判据**：
 
-**一条既有的真红（不是本轮引入）**：`node scripts/check-i18n-keys.mjs`
-（`pnpm check:i18n-keys`）会报 **9 个语言各缺 2 个键**（18 个缺槽）
-（`toolbar.selfStudyModeHint` / `toolbar.selfStudyModeLabel`）。实测：这两个键在
-**HEAD 里也只存在于 en-US / zh-CN / zh-TW**（自学模式那轮留下的缺口）。要么补 9 份翻译，要么先别把这个脚本加进 CI —— 别以为是自己弄坏的。
+```bash
+npx vitest run tests/agent-runtime/          # 主战场，末尾看 Tests N passed
+npx vitest run <某个文件>                     # 判定"是不是我弄坏的"永远用这个
+```
+
+★ **本机全量跑必然假红，CI 不会**：`vitest run` 单机并发在这台 Windows 上会撞 5000ms
+默认超时，199 个文件时能报 `Test Files 13–14 failed`，**隔离重跑后 12/13 全绿**。
+CI 用 `--shard=N/4` 四分片独立 runner，不会有这批假红。
+⇒ **看到红先单跑那个文件**；单跑过就是负载，不是回归。
+
+**基线同样红、属本机环境、不修**（已逐个 A/B 过：`git stash` 掉改动照样红）：
+`tests/agent-runtime/document-image-parser.test.ts`（`process.cwd()` 拼 `/` 比 `\`）、
+`tests/utils/course-thumbnail-cache.test.ts`、`chart-schema-lockstep`、
+`scene-preview-self-contained`、`material-extraction`、`owner-extraction-options`、
+`session-materials`、`voice-clone-tools`。
+
+**一条会骗人的环境开关**：仓根 `server-providers.yml`（被 `.gitignore:55` 忽略）会把部署
+切到 legacy，使 `status='disabled'` 的槽可被请求覆盖 —— `tests/server/model-config/llm.test.ts`
+因此红。`mv` 走该文件即绿。它不在版本控制里，别照它推结论。
+
+**测试是 hermetic 的**：`tests/setup-env.ts` **默认不加载 `.env.local`**，所以测试不依赖
+本机配置；要跑真端点才用 `TEST_LOAD_LOCAL_ENV=1`。
 ★ **本机三件环境噪声**（fake-IP DNS 让 SSRF 判据永拒 / Windows 无 `getuid` /
 `join()` 给反斜杠让路径判据空转）→ 结论库「本机环境」。
 
-**第二条既有的真红**：`tests/store/` 里有 3 条**一直**红（单跑也红，不是负载）——
-`settings-claude-web-search.test.ts`「falls back to the default provider when claude is
-disabled while selected」、`disable-switches-selection.test.ts`「web search: … falls back
-to tavily」、`kv-persist.test.ts`「says nothing to the user when a healthy backend simply
-had not hydrated yet」，实测报的都是 `expected 'metaso' to be 'tavily'`。
-根因是**本 fork 把默认搜索提供方换成了 metaso**（`lib/store/settings.ts` 的
-`webSearchProviderId: 'metaso'`），而上游那几条用例仍期望 tavily。
-已 A/B 实测：`git checkout -- lib/store/settings.ts` 之后**同样红**。改搜索相关的东西
-之前先知道这件事，别把它们算进自己的账。
-
-**第五条负载假红**（2026-10-07 实测）：`tests/agent-runtime/session-url-materials.test.ts`
-的**第一条**在整包并行时 **5.6s** 撞 5s 默认超时，**伪装成断言失败**
-（`expected false to be true`）—— 单跑 0.1s。根因：`materialsDir` 是**模块加载时**求值的，
-那条要 `vi.resetModules()` + 动态 `import('.../store')` 付整条依赖链的代价。
-已给该文件 describe 级 30s 超时。同类还有 `tests/agent-runtime/agent-driver-model.test.ts`
-（一次并行跑里 13 条红了 2 条、单跑 13/13 —— 同属负载，未改）。
-
-**第三条既有的真红**：`tests/quiz/runtime.test.ts` 有 4 条**挂住**（不是慢）——
-`recovers when another tab wins the same session create race without Web Locks`、
-`deduplicates concurrent identical lifecycle writes without Web Locks`、
-`rolls over when another tab completes after this tab observed active`、
-`reuses one active retry for concurrent retry requests across tabs`。
-2026-10-07 实测：`--testTimeout=20000` **仍然全红**（整轮 80.9s = 4 × 20s），
-所以它不是 §3.1 开头那种"并行 5s 抢占"的假红。已 A/B：当时 `git status --short`
-**只有本轮新增的两个 untracked 文件**、`HEAD = d7a5ca4`，且新模块**没有任何
-importer**（`grep -rn "attempt-fold" lib app components tests` 只有它自己的测试）——
-所以与本轮改动无因果。**都是"没有 Web Locks 时的并发路径"，改 quiz 写入之前先看这 4 条。**
-
-**第六条负载假红**（2026-10-09 实测）：`tests/quiz/page-text.test.ts` 的
-`interactive: 渲染后拿到的才是学生看到的东西（JS 建出来的正文）` 在整包并行时
-**5s 超时**，单跑 **919ms** 过。它跑真 jsdom，抢 CPU。当时机器上还有 4 个子代理在跑。
-**别把它算成回归** —— 单跑一遍再判。
-
-**第七批负载假红**（2026-10-09 实测，一次全量并行跑里同时出现）：`agent-driver-model.test.ts`
-（2 条）、`owner-material-binding.test.ts`（1 条）、`practice-scaffold.test.ts` 的
-`adds the UTF-8 flags to java commands by itself (the GBK trap)`（1 条）——
-**三个文件单跑 35/35 全过**，同一批并行跑再跑两次也全过。判据同 §3.1 开头：**单跑一遍再判**，
-别把它们算成回归。（那次同批还有 `plan-freeze-revise.test.ts` 的一条报
-「修订没能写盘」—— 那是它和 `plan-freeze-store.test.ts` 抢
-`OPENMAIC_PLAN_FREEZE_DIR` 那个临时目录，同属负载/顺序，不是代码。）
-
-**测试是 hermetic 的**：`tests/setup-env.ts` **默认不加载 `.env.local`**。所以你的测试
-不依赖本机配置；要跑真端点才用 `TEST_LOAD_LOCAL_ENV=1`。
-
 ### 3.2 然后重启 —— 这一步不能省
 
-> **`lib/server/agent-runtime/**` 的任何改动都不会热重载。** 必须整台 `next dev` 重启。
+**两件不同的事，别混：**
+
+| 改了什么 | 怎么生效 |
+|---|---|
+| `lib/` `app/` `components/` 里的产品代码 | 整台 `next dev` 重启（`lib/server/agent-runtime/**` **不会热重载**） |
+| `_tools/dsh-plugins/**` 里的 **DSH 插件** | ① 源改了要**重建** `node build.mjs` ② 再**同步部署副本** ③ 再**重启 DSH 应用** |
+
+```bash
+# 1) 找 3000 的 PID（taskkill / Get-CimInstance 在这台机器上会挂死，别用）
+netstat -ano | grep -E ":3000\\s" | grep LISTENING
+# 2) 杀
+powershell -NoProfile -Command "Stop-Process -Id <PID> -Force"
+# 3) 起（脚本自己会清 Turbopack 残留链接，见 §6）
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:/文档/jelly_ware/_tools/openmaic/start_all.ps1"
+# 4) 验
+curl -s http://127.0.0.1:3000/api/whoami
+```
+
+★ **修完不重启 = 白修**。`3000` 是 OpenMAIC 自己的生产构建；DSH 会话在 `61123`，
+插件两半各自的生效路径见 §12。
 
 ```bash
 # 1) 找 3000 的 PID（taskkill / Get-CimInstance 在这台机器上会挂死，别用）
@@ -286,8 +290,11 @@ powershell -NoProfile -Command "Stop-Process -Id <PID> -Force"
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:/文档/jelly_ware/_tools/openmaic/start_all.ps1"
 # 4) 验
 curl -s http://127.0.0.1:3000/api/whoami
-curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/workspace   # 要 200
 ```
+
+★ **`3000` 不是生产常驻**：本机全量起服务是 `start_all.ps1`，PG 在 `5433`。
+`curl http://127.0.0.1:3000/workspace` **不再是**「起没起来」的判据 —— 那个端口
+今天很可能根本没监听（实测 NOT listening）。**第一站永远是 `local_services`。**
 
 ### 3.3 ★ 真话在数据库里，不在日志里
 
@@ -512,7 +519,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 1. 页面身份一律是 `(stageId, sceneId)`；`lib/quiz/attempt-fold.ts` 的 `sceneKey()` 是这个键
    的唯一实现，别在别处再拼一个。
 2. 折叠器的 `sceneStateOf(fold, stageId, sceneId)` **两个参数都要** —— 让"取错课的那一页"
-   在编译期就不可能（同 `二开说明.md` §八 的 `readingPage` 必填那条思路）。
+   在编译期就不可能（同 F2 的 `readingPage` 必填那条思路）。
 3. 查 `document_scenes` 永远带 `stage_id`；`runtime_sessions` 的 `stage_id` 就是它的来源。
 4. 回归 pin：`tests/quiz/attempt-fold.test.ts`「keeps same-named pages in different courses apart」、
    `tests/quiz/learner-state.test.ts`「does not borrow another course's question text…」。
@@ -666,9 +673,10 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 10. 批量下载（工作台）
 
-**这一节按 §7 的规矩搬走了（2026-10-10，`docs-map-coverage.test.ts` 的 56000 预算判据红了）：**
-入口 / 流程 / 产物 / 命名 / 失败隔离 / 浏览器级验证的脚本要点与实测读数，
-现在都在 [`二开说明.md`](二开说明.md) 的「批量下载（工作台）」一节 —— 那是**功能说明**该待的地方。
+功能说明（入口 / 流程 / 产物 / 命名 / 失败隔离 / 浏览器级验证）在
+[`docs/intention/needs.md`](docs/intention/needs.md) 的 N8 与
+[`docs/specification/domains/F4-bulk-export.md`](docs/specification/domains/F4-bulk-export.md)；
+这里只留动手前必看的三条：
 
 动手前必看：`lib/export/batch-export.ts` 顶部的注释（设计口径）；`复盘/已结案结论.md` 里
 「不能静态 import `use-export-pptx`」那条（这条链路上最容易踩的性能坑）；入口在**课程**标签
@@ -721,3 +729,49 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
    先 `git log --oneline <记的>..HEAD` 查是谁推进的，**别当成数据损坏**。
 
 ---
+
+## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
+
+目标是**换宿主**（在 DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套），
+所以插件是产品的一部分，不是外挂脚本。
+
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包共 **12 个工具**：
+`openmaic-course`（7 个，课件读写）+ `openmaic-local-capabilities`（5 个，本地能力）。
+每个包分**宿主半**与**浏览器半**：
+
+| 半 | 文件 | 改了之后 |
+|---|---|---|
+| 宿主半 | 包内 `index.js` | **重启 DSH** |
+| 浏览器半 | 包内 `client.src.js` | `node build.mjs` → **再重启 DSH** |
+
+`client.js`（13.9 MB）是 esbuild 产物，**不要手改**。
+
+**★ 两个必踩的坑：**
+
+1. **部署副本是实体拷贝不是符号链接**，装在 `C:/Users/asus/.dsh/profiles/desktop/node_modules/`。
+   改完源**必须 cp 过去**再重启，否则跑的是旧副本 —— 栽过一次（源 653 行 vs 部署 620 行）。
+   同步后 `diff -rq lib <部署目录>` 应为空。
+2. **只改浏览器半才要重建**：`build.mjs` 只打 `client.src.js`；改宿主半不用重建，但要重启。
+
+**判据不能只看代码，要看它真渲染出来**：
+
+```bash
+node smoke-render.mjs     # jsdom + react-dom/client 真跑 effect，末行要 SMOKE: PASS ✅
+```
+
+★ 别用 `smoke-client.mjs` 判渲染：它用 `renderToString` **只渲首屏**（`courses` 还是
+`null`），走不到 slide 分支 —— 它绿过而 bug 还在。
+
+**三个已收口的缺陷（别再犯）**：
+
+1. `/page` 回的是**这一页本体**，**没有 `data` 层**。面板侧一度写 `page.data`，于是
+   slide 分支恒不成立、页面卡在「取文本…」、副行显示「类型 undefined」。
+2. 差集剥几何字段时必须**同时剥文字字段**，否则改一个字会同时进 `textChanged`
+   与 `restyled` 两个桶。
+3. 上游 `packages/@openmaic/renderer` 的 `SlideCanvas` 是**唯一**该用的渲染器，
+   不许自绘近似版（规格见 `docs/specification/domains/F10-dsh-host.md`）。
+
+**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身
+（CAS：`where stage_id=$2 and id=$3 and data=$4::jsonb`）。默认 `dryRun:true` 只算差集，
+**这是设计不是不方便**。`openmaic_active` 是**进程内状态**，DSH 重启就空 ——
+「宁可空不猜」，**空 ≠ 坏**。
