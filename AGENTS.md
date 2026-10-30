@@ -64,10 +64,9 @@
 
 ## 0.1 当前状态（2026-10-30 晚）
 
-- **HEAD 已推到 `mine/main`，CI 全绿**（末次核对 `710863be`：13/13 success）。
-  ★ 推送失败看 `curl https://api.github.com`（通）对 `curl https://github.com`（000）。
-  日志里 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），只能信 API / `git ls-remote`。
-  原命令重试，**不要**改 remote / 换协议 / 强推。
+- **HEAD 已推到 `mine/main`，CI 全绿**（13/13 success）。★ 推送失败看 `curl https://api.github.com`（通）
+  对 `curl https://github.com`（000）；日志里 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），
+  只能信 API / `git ls-remote`。原命令重试，**不要**改 remote / 换协议 / 强推。
 - **五层 `docs/` 全绿**：`check-layers.py` → `122 条引用（断链 0 处）` + `PASS ✅`（做过反向验证）。
 - **仓根三份老文档与两份一次性复盘已删**（含「新窗口交接卡」），内容拆进五层与本文件
   §0.1/§8（旧版 `git show 490259c1:<文件名>`）。结论库 140200 → 88228 字节。
@@ -649,14 +648,13 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 8. 未决项
 
-1. **必须真人做**：在 DSH 面板里点一页，让 `openmaic_active` 有值（B0 最后一条判据）。现回
-   `{"ok":true,"active":null,…}`，点过后应回 `{"active":{"stageId":"stage-…","sceneId":"…"}}`。
-   ★ **别用 curl 探面板是否加载**（静态资源在签名 cookie 认证后；`browse_page` 对回环回 `blocked`）
-   —— 只能靠眼睛看，见结论库 §1.13。
-2. **重启 DSH 后复验两件**（进程 17:22:38 起，部署副本 18:33:56 / 22:21:33 才同步 ⇒ 现跑旧码；
-   ★ 判「没修好」前先比**进程启动时间与代码 mtime**）：① **`markupChanged`**（§1.7.1）——只改标签的
-   差集现在**还不报**，重启后应出 `markupChanged:1` / `textChanged:0`；② **侧栏图标与名字**（§1.14）——
-   重启后应是 OpenMAIC 立方体 + `OpenMAIC`，不是「课件 课件」。
+1. **必须真人做**：在 DSH 面板里点一页，让 `openmaic_active` 有值。现回 `{"ok":true,"active":null,…}`，
+   点过后应回 `{"active":{"stageId":"stage-…","sceneId":"…"}}`。★ **别用 curl 探面板是否加载**（静态资源在
+   签名 cookie 认证后；`browse_page` 对回环回 `blocked`）—— 只能靠眼睛，见 §1.13。
+2. **重启 DSH 后复验两件** ★ 判「没修好」前先比**进程启动时间与代码 mtime**（实测主进程 10-30 17:22:40
+   起、部署副本 10-31 04:53 才同步 ⇒ 现仍跑旧码）：① **`markupChanged`**（§1.7.1）——只改标签的差集现在
+   **还不报**，重启后应出 `markupChanged:1` / `textChanged:0`；② **侧栏图标与名字**（§1.14）——重启后应是
+   OpenMAIC 立方体 + `OpenMAIC`，不是「课件 课件」。
 
 别的「未决」只跟主仓别的子项目有关，与本 fork 无关，别当 bug 重修：
 `zone-of-proximal-development` 措辞与题量参数未对齐（见 §4）；`program/#228`、
@@ -741,25 +739,18 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
 目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分。
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **18 个工具**（`openmaic-course` **13** +
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **20 个工具**（`openmaic-course` **15** +
 `openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
 
-- **宿主半** `index.js` ⇒ 改完**重启 DSH**。**浏览器半** `client.src.js` ⇒ `node build.mjs` → **再重启**；
-  `client.js`（13.9 MB）是产物、**不要手改**。
+- **宿主半** `index.js` ⇒ 改完**重启 DSH**；**浏览器半** `client.src.js` ⇒ `node build.mjs` → **再重启**（`client.js` 13.9 MB 是产物、**不要手改**）。
+- **★ 两坑**：① 部署副本是**实体拷贝** ⇒ 必须 cp 再重启（`diff -rq lib <部署目录>` 应为空）；② 只改浏览器半才重建。
+- **判据**：`node smoke-render.mjs` 末行 `SMOKE: PASS ✅`（别用 `smoke-client.mjs`）。
+- **已收口缺陷**：① `/page` 回页本体、**没有 `data` 层** ② 差集剥几何要同时剥文字 ③ `SlideCanvas` 是唯一渲染器。
+- **侧栏**：图标是 `register(spec, 图标函数)` 的**第二参数**（不是 label），取 `lib/brand/brand-config.ts` 的 `productName`/`markSrc` → §1.14
 
-**★ 两坑：**① 部署副本是**实体拷贝**（`profiles/desktop/node_modules/`）⇒ 改完必须 cp 再重启（`diff -rq
-lib <部署目录>` 应为空）；② 只改浏览器半才重建。
-**判据**：`node smoke-render.mjs` 末行 `SMOKE: PASS ✅`（别用 `smoke-client.mjs`，走不到 slide 分支）。
-**三个已收口的缺陷**：① `/page` 回页本体、**没有 `data` 层**；② 差集剥几何要同时剥文字；③ `SlideCanvas` 是唯一渲染器（F10 域规格）。
+**诊断/冻结/纸/材料 8 个工具**都走 `lib/diag.mts` 桥子进程（数据由 index.js 取好走 stdin，桥不碰库）。
+★ tsx 要点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx` 是 shell 脚本）、别名只能 `import * as m` 再 `m.default ?? m`。
+**都不复刻**、直调仓内同名 builder（守卫措辞逐字一致）→ §1.16/§1.17。
+**纸与材料落文件系统**：草稿纸 `data/scratchpad/<owner>.json`（复用本机唯一 owner，`sNNN` **永不复用**）；材料库 `个人数据/材料清单/*.md`（目录读 `.env.local`，**没配不回默认值**）★ 写入走沙盒且**先把真文件复制进去**，否则 `append` 报 Created 还丢原内容。
 
-**侧栏图标与名字**：图标 = `register(spec, 图标函数)` 的**第二参数**（不是 label），名字/图标取
-`lib/brand/brand-config.ts` 的 `productName`/`markSrc` 内嵌 PNG → 结论库 §1.14
-
-**诊断 5 + 冻结 1**：诊断（计划/版面/覆盖缺口/写后诊断/课程审计）与 `plan_freeze` 都走 `lib/diag.mts` 桥
-子进程（数据由 index.js 取好走 stdin，桥不碰库）★ tsx 要点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx`
-是 shell 脚本）、别名只能 `import * as m` 再 `m.default ?? m`。`plan_freeze` 五动作**不复刻**、直调仓内
-`buildPlanFreezeTool`（守卫措辞逐字一致）；两侧写入分工/顺序/失败语义 → 结论库 §1.16。
-
-**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身（CAS:
-`where stage_id=$2 and id=$3 and data=$4::jsonb`）；默认 `dryRun:true` 只算差集 = **设计不是不方便**。
-`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
+**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；默认 `dryRun:true` 只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。

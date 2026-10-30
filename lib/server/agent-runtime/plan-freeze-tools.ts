@@ -152,7 +152,7 @@ const PLAN_FREEZE_PARAMS = Type.Object({
  *   · 难度另外落进 `quizConfig.difficulty` —— **仅当这一页是 `quiz`**
  *     （那张类型是给 quiz 用的；给 interactive 页硬塞 `quizConfig` 是编数据）。
  */
-function outlineEntryFromPlanEntry(entry: {
+export function outlineEntryFromPlanEntry(entry: {
   order: number;
   title: string;
   brief?: string;
