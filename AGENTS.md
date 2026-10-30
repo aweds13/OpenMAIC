@@ -209,7 +209,7 @@
 | `components/slide-renderer/components/element/CodeElement/BaseCodeElement.tsx` | 幻灯片上 `code` 元素**长什么样**（顶栏 / 行号 / 圆角 / 投影 / 内边距全在这里） | ★ 2026-10-09 用户否掉了原版（原话「**感觉这个代码块丑丑的**」），量出来不只是丑：仿 macOS 顶栏 **32px** 占盒子高度 **26%**、行号槽 **49px** 占宽度 **20%** ⇒ **纵向溢出 35px / 横向溢出 47px**。现在：**顶栏整条删掉**、**行号默认 `false`**、6px 圆角 + 1px 细边框 + **无投影**。判据 `tests/components/slide-renderer/code-element-chrome.test.ts`（5 条 + 三道变异） |
 | `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 没有渲染预览** —— `render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就**不注册这个工具**（§1.1），所以它看不到画面；而这几件事**不需要画面也能算**（元素本来就带坐标）。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 「底板 + 文字」**不算重叠**（包含不算，涉及文字的部分相交才算）。<br>★★ 量余量用**最大全空矩形**，不是空白面积占比。<br>★★★ 参数必须与渲染器同源（见 `lib/slide/text-metrics.ts`）。<br>★★★ `layoutDelta` 给改前/改后差集 ⇒ **"是不是我改坏的"不用人眼**。 |
 | `lib/slide/text-metrics.ts` | **文本框行高/内边距的唯一来源**：渲染器**写进 DOM**，`lib/quiz/layout-check.ts` 直接 import | ★ 原先是两处会各漂的字面量（class `leading-[1.5]` vs 检查器 `1.6`）⇒ 24 个盒子里 **19 条假阳性**；**库里 1084 个 text 元素只有 5 个带 `lineHeight`**（改这里=改所有页面的行高）。判据 `tests/components/slide-renderer/text-line-height-pin.test.ts`（6 条 + 三道变异） |
-| `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页的正文只在 `<script>` 里**（第 17/28/36/38/42/44/52/57 页）；实测第 28 页 48,080 字符 html → **34,952 字**正文。★ 与 `extractTaughtText` **方向相反**（那个故意少收、偏误报），只能共用 `stripMarkup`，别合并。★★ **三个已知缺口（2026-10-09 逐条核出来的，全都会变成审查的假阳性）**：① 收的是 jsdom 的 `body.textContent` ⇒ **内联 `<script>`/widget-config 的文字也进来**（第 34 页的 `type`/`code`/`language`/`description` 因此被判成"真缺口"）；② **配置写在 `<head>` 的那 1 页反而收不到提示**（20 个 interactive 页：head 配置 **1** / body 配置 **17** / 无配置 2 —— 第 32 页的提示因此被判成"全页没说"）；③ **压平了 `left`/`top`** ⇒ 审查会把**两栏**读成"挤在一行"（实测 6 条版面误报全出在这里） |
+| `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页正文只在 `<script>` 里**；第 28 页 48,080 字符 html → **34,952 字**。★ 与 `extractTaughtText` 方向相反（那个故意少收），只共用 `stripMarkup`、别合并。★★ **三个已知缺口**（判据全文 → §1.22） |
 | `lib/server/agent-runtime/page-review.ts` | **写入后带上下文再审一页**（`sceneWriteDiagnosticsWithReview()` 用的那半，6 条判据） | ★ **还没在真会话里跑过**（见 §8）；三条纪律有判据：结论进回话 / 抛错被吞掉写入照常 / 没传就一个字不加 |
 | `lib/server/agent-runtime/review-tools.ts` | **`review_course`**：对抗性内容审查 —— **一次隔离的模型调用**（system 里只有页面文本 + 规矩），**没有会话历史 / 画像 / 工具**；结论必须带页码引用，否则 `isError`。★ 候选机制 + **`outOfScopeGapClaims()`**：报告把**本段之前就出现过**的词说成"没解释" ⇒ **指名作废**（见 §6.10 第 4 条） | 用户原话「审查 agent 要**完全没有任何基础**，不能想『噢原来是这个』」。判据 `tests/agent-runtime/review-tools.test.ts`（20 条 + 十道变异） |
 | `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
@@ -715,7 +715,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
 目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分。
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **28 个工具**（`openmaic-course` **23** +
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **30 个工具**（`openmaic-course` **25** +
 `openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
 
 - 宿主半 `index.js` ⇒ 改完**重启 DSH**；浏览器半 `client.src.js` ⇒ `node build.mjs` → 再重启（`client.js` 13.9 MB 是产物）
@@ -733,4 +733,5 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 - ★ **`generation_complete` 两处独立**：`stage_meta` 全 false、计划信封全 true ⇒ 桥按**信封**判（同 `curriculum-tools.ts`）
 - ★ quiz 记录必须按 `data->'payload' ? 'phase'` 过滤（只判 payload 非空会混进 pbl 事件）
 **审查两件**（`review_course` / `page_review`）**唯一真调模型**：模型只在宿主 ⇒ 桥走**行协议 RPC**（`spawn` 保持 stdin、桥写一行 `{"__rpc":"llm",…}`、宿主调 `ctx.llm.stream` 回一行），判据不重抄 → §1.21。★ `inject` 加 `llm`+`agentDefaultModel`，**不复用** OpenMAIC 授权链；桥写完须 `stdin.destroy()` + `write` 回调里 `process.exit(0)`（否则宿主 `close` 不触发）；`page_review` 的 `null`/抛错都只是「没验成」⇒ `notVerified`，**绝不让写入失败**
+**导出两件**（`export_course` / `export_batch`）走**同一条**桥命令（单课 = 只传一门课的批量，判据一份）：打包在桥进程做（教室 ZIP 要注入真 `store` + 内存 KV，interactive 内联要 jsdom），宿主只决定落哪。★ 桥的 `paths` 必须**扫 `exports` 表把 33 条 `@openmaic/*` 子路径全映射**（只映射两条会逐个炸）→ §1.22
 **写入面**：`document_scenes` **没有版本列** ⇒ 并发保护靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；`dryRun:true` 默认只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
