@@ -100,11 +100,11 @@
 
 - **输入**：`openmaic_patch_stage` 一次调用，**不传** `dryRun`。
 
-- **期望**：默认只算差集、**一个字节都不写库**。返回里带 `dryRun: true` 与人话提示「没写库。看差集没问题后传 `dryRun:false` 再跑一次。」；差集形状固定为 `counts: { before, after, added, removed, moved, resized, textChanged, restyled }` 外加同样七组明细（`restyled` 明细最多 12 条）。只有显式传 `dryRun: false` 才走写库子进程，返回里 `dryRun: false` 且带 `write` 的读数。
+- **期望**：默认只算差集、**一个字节都不写库**。返回里带 `dryRun: true` 与人话提示「没写库。看差集没问题后传 `dryRun:false` 再跑一次。」；差集形状固定为 `counts: { before, after, added, removed, moved, resized, textChanged, markupChanged, restyled }` 外加同样八组明细（`restyled` 明细最多 12 条）。其中 `markupChanged` 专收「可见文字逐字相同、只有标签或空白变了」的改动 —— 它和 `restyled` 一样**必须与 `textChanged` 互斥**，否则一次改动会被记进两个桶。只有显式传 `dryRun: false` 才走写库子进程，返回里 `dryRun: false` 且带 `write` 的读数。
 
-- **失败长什么样**：不传就当写；或者 `dryRun` 传了 `false` 之外的真值（`0` / `"false"` / `null`）被当成「真要写」；或者 dryRun 也把 `write` 字段填上，调用方分不清到底写没写。已经踩过的坑：`restyled` 判定如果不先剥掉 `content`，改一个字会同时记成 `textChanged` 与 `restyled`，差集读数虚高。
+- **失败长什么样**：不传就当写；或者 `dryRun` 传了 `false` 之外的真值（`0` / `"false"` / `null`）被当成「真要写」；或者 dryRun 也把 `write` 字段填上，调用方分不清到底写没写。已经踩过的坑（两个，都是实测出来的）：① `restyled` 判定如果不先剥掉 `content`，改一个字会同时记成 `textChanged` 与 `restyled`，差集读数虚高；② 但如果只剥 `content` 而不单独收 markup-only 改动，反过来会漏 —— 把 `<strong>` 的边界挪一下（可见文字逐字相同）时写库成功、`changes` 报「文字改」而七个桶全 0，调用方看到「说要改，又说没改」，**而库里字节确实变了**（`4007 → 4008`）。所以必须有 `markupChanged` 这个桶，且七个变更桶全 0 时要在 `note` 里明说「差集看不见这次改动，但库里字节会变」。
 
-- **判据落点**：**暂无自动化判据** —— 同上，`tests/` 里没有插件侧的任何断言。人工核对方式：跑一次不传 `dryRun` 的 `openmaic_patch_stage`，确认返回 `dryRun: true` 且没有 `write` 字段；同时用 `select data from document_scenes where stage_id=… and id=…` 前后各取一次，两份必须逐字节相同。实测的空差集读数是 `counts {before:10, after:10, added:0, removed:0, moved:0, resized:0, textChanged:0, restyled:0}`（同值写回时也是这个形状）。
+- **判据落点**：**暂无自动化判据** —— 同上，`tests/` 里没有插件侧的任何断言。人工核对方式：跑一次不传 `dryRun` 的 `openmaic_patch_stage`，确认返回 `dryRun: true` 且没有 `write` 字段；同时用 `select data from document_scenes where stage_id=… and id=…` 前后各取一次，两份必须逐字节相同。实测的空差集读数是 `counts {before:10, after:10, added:0, removed:0, moved:0, resized:0, textChanged:0, markupChanged:0, restyled:0}`（同值写回时也是这个形状，且**不带** `note`）；markup-only 改动时形状相同但 `markupChanged:1` 且带那条 `note`。
 
 - **两边各自要满足**：
   - 插件侧（`lib/index.js` 的 `patchStage`）：判断必须是 `dryRun !== false`（严格不等），这样 `undefined` / `null` / `0` / `"false"` 全都算 dry run；写库分支只能有一条路径（写临时 `patch.json` → `db-write.mjs write` → 删临时文件）。
