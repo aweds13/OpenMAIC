@@ -27,10 +27,9 @@
 **新窗口不需要开场白**：本文件会被自动注入，读完 §0（现状）与 §8（未决项）就知道该干什么。
 原「新窗口交接卡」已于 2026-10-30 拆掉 —— 状态进了 §0 与 §8，一次性历史进 git。
 
-原 `二开说明.md` / `怎么用.md` / `架构图.md` 已并入五层（产品说明 → 意图 + 品味；
-使用手册 → 实现层「自检」的 §5「怎么说」；结构图 → 实现层「架构图」）。
-原 `复盘/上游合并清单.md` 与 `复盘/多窗口并行-worktree.md` 里**日后还要照着敲**的部分
-已并入 [`docs/implementation/运维.md`](docs/implementation/运维.md)，其余随文件删除（历史在 git 里）。
+原 `二开说明.md` / `怎么用.md` / `架构图.md` 已并入五层；`复盘/上游合并清单.md` 与
+`复盘/多窗口并行-worktree.md` 里**日后还要照着敲**的部分并入
+[`docs/implementation/运维.md`](docs/implementation/运维.md)，其余随文件删除（历史在 git 里）。
 
 ★ **别把功能说明写进本文件**：这里只写"怎么不出错"。功能"做了什么、为什么"在 `docs/intention/`。
 两处都写必然漂。
@@ -704,25 +703,19 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 11. ★ 多窗口并发：两个对话窗口共用一个工作区
 
-2026-10-06 真事故：两个窗口都改 `AGENTS.md`，一次 `git add` 把对方那段一起提交了 ——
-文档从此**描述了一个代码还没进 git 的功能**。
+2026-10-06 真事故：两窗口都改本文件，一次 `git add` 把对方那段一起提交了 —— 文档从此**描述了一个代码还没进 git 的功能**。
 
-1. **并行干不相干的活用 `git worktree add ../OpenMAIC-<主题> -b <分支>`** —— 唯一根治。新建的
-   worktree **默认开不起来**（还差四步，`node_modules` 用 PowerShell `New-Item -ItemType Junction`，
-   `cmd //c mklink /J` 会静默失败）→ [`docs/implementation/运维.md`](docs/implementation/运维.md) §四
-2. **只用显式路径 `git add <文件>`**，**绝不用 `-A` / `.` / `commit -a`**（别的窗口的半成品会卷进来，
-   而**提交信息会撒谎**）。单个文件也**不**安全 —— 两边都在改时。
-3. **开工先看有没有别人在动**：`git status --short` 有没有不是自己建的文件、mtime 比上次操作新；
-   `git rev-parse --short HEAD` **现算**（§0.1 记的是快照，不符先 `git log --oneline <记的>..HEAD`
-   查是谁推进的，**别当数据损坏**）。
-4. **`AGENTS.md` 只加不改旧段**（§0.1 与 §8 例外，那两处就是要就地更新）。
+1. **并行干不相干的活用 `git worktree add ../OpenMAIC-<主题> -b <分支>`** —— 唯一根治，新建 worktree **默认开不起来**（`node_modules` 走 PowerShell `New-Item -ItemType Junction`）→ [`docs/implementation/运维.md`](docs/implementation/运维.md) §四
+2. **只用 `git add <文件>`**，**绝不用 `-A` / `.` / `commit -a`** —— 别人的半成品卷进来，**提交信息会撒谎**。单个文件也**不**安全。
+3. **开工先现算**：`git status --short` 有没有不是自己建的文件、`git rev-parse --short HEAD`（§0.1 是快照，不符先 `git log --oneline`，**别当数据损坏**）。
+4. **本文件只加不改旧段**（§0.1 与 §8 例外）。
 
 ---
 
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
 目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分。
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **26 个工具**（`openmaic-course` **21** +
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **28 个工具**（`openmaic-course` **23** +
 `openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
 
 - 宿主半 `index.js` ⇒ 改完**重启 DSH**；浏览器半 `client.src.js` ⇒ `node build.mjs` → 再重启（`client.js` 13.9 MB 是产物）
@@ -731,12 +724,13 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 - 已收口缺陷：① `/page` 回页本体、**没有 `data` 层** ② 差集剥几何要同时剥文字 ③ `SlideCanvas` 是唯一渲染器
 - 侧栏图标是 `register(spec, 图标函数)` 的**第二参数**，取 `lib/brand/brand-config.ts` 的 `productName`/`markSrc` → §1.14
 
-**诊断/冻结/纸/材料/练习 10 个工具**都走 `lib/diag.mts` 桥（index.js 取数据走 stdin，桥不碰库）：tsx 点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx` 是 shell 脚本）、别名须 `import * as m` 再 `m.default ?? m`；**都不复刻**、直调仓内同名 builder → §1.16/§1.17。
-- 纸与材料落文件系统：草稿纸 `data/scratchpad/<owner>.json`（本机唯一 owner，`sNNN` **永不复用**）；材料库 `个人数据/材料清单/*.md`（目录读 `.env.local`，**没配不回默认值**）★ 写走沙盒且**先把真文件复制进去**（否则丢原内容）
+**诊断/冻结/纸/材料/练习 10 个工具**都走 `lib/diag.mts` 桥（index.js 取数据走 stdin，桥不碰库）：tsx 点名 `node_modules/tsx/dist/cli.mjs`、别名须 `import * as m` 再 `m.default ?? m`；**都不复刻**、直调仓内 builder → §1.16/§1.17。
+- 纸与材料落文件系统：草稿纸 `data/scratchpad/<owner>.json`（`sNNN` **永不复用**）；材料库 `个人数据/材料清单/*.md`（目录读 `.env.local`，**没配不回默认值**）★ 写走沙盒且**先把真文件复制进去**（否则丢原内容）
 - 练习落 `课程与学习/练习/<stage>/`（桥纯算、宿主判越界与不覆盖）★ 沙盒 env 必须设**在 import 之前**（常量加载期求值）→ §1.18
 **编排四件**（`stage_admin` 六动作 / `whoami` / `read_document` / `quiz_fold`）：stage_admin 的 list·outline 走桥（
 `mergeStageOutline` 判据只一份）、四条写走 `db-write.mjs`（**index.js 里不拼 SQL**）→ §1.20
 - ★ **归属只在 `stage_meta`**（`document_stages.owner_id` 恒 null）；库里 9 行、本机 owner 看得见 **7 门**
 - ★ **`generation_complete` 两处独立**：`stage_meta` 全 false、计划信封全 true ⇒ 桥按**信封**判（同 `curriculum-tools.ts`）
 - ★ quiz 记录必须按 `data->'payload' ? 'phase'` 过滤（只判 payload 非空会混进 pbl 事件）
-**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；默认 `dryRun:true` 只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
+**审查两件**（`review_course` / `page_review`）**唯一真调模型**：模型只在宿主 ⇒ 桥走**行协议 RPC**（`spawn` 保持 stdin、桥写一行 `{"__rpc":"llm",…}`、宿主调 `ctx.llm.stream` 回一行），判据不重抄 → §1.21。★ `inject` 加 `llm`+`agentDefaultModel`，**不复用** OpenMAIC 授权链；桥写完须 `stdin.destroy()` + `write` 回调里 `process.exit(0)`（否则宿主 `close` 不触发）；`page_review` 的 `null`/抛错都只是「没验成」⇒ `notVerified`，**绝不让写入失败**
+**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；`dryRun:true` 默认只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
