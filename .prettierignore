@@ -18,7 +18,7 @@ packages/docs/
 .next/
 out/
 
-# 本地取证日志与夹具（已 gitignore，不进格式化判据）
+# 本地取证日志与夹具（.gitignore 已忽略，不进格式化判据）
 .tmp/
 .worktrees/
 
