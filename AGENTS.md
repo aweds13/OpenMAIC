@@ -649,15 +649,14 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 8. 未决项
 
-1. **必须真人做**：在 DSH 面板里点一页，让 `openmaic_active` 有值（B0 的最后一条判据）。
-   现算 `GET …/dsh-openmaic/active` 回 `{"ok":true,"active":null,…}`；点过之后应回
-   `{"ok":true,"active":{"stageId":"stage-…","sceneId":"…",…}}`。
-   ★ **别用 curl 探面板是否加载**：静态资源面全在签名 cookie 认证后（连确定能跑的
-   `dsh-client-ui-workbench-panel` 也 404），`browse_page` 对回环地址回 `blocked`。只能靠眼睛看。
-2. **重启 DSH 后复验 `markupChanged`**（结论库 §1.7.1）：进程 17:22:38 启动、部署副本
-   18:33:56 才同步 ⇒ 现跑的仍是旧宿主半，只改标签的差集**还不报** `markupChanged`。
-   同一调用重启后应出 `markupChanged:1` / `textChanged:0`。
-   ★ 判「没修好」前先比**进程启动时间与代码 mtime**。
+1. **必须真人做**：在 DSH 面板里点一页，让 `openmaic_active` 有值（B0 最后一条判据）。现回
+   `{"ok":true,"active":null,…}`，点过后应回 `{"active":{"stageId":"stage-…","sceneId":"…"}}`。
+   ★ **别用 curl 探面板是否加载**（静态资源在签名 cookie 认证后；`browse_page` 对回环回 `blocked`）
+   —— 只能靠眼睛看，见结论库 §1.13。
+2. **重启 DSH 后复验两件**（进程 17:22:38 起，部署副本 18:33:56 / 22:21:33 才同步 ⇒ 现跑旧码；
+   ★ 判「没修好」前先比**进程启动时间与代码 mtime**）：① **`markupChanged`**（§1.7.1）——只改标签的
+   差集现在**还不报**，重启后应出 `markupChanged:1` / `textChanged:0`；② **侧栏图标与名字**（§1.14）——
+   重启后应是 OpenMAIC 立方体 + `OpenMAIC`，不是「课件 课件」。
 
 别的「未决」只跟主仓别的子项目有关，与本 fork 无关，别当 bug 重修：
 `zone-of-proximal-development` 措辞与题量参数未对齐（见 §4）；`program/#228`、
