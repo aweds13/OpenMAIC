@@ -199,15 +199,15 @@
 | `lib/practice/scaffold.ts` | 脚手架**内容**生成（`check.mjs` runner / README / `.vscode`） | 编码坑（GBK）在 runner 里**修一次** |
 | `lib/practice/results.ts` | 读练习目录下的 `result.json` → 渲染进 `学习状态.md` | T9 走**读取侧**，不开新写入路径 |
 | `lib/scratch/scratchpad.ts` | 草稿纸**纯逻辑**：编号 `s001`（永不复用）/ 两层 / 索引 / 「只有 1 个来源」 | 与材料库的边界在 `promote` |
-| `lib/server/agent-runtime/plan-freeze.ts` | 阶段冻结的**判据**（`planGate` 三条）+ 总开关 `planGateEnabled()` + ★★ **`planSpecGaps()`：「这份计划是不是规格」**（作者写的条目必须有 `keyPoints` + `【Unit …】` 抬头，练习条目必须有 `difficulty`；**`backfill` 派生的不算账**） | 开关默认关；本部署 `OPENMAIC_PLAN_GATE=1`。<br>★★ 2026-10-09 加的闸与诊断 —— **在它之前冻结只验「条目数不为 0」**，所以实测那一门（66 条里 24 条占位、`keyPoints` 有内容的 **0** 条）**照样冻结成功**。闸拒新计划、`status` 报老课程（这样用户只说「帮我修这门课」，agent 自己就会看见「这份计划不是规格」）。判据 `tests/agent-runtime/plan-freeze.test.ts` 末组（7 条 + 三道变异） |
+| `lib/server/agent-runtime/plan-freeze.ts` | 阶段冻结的**判据**（`planGate` 三条）+ 总开关 `planGateEnabled()` + ★★ **`planSpecGaps()`：「这份计划是不是规格」**（作者写的条目必须有 `keyPoints` + `【Unit …】` 抬头，练习条目必须有 `difficulty`；**`backfill` 派生的不算账**） | 开关默认关；本部署 `OPENMAIC_PLAN_GATE=1`。<br>★★ 这闸之前只验「条目数不为 0」⇒ 实测那门 66 条里 24 条占位、`keyPoints` 有内容的 **0** 条**照样冻结成功**。闸拒新计划、`status` 报老课程（用户说「帮我修这门课」，agent 自己就看见「这份计划不是规格」）。判据 `tests/agent-runtime/plan-freeze.test.ts` 末组 |
 | `lib/server/agent-runtime/plan-freeze-store.ts` | 冻结状态的**独立小文件**读写（`data/plan-freeze/`） | 不放 `document_outlines`（怕静默失效） |
 | `lib/server/agent-runtime/plan-freeze-tools.ts` | **`plan_freeze`**（status / add / backfill / freeze / revise）+ 提示词块。★ `revise` 带 **`shift`**（拆页 ⇒ 页号顺延）/ **`removeOrders`** / `entries` —— **它真的改计划**（原来只记一次理由） | `backfill` **只补缺、绝不覆盖** |
 | `lib/quiz/course-audit.ts` | 课程级**审计判据**（承接率 + 超载线 `NOVEL_P90=60`），纯函数。★ **超载线只对 `slide` 有效**（`pbl` p50=95、`interactive` p50=11 是别的量纲；项目页进 `scaffoldPages`，**不叫超载**） | 超载线是 146 个真实讲解页的 p90 标定的 |
 | `lib/quiz/plan-check.ts` | **计划期**依赖校验：超前引用 / 无归属 / 预算（三条只输出「补」和「挪」） | `conceptsPerPage` 默认关；见 结论库 |
 | `components/generation/self-study-button.tsx` | 首页那条链上的「自学」开关（经典路径，与工作台的 `study-mode.ts` 不同一条路） | 在工作台路径上搜不到 `selfStudy` |
-| `lib/quiz/code-block.ts` | **「这段文字该不该是 `code` 元素」两批规则**（`codeBlockVerdict`）+ **转换器**（`codeElementFromText`，几何不变、行首缩进保留） | 2026-10-09 复量：判据原来要求 `;` 是**最后一个字符** ⇒ **带行尾注释的真代码块整批落进第二批**（28 个候选里 **6** 个）。复现 `OPENMAIC_CODE_BLOCK_LIVE_TSV=<dump> TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/code-block-live.test.ts`。<br>★★ **转换时"几何不变"是个陷阱（实测栽过）**：`code` 元素的开销与 `text` 不同 —— 内边距 **24px**（`py-3 px-3`）、每行 **1.6 × fontSize**（14px ⇒ 22.4px）、边框 2px、等宽字符宽 **≈ 0.64em**（14px ⇒ ≈ 8.96px/字符）。照搬 `text` 的盒子 ⇒ 第 5 行的 `}` 看不见、最长一行右边被切。**盒子要按内容算，别照抄** |
+| `lib/quiz/code-block.ts` | **「这段文字该不该是 `code` 元素」两批规则**（`codeBlockVerdict`）+ **转换器**（`codeElementFromText`，几何不变、行首缩进保留） | 2026-10-09 复量：原判据要求 `;` 是**最后一个字符** ⇒ **带行尾注释的真代码块整批落进第二批**（28 个候选里 **6** 个）。复现 `OPENMAIC_CODE_BLOCK_LIVE_TSV=<dump> TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/code-block-live.test.ts`。<br>★★ **"几何不变"是陷阱（实测栽过）**：`code` 的开销与 `text` 不同 —— 内边距 **24px**、每行 **1.6 × fontSize**、边框 2px、等宽字符宽 **≈ 0.64em**。照搬 `text` 的盒子 ⇒ 第 5 行的 `}` 看不见、最长一行右边被切。**盒子按内容算，别照抄** |
 | `components/slide-renderer/components/element/CodeElement/BaseCodeElement.tsx` | 幻灯片上 `code` 元素**长什么样**（顶栏 / 行号 / 圆角 / 投影 / 内边距全在这里） | ★ 2026-10-09 用户否掉了原版（原话「**感觉这个代码块丑丑的**」），量出来不只是丑：仿 macOS 顶栏 **32px** 占盒子高度 **26%**、行号槽 **49px** 占宽度 **20%** ⇒ **纵向溢出 35px / 横向溢出 47px**。现在：**顶栏整条删掉**、**行号默认 `false`**、6px 圆角 + 1px 细边框 + **无投影**。判据 `tests/components/slide-renderer/code-element-chrome.test.ts`（5 条 + 三道变异） |
-| `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 没有渲染预览** —— `render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就**不注册这个工具**（§1.1），所以它看不到画面；而这几件事**不需要画面也能算**（元素本来就带坐标）。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 「底板 + 文字」**不算重叠**（包含不算，涉及文字的部分相交才算）。<br>★★ 量余量用**最大全空矩形**，不是空白面积占比。<br>★★★ 参数必须与渲染器同源（见 `lib/slide/text-metrics.ts`）。<br>★★★ `layoutDelta` 给改前/改后差集 ⇒ **"是不是我改坏的"不用人眼**。 |
+| `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 没有渲染预览** —— `render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就**不注册这个工具**（§1.1），所以它看不到画面；而这几件事**不需要画面也能算**（元素本来就带坐标）。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 「底板 + 文字」**不算重叠**（包含不算，涉及文字的部分相交才算）。<br>★★ 量余量用**最大全空矩形**，不是空白面积占比。<br>★★★ 参数必须与渲染器同源（`lib/slide/text-metrics.ts`）；`layoutDelta` 给改前/改后差集 ⇒ **"是不是我改坏的"不用人眼**。 |
 | `lib/slide/text-metrics.ts` | **文本框行高/内边距的唯一来源**：渲染器**写进 DOM**，`lib/quiz/layout-check.ts` 直接 import | ★ 原先是两处会各漂的字面量（class `leading-[1.5]` vs 检查器 `1.6`）⇒ 24 个盒子里 **19 条假阳性**；**库里 1084 个 text 元素只有 5 个带 `lineHeight`**（改这里=改所有页面的行高）。判据 `tests/components/slide-renderer/text-line-height-pin.test.ts`（6 条 + 三道变异） |
 | `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页正文只在 `<script>` 里**；第 28 页 48,080 字符 html → **34,952 字**。★ 与 `extractTaughtText` 方向相反（那个故意少收），只共用 `stripMarkup`、别合并。★★ **三个已知缺口**（判据全文 → §1.22） |
 | `lib/server/agent-runtime/page-review.ts` | **写入后带上下文再审一页**（`sceneWriteDiagnosticsWithReview()` 用的那半，6 条判据） | ★ **还没在真会话里跑过**（见 §8）；三条纪律有判据：结论进回话 / 抛错被吞掉写入照常 / 没传就一个字不加 |
@@ -714,17 +714,17 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
-目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分。
+目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件即产品。
 插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **30 个工具**（`openmaic-course` **25** +
-`openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
+`openmaic-local-capabilities` 5），每包分**宿主半**/**浏览器半**：
 
 - 宿主半 `index.js` ⇒ 改完**重启 DSH**；浏览器半 `client.src.js` ⇒ `node build.mjs` → 再重启（`client.js` 13.9 MB 是产物）
 - **★ 两坑**：① 部署副本是**实体拷贝** ⇒ cp 再重启（`diff -rq lib <部署目录>` 空）；② 只改浏览器半才重建
-- 判据 `node smoke-render.mjs` 末行 `SMOKE: PASS ✅`（别用 `smoke-client.mjs`）
+- 判据：四条冒烟末行 `… PASS ✅`（render/quiz/wheel/thumb；**别用** smoke-client.mjs）
 - 已收口缺陷：① `/page` 回页本体、**没有 `data` 层** ② 差集剥几何要同时剥文字 ③ `SlideCanvas` 是唯一渲染器
 - 侧栏图标是 `register(spec, 图标函数)` 的**第二参数**，取 `lib/brand/brand-config.ts` 的 `productName`/`markSrc` → §1.14
 
-**诊断/冻结/纸/材料/练习 10 个工具**都走 `lib/diag.mts` 桥（index.js 取数据走 stdin，桥不碰库）：tsx 点名 `node_modules/tsx/dist/cli.mjs`、别名须 `import * as m` 再 `m.default ?? m`；**都不复刻**、直调仓内 builder → §1.16/§1.17。
+**诊断/冻结/纸/材料/练习 10 个工具**都走 `lib/diag.mts` 桥（index.js 取数走 stdin，桥不碰库）：tsx 点名 `node_modules/tsx/dist/cli.mjs`、别名须 `import * as m` 再 `m.default ?? m`；**都不复刻**、直调仓内 builder → §1.16/§1.17
 - 纸与材料落文件系统：草稿纸 `data/scratchpad/<owner>.json`（`sNNN` **永不复用**）；材料库 `个人数据/材料清单/*.md`（目录读 `.env.local`，**没配不回默认值**）★ 写走沙盒且**先把真文件复制进去**（否则丢原内容）
 - 练习落 `课程与学习/练习/<stage>/`（桥纯算、宿主判越界与不覆盖）★ 沙盒 env 必须设**在 import 之前**（常量加载期求值）→ §1.18
 **编排四件**（`stage_admin` 六动作 / `whoami` / `read_document` / `quiz_fold`）：stage_admin 的 list·outline 走桥（
@@ -734,4 +734,5 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 - ★ quiz 记录必须按 `data->'payload' ? 'phase'` 过滤（只判 payload 非空会混进 pbl 事件）
 **审查两件**（`review_course` / `page_review`）**唯一真调模型**：模型只在宿主 ⇒ 桥走**行协议 RPC**（`spawn` 保持 stdin、桥写一行 `{"__rpc":"llm",…}`、宿主调 `ctx.llm.stream` 回一行），判据不重抄 → §1.21。★ `inject` 加 `llm`+`agentDefaultModel`，**不复用** OpenMAIC 授权链；桥写完须 `stdin.destroy()` + `write` 回调里 `process.exit(0)`（否则宿主 `close` 不触发）；`page_review` 的 `null`/抛错都只是「没验成」⇒ `notVerified`，**绝不让写入失败**
 **导出两件**（`export_course` / `export_batch`）走**同一条**桥命令（单课 = 只传一门课的批量，判据一份）：打包在桥进程做（教室 ZIP 要注入真 `store` + 内存 KV，interactive 内联要 jsdom），宿主只决定落哪。★ 桥的 `paths` 必须**扫 `exports` 表把 33 条 `@openmaic/*` 子路径全映射**（只映射两条会逐个炸）→ §1.22
+**面板三件**（quiz 判分 / 滚轮 / 缩略图）判据全从仓里引（esbuild `alias` 打进 bundle）：`gradeChoiceQuestions` / `canTurnPageOnWheel`+`resolveWheelTurn`+`innerScrollConsumesWheel`★ **只本地判分、不写库**（记录由浏览器端 `lib/quiz/runtime.ts` 写，再写一份两边就分叉）；缩略图走新缝 `/thumbs`（只带 slide canvas，90 页 363 KB vs `scenes-full` 1.6 MB），取不到静默留空 → §1.23
 **写入面**：`document_scenes` **没有版本列** ⇒ 并发保护靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；`dryRun:true` 默认只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
