@@ -740,25 +740,27 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
-目标是**换宿主**（在 DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分，
-不是外挂脚本。插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **12 个工具**（`openmaic-course` 7 +
+目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分。
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **17 个工具**（`openmaic-course` **12** +
 `openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
 
-- **宿主半** = 包内 `index.js` ⇒ 改完**重启 DSH**。
-- **浏览器半** = 包内 `client.src.js` ⇒ `node build.mjs` → **再重启 DSH**；`client.js`（13.9 MB）是产物，**不要手改**。
+- **宿主半** `index.js` ⇒ 改完**重启 DSH**。**浏览器半** `client.src.js` ⇒ `node build.mjs` → **再重启**；
+  `client.js`（13.9 MB）是产物，**不要手改**。
 
-**★ 两个必踩的坑：**① **部署副本是实体拷贝不是符号链接**（`profiles/desktop/node_modules/`）—— 改完源**必须 cp 过去**
-再重启，否则跑旧副本（`diff -rq lib <部署目录>` 应为空）；② **只改浏览器半才要重建**（`build.mjs` 只打 `client.src.js`）。
+**★ 两个必踩的坑：**① 部署副本是**实体拷贝**（`profiles/desktop/node_modules/`）⇒ 改完源必须 cp 再重启
+（`diff -rq lib <部署目录>` 应为空）；② 只改浏览器半才重建。
 
-**判据不能只看代码**：`node smoke-render.mjs`（jsdom + react-dom/client 真跑 effect）末行要 `SMOKE: PASS ✅`；★ 别用 `smoke-client.mjs`（`renderToString` 只渲首屏，走不到 slide 分支；绿过而 bug 还在）。
+**判据不能只看代码**：`node smoke-render.mjs` 末行要 `SMOKE: PASS ✅`；★ 别用 `smoke-client.mjs`（`renderToString` 走不到 slide 分支）。
 
-**三个已收口的缺陷**：① `/page` 回的是这一页本体，**没有 `data` 层**（面板曾写 `page.data`
-⇒ slide 分支恒不成立）；② 差集剥几何要**同时剥文字字段**，否则改一个字同时进 `textChanged` 与 `restyled`；
-③ `SlideCanvas` 是**唯一**该用的渲染器（规格 `docs/specification/domains/F10-dsh-host.md`）。
+**三个已收口的缺陷**：① `/page` 回的是页本体，**没有 `data` 层**（面板曾写 `page.data`）；② 差集剥几何要**同时剥文字字段**；③ `SlideCanvas` 是**唯一**该用的渲染器（`docs/specification/domains/F10-dsh-host.md`）。
 
-**侧栏图标与名字**：图标 = `register(spec, 图标渲染函数)` 的**第二个参数**（不是 label），名字用
-`lib/brand/brand-config.ts` 的 `productName`、图标用 `markSrc` 内嵌 PNG → 结论库 §1.14
+**侧栏图标与名字**：图标 = `register(spec, 图标函数)` 的**第二个参数**（不是 label），名字/图标取
+`lib/brand/brand-config.ts` 的 `productName` / `markSrc` 内嵌 PNG → 结论库 §1.14
 
-**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身
-（CAS：`where stage_id=$2 and id=$3 and data=$4::jsonb`）。默认 `dryRun:true` 只算差集，
-**这是设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
+**诊断面（5 个，只读纯算术）**：计划/版面/覆盖缺口/写后诊断/课程审计，经 `lib/diag.mts` 桥子进程算
+（数据由 index.js 取好走 stdin，桥不碰库）。★ 起 tsx 要点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx`
+是 shell 脚本）；★ 别名 import 只能 `import * as m` 再 `m.default ?? m`。
+
+**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身（CAS：
+`where stage_id=$2 and id=$3 and data=$4::jsonb`）。默认 `dryRun:true` 只算差集 = **设计不是不方便**。
+`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
