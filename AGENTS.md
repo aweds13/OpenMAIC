@@ -647,7 +647,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ---
 
-## 8. 未决项 
+## 8. 未决项
 
 1. **必须真人做**：在 DSH 面板里点一页，让 `openmaic_active` 有值（B0 的最后一条判据）。
    现算 `GET …/dsh-openmaic/active` 回 `{"ok":true,"active":null,…}`；点过之后应回
@@ -741,30 +741,24 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
-目标是**换宿主**（在 DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是
-产品的一部分，不是外挂脚本。插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **12 个工具**：
-`openmaic-course`（7 个，课件读写）+ `openmaic-local-capabilities`（5 个，本地能力）。
-每个包分**宿主半**与**浏览器半**：
+目标是**换宿主**（在 DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分，
+不是外挂脚本。插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **12 个工具**（`openmaic-course` 7 +
+`openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
 
-| 半 | 文件 | 改了之后 |
-|---|---|---|
-| 宿主半 | 包内 `index.js` | **重启 DSH** |
-| 浏览器半 | 包内 `client.src.js` | `node build.mjs` → **再重启 DSH** |
+- **宿主半** = 包内 `index.js` ⇒ 改完**重启 DSH**。
+- **浏览器半** = 包内 `client.src.js` ⇒ `node build.mjs` → **再重启 DSH**；`client.js`（13.9 MB）是产物，**不要手改**。
 
-`client.js`（13.9 MB）是 esbuild 产物，**不要手改**。
+**★ 两个必踩的坑：**① **部署副本是实体拷贝不是符号链接**（`profiles/desktop/node_modules/`）—— 改完源**必须 cp 过去**
+再重启，否则跑旧副本（`diff -rq lib <部署目录>` 应为空）；② **只改浏览器半才要重建**（`build.mjs` 只打 `client.src.js`）。
 
-**★ 两个必踩的坑：** ① **部署副本是实体拷贝不是符号链接**（在 profiles/desktop/node_modules/）
-—— 改完源**必须 cp 过去**再重启，否则跑旧副本（栽过：源 653 行 vs 部署 620 行；同步后
-`diff -rq lib <部署目录>` 应为空）；② **只改浏览器半才要重建**（`build.mjs` 只打 `client.src.js`）。
+**判据不能只看代码**：`node smoke-render.mjs`（jsdom + react-dom/client 真跑 effect）末行要 `SMOKE: PASS ✅`；★ 别用 `smoke-client.mjs`（`renderToString` 只渲首屏，走不到 slide 分支；绿过而 bug 还在）。
 
-**判据不能只看代码**：`node smoke-render.mjs`（jsdom + react-dom/client 真跑 effect）
-末行要 `SMOKE: PASS ✅`。★ 别用 `smoke-client.mjs`：它 `renderToString` **只渲首屏**
-（`courses` 还是 `null`），走不到 slide 分支 —— 它绿过而 bug 还在。
+**三个已收口的缺陷**：① `/page` 回的是这一页本体，**没有 `data` 层**（面板曾写 `page.data`
+⇒ slide 分支恒不成立）；② 差集剥几何要**同时剥文字字段**，否则改一个字同时进 `textChanged` 与 `restyled`；
+③ `SlideCanvas` 是**唯一**该用的渲染器（规格 `docs/specification/domains/F10-dsh-host.md`）。
 
-**三个已收口的缺陷（别再犯）**：① `/page` 回的是这一页本体，**没有 `data` 层**（面板曾写
-`page.data` ⇒ slide 分支恒不成立）；② 差集剥几何时必须**同时剥文字字段**，否则改一个字会同时
-进 `textChanged` 与 `restyled`；③ `SlideCanvas` 是**唯一**该用的渲染器，不许自绘近似版
-（规格 `docs/specification/domains/F10-dsh-host.md`）。
+**侧栏图标与名字**：图标 = `register(spec, 图标渲染函数)` 的**第二个参数**（不是 label），名字用
+`lib/brand/brand-config.ts` 的 `productName`、图标用 `markSrc` 内嵌 PNG → 结论库 §1.14
 
 **写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身
 （CAS：`where stage_id=$2 and id=$3 and data=$4::jsonb`）。默认 `dryRun:true` 只算差集，
