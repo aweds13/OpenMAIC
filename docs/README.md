@@ -40,11 +40,13 @@
 改完代码后固定四步（详见 `AGENTS.md` §3.1）：
 
 ```
-node node_modules/prettier/bin/prettier.cjs --write <改过的文件>
+node node_modules/prettier/bin/prettier.cjs --write <改过的文件>   # 只管代码，*.md 它不看
 npx tsc --noEmit
 node scripts/check-i18n-keys.mjs
 python -X utf8 scripts/check-layers.py     # ← 这个目录自己的门禁
 ```
+
+★ 第一步对本文档**不管用**：`.prettierignore` 有 `*.md` ⇒ `--check` 恒绿，写坏了也不报。文档的判据是最后一条与人眼。
 
 最后一条会检查：需求编号闭合、规格条款都能追溯到需求、约定层的每条规则都标了来源、契约层文件齐全、反引号里的 md 文件名引用都真实存在、覆盖矩阵包含全部十域。末行 `LAYER CHECKS: PASS ✅` 才算数。
 

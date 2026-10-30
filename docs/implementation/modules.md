@@ -64,7 +64,7 @@
 
 ## 五、改完之后（固定四步）
 
-1. `node node_modules/prettier/bin/prettier.cjs --write <改动文件>` —— 仓里 `core.autocrlf=false`，别让 CRLF 混进去。
+1. `node node_modules/prettier/bin/prettier.cjs --write <改动文件>` —— 仓里 `core.autocrlf=false`，别让 CRLF 混进去。★ 只对代码有效：`.prettierignore` 有 `*.md`，文档它一个都不看。
 2. `npx tsc --noEmit` —— 必须 0 error。`packages/@openmaic/renderer` 的 `dist/*.d.ts` 若缺失会退化成全 `any`，修法见 `AGENTS.md`。
 3. `node scripts/check-i18n-keys.mjs` —— 动过文案才需要。
 4. `python -X utf8 scripts/check-layers.py` —— 动过 `docs/` 才需要。
