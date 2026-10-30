@@ -101,3 +101,6 @@ render-service/.owner-bound-parent-*/
 
 # Generated interactive libraries
 /public/vendor/interactive
+
+# 本地数据库备份（pg_dump -Fc，勿入库）
+backups/
