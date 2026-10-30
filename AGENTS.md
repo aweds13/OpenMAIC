@@ -741,26 +741,25 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
 目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是产品的一部分。
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **17 个工具**（`openmaic-course` **12** +
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **18 个工具**（`openmaic-course` **13** +
 `openmaic-local-capabilities` 5），每个包分**宿主半**与**浏览器半**：
 
 - **宿主半** `index.js` ⇒ 改完**重启 DSH**。**浏览器半** `client.src.js` ⇒ `node build.mjs` → **再重启**；
-  `client.js`（13.9 MB）是产物，**不要手改**。
+  `client.js`（13.9 MB）是产物、**不要手改**。
 
-**★ 两个必踩的坑：**① 部署副本是**实体拷贝**（`profiles/desktop/node_modules/`）⇒ 改完源必须 cp 再重启
-（`diff -rq lib <部署目录>` 应为空）；② 只改浏览器半才重建。
+**★ 两坑：**① 部署副本是**实体拷贝**（`profiles/desktop/node_modules/`）⇒ 改完必须 cp 再重启（`diff -rq
+lib <部署目录>` 应为空）；② 只改浏览器半才重建。
+**判据**：`node smoke-render.mjs` 末行 `SMOKE: PASS ✅`（别用 `smoke-client.mjs`，走不到 slide 分支）。
+**三个已收口的缺陷**：① `/page` 回页本体、**没有 `data` 层**；② 差集剥几何要同时剥文字；③ `SlideCanvas` 是唯一渲染器（F10 域规格）。
 
-**判据不能只看代码**：`node smoke-render.mjs` 末行要 `SMOKE: PASS ✅`；★ 别用 `smoke-client.mjs`（`renderToString` 走不到 slide 分支）。
+**侧栏图标与名字**：图标 = `register(spec, 图标函数)` 的**第二参数**（不是 label），名字/图标取
+`lib/brand/brand-config.ts` 的 `productName`/`markSrc` 内嵌 PNG → 结论库 §1.14
 
-**三个已收口的缺陷**：① `/page` 回的是页本体，**没有 `data` 层**（面板曾写 `page.data`）；② 差集剥几何要**同时剥文字字段**；③ `SlideCanvas` 是**唯一**该用的渲染器（`docs/specification/domains/F10-dsh-host.md`）。
+**诊断 5 + 冻结 1**：诊断（计划/版面/覆盖缺口/写后诊断/课程审计）与 `plan_freeze` 都走 `lib/diag.mts` 桥
+子进程（数据由 index.js 取好走 stdin，桥不碰库）★ tsx 要点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx`
+是 shell 脚本）、别名只能 `import * as m` 再 `m.default ?? m`。`plan_freeze` 五动作**不复刻**、直调仓内
+`buildPlanFreezeTool`（守卫措辞逐字一致）；两侧写入分工/顺序/失败语义 → 结论库 §1.16。
 
-**侧栏图标与名字**：图标 = `register(spec, 图标函数)` 的**第二个参数**（不是 label），名字/图标取
-`lib/brand/brand-config.ts` 的 `productName` / `markSrc` 内嵌 PNG → 结论库 §1.14
-
-**诊断面（5 个，只读纯算术）**：计划/版面/覆盖缺口/写后诊断/课程审计，经 `lib/diag.mts` 桥子进程算
-（数据由 index.js 取好走 stdin，桥不碰库）。★ 起 tsx 要点名 `node_modules/tsx/dist/cli.mjs`（`.bin/tsx`
-是 shell 脚本）；★ 别名 import 只能 `import * as m` 再 `m.default ?? m`。
-
-**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身（CAS：
-`where stage_id=$2 and id=$3 and data=$4::jsonb`）。默认 `dryRun:true` 只算差集 = **设计不是不方便**。
+**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身（CAS:
+`where stage_id=$2 and id=$3 and data=$4::jsonb`）；默认 `dryRun:true` 只算差集 = **设计不是不方便**。
 `openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
