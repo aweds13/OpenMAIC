@@ -64,22 +64,22 @@
 
 ## 0.1 当前状态（2026-10-30 晚）
 
-- **HEAD = `8fe168df`，已推到 `mine/main`；CI 13/13 success、0 failed**。
-  ★ 推送失败看 `curl https://api.github.com`（通）对 `curl https://github.com`（000）；
-  日志里的 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），
-  只能信 API 或 `git ls-remote`。原命令重试，**不要**改 remote / 换协议 / 强推。
-- **五层 `docs/` 全绿**：`python -X utf8 scripts/check-layers.py` → `120 条引用（断链 0 处）`
-  + `LAYER CHECKS: PASS ✅`。判据做过反向验证，不是空心绿。
-- **仓根三份老文档与两份一次性复盘已删**，内容拆进五层（旧版 `git show 490259c1:<文件名>`）。
-  结论库 140200 → 80034 字节。
+- **HEAD 已推到 `mine/main`，CI 全绿**（`8fe168df`：13/13 success、0 failed）。
+  ★ 推送失败看 `curl https://api.github.com`（通）对 `curl https://github.com`（000）。
+  日志里 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），只能信 API / `git ls-remote`。
+  原命令重试，**不要**改 remote / 换协议 / 强推。
+- **五层 `docs/` 全绿**：`check-layers.py` → `122 条引用（断链 0 处）` + `PASS ✅`（做过反向验证）。
+- **仓根三份老文档与两份一次性复盘已删**（含「新窗口交接卡」），内容拆进五层与本文件
+  §0.1/§8（旧版 `git show 490259c1:<文件名>`）。结论库 140200 → 88228 字节。
+- ★ **prettier 不看 Markdown**（`.prettierignore` 有 `*.md`）⇒ 四步门禁第一步对文档是空跑。
 - **插件两个真缺陷已收口并双向验证**（`page.data` 形状错配；差集只剥几何 ⇒ 多出 `markupChanged` 桶），
   部署副本 md5 与源全等。
 - **B1 写入真库端到端验过**：`stage-0O5fLNmbe4/scene-p1` 指纹 `740876…|4007` → `de49c74…|3980`
-  → 还原回 `740876…|4007` **逐字节相同**。★ 第一次还原差 1 字节（原文 `<strong>` 只包「使用说明」）——
-  **只比指纹不看原文会误判成还原成功**。
-- **B2 非 slide 页只读文本在真数据上成立**（`/text` 回 `type:"interactive"` + 剥净正文 + 控件配置）。
+  → 还原回 `740876…|4007` **逐字节相同**（★ 第一次还原差 1 字节：原文 `<strong>` 只包「使用说明」
+  —— **只比指纹不看原文会误判成还原成功**）。**B2** 非 slide 页只读文本在真数据上成立。
+  其余 B1/B2 细节 → 结论库 §3.9。
 
-**唯一未决**见 §8（真人点一页）。
+**未决只有两条**，都在 §8：真人点一页；重启后复验 `markupChanged`。
 
 ### 不在本仓的那些文件（改之前先确认改的是哪一份）
 
@@ -649,20 +649,21 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 8. 未决项 
 
-**只剩一条，且必须真人做**：在 DSH 面板里点一页，让 `openmaic_active` 有值
-（这是 B0 的最后一条判据，也是三步走 ② 的验收）。
-现算：`GET http://127.0.0.1:<DSH端口>/dsh-openmaic/active` 回
-`{"ok":true,"active":null,"lastError":""}`；点过之后应回
-`{"ok":true,"active":{"stageId":"stage-…","sceneId":"scene-p1",…}}`。
-★ **别用 curl 探面板是否加载**：DSH Web 整个静态资源面在签名 cookie 认证后面
-（连确定能跑的 `dsh-client-ui-workbench-panel` 也 404），`browse_page` 对回环地址直接回
-`blocked`。这条只能靠眼睛看。
+1. **必须真人做**：在 DSH 面板里点一页，让 `openmaic_active` 有值（B0 的最后一条判据）。
+   现算 `GET …/dsh-openmaic/active` 回 `{"ok":true,"active":null,…}`；点过之后应回
+   `{"ok":true,"active":{"stageId":"stage-…","sceneId":"…",…}}`。
+   ★ **别用 curl 探面板是否加载**：静态资源面全在签名 cookie 认证后（连确定能跑的
+   `dsh-client-ui-workbench-panel` 也 404），`browse_page` 对回环地址回 `blocked`。只能靠眼睛看。
+2. **重启 DSH 后复验 `markupChanged`**（结论库 §1.7.1）：进程 17:22:38 启动、部署副本
+   18:33:56 才同步 ⇒ 现跑的仍是旧宿主半，只改标签的差集**还不报** `markupChanged`。
+   同一调用重启后应出 `markupChanged:1` / `textChanged:0`。
+   ★ 判「没修好」前先比**进程启动时间与代码 mtime**。
 
-别的「未决」都只跟主仓别的子项目有关，与本 fork 无关，别当成 bug 重新修：
-`skills/agent-runtime/zone-of-proximal-development` 的措辞与题量参数未对齐（见 §4）；
-`program/#228` / `program/framework` / `program/pdf-compress` 未归类、`selfcheck/` 与
-`literature-eval/` 是否并入 `ultrarag/`（用户说先留着）；`dblp.ico` 是自绘的等官方 logo；
-两条 1KB 残留（`owner_material` 里 `端到端测试材料.md`、孤儿目录 `data/materials/owner-1/`）。
+别的「未决」只跟主仓别的子项目有关，与本 fork 无关，别当 bug 重修：
+`zone-of-proximal-development` 措辞与题量参数未对齐（见 §4）；`program/#228`、
+`program/framework`、`program/pdf-compress` 未归类、`selfcheck/` 与 `literature-eval/`
+是否并入 `ultrarag/`（用户说先留着）；`dblp.ico` 是自绘的等官方 logo；两条 1KB 残留
+（`owner_material` 的 `端到端测试材料.md`、孤儿目录 `data/materials/owner-1/`）。
 
 ---
 
@@ -740,10 +741,8 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
-目标是**换宿主**（在 DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套），
-所以插件是产品的一部分，不是外挂脚本。
-
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包共 **12 个工具**：
+目标是**换宿主**（在 DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件是
+产品的一部分，不是外挂脚本。插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **12 个工具**：
 `openmaic-course`（7 个，课件读写）+ `openmaic-local-capabilities`（5 个，本地能力）。
 每个包分**宿主半**与**浏览器半**：
 
@@ -754,32 +753,19 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 `client.js`（13.9 MB）是 esbuild 产物，**不要手改**。
 
-**★ 两个必踩的坑：**
+**★ 两个必踩的坑：** ① **部署副本是实体拷贝不是符号链接**（在 profiles/desktop/node_modules/）
+—— 改完源**必须 cp 过去**再重启，否则跑旧副本（栽过：源 653 行 vs 部署 620 行；同步后
+`diff -rq lib <部署目录>` 应为空）；② **只改浏览器半才要重建**（`build.mjs` 只打 `client.src.js`）。
 
-1. **部署副本是实体拷贝不是符号链接**，装在 `C:/Users/asus/.dsh/profiles/desktop/node_modules/`。
-   改完源**必须 cp 过去**再重启，否则跑的是旧副本 —— 栽过一次（源 653 行 vs 部署 620 行）。
-   同步后 `diff -rq lib <部署目录>` 应为空。
-2. **只改浏览器半才要重建**：`build.mjs` 只打 `client.src.js`；改宿主半不用重建，但要重启。
+**判据不能只看代码**：`node smoke-render.mjs`（jsdom + react-dom/client 真跑 effect）
+末行要 `SMOKE: PASS ✅`。★ 别用 `smoke-client.mjs`：它 `renderToString` **只渲首屏**
+（`courses` 还是 `null`），走不到 slide 分支 —— 它绿过而 bug 还在。
 
-**判据不能只看代码，要看它真渲染出来**：
-
-```bash
-node smoke-render.mjs     # jsdom + react-dom/client 真跑 effect，末行要 SMOKE: PASS ✅
-```
-
-★ 别用 `smoke-client.mjs` 判渲染：它用 `renderToString` **只渲首屏**（`courses` 还是
-`null`），走不到 slide 分支 —— 它绿过而 bug 还在。
-
-**三个已收口的缺陷（别再犯）**：
-
-1. `/page` 回的是**这一页本体**，**没有 `data` 层**。面板侧一度写 `page.data`，于是
-   slide 分支恒不成立、页面卡在「取文本…」、副行显示「类型 undefined」。
-2. 差集剥几何字段时必须**同时剥文字字段**，否则改一个字会同时进 `textChanged`
-   与 `restyled` 两个桶。
-3. 上游 `packages/@openmaic/renderer` 的 `SlideCanvas` 是**唯一**该用的渲染器，
-   不许自绘近似版（规格见 `docs/specification/domains/F10-dsh-host.md`）。
+**三个已收口的缺陷（别再犯）**：① `/page` 回的是这一页本体，**没有 `data` 层**（面板曾写
+`page.data` ⇒ slide 分支恒不成立）；② 差集剥几何时必须**同时剥文字字段**，否则改一个字会同时
+进 `textChanged` 与 `restyled`；③ `SlideCanvas` 是**唯一**该用的渲染器，不许自绘近似版
+（规格 `docs/specification/domains/F10-dsh-host.md`）。
 
 **写入面**：`document_scenes` **没有版本列** ⇒ 并发保护只能靠 jsonb 值本身
 （CAS：`where stage_id=$2 and id=$3 and data=$4::jsonb`）。默认 `dryRun:true` 只算差集，
-**这是设计不是不方便**。`openmaic_active` 是**进程内状态**，DSH 重启就空 ——
-「宁可空不猜」，**空 ≠ 坏**。
+**这是设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
