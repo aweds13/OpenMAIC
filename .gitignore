@@ -110,3 +110,7 @@ backups/
 
 # 本地取证日志与夹具（临时，勿入库）
 .tmp/
+
+# Python 字节码（scripts/check-layers.py 等运行后产生）
+__pycache__/
+*.pyc
