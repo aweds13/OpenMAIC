@@ -15,7 +15,7 @@
 > 材料库那条通配符的反引号收到星号之前外，一字未改。
 
 目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件即产品。
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **30 个工具**（`openmaic-course` **25** +
+插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **31 个工具**（`openmaic-course` **26** +
 `openmaic-local-capabilities` 5），每包分**宿主半**/**浏览器半**：
 
 - 宿主半 `index.js` ⇒ 改完**重启 DSH**；浏览器半 `client.src.js` ⇒ `node build.mjs` → 再重启（`client.js` 13.9 MB 是产物）
@@ -24,6 +24,7 @@
 - 已收口缺陷：① `/page` 回页本体、**没有 `data` 层** ② 差集剥几何要同时剥文字 ③ `SlideCanvas` 是唯一渲染器
 - 侧栏图标是 `register(spec, 图标函数)` 的**第二参数**，取 `lib/brand/brand-config.ts` 的 `productName`/`markSrc` → `复盘/已结案结论.md` §1.14
 
+- ★ **桥脚本必须跑在路径不含 `node_modules` 的地方**：tsx 不对 `node_modules` 下的文件应用 tsconfig `paths`（junction 也不行，它看路径串不看 realpath）⇒ `DIAG_SCRIPT` **源码优先**（源仓 `lib/diag.mts` 存在就用它，否则退回本地副本）；改坏时部署副本里**所有走 `runDiag` 的工具**全报 `Cannot find package '@/lib'`，而纯 `readDb` 快路正常 → `复盘/已结案结论.md` §1.25
 **诊断/冻结/纸/材料/练习 10 个工具**都走 `lib/diag.mts` 桥（index.js 取数走 stdin，桥不碰库）：tsx 点名 `node_modules/tsx/dist/cli.mjs`、别名须 `import * as m` 再 `m.default ?? m`；**都不复刻**、直调仓内 builder → `复盘/已结案结论.md` §1.16/§1.17
 - 纸与材料落文件系统：草稿纸 `data/scratchpad/<owner>.json`（`sNNN` **永不复用**）；材料库 `个人数据/材料清单/`*.md（目录读 `.env.local`，**没配不回默认值**）★ 写走沙盒且**先把真文件复制进去**（否则丢原内容）
 - 练习落 `课程与学习/练习/<stage>/`（桥纯算、宿主判越界与不覆盖）★ 沙盒 env 必须设**在 import 之前**（常量加载期求值）→ `复盘/已结案结论.md` §1.18
