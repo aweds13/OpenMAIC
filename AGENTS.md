@@ -55,7 +55,7 @@
 | 他说的 | 实测出来的数字 |
 |---|---|
 | 「幻灯片好粗糙，内容单薄，不如我自学」 | 默认 61 汉字/页 vs 天大真实课件 **352–390**/页 |
-| 「我是自学，不喜欢听课」 | 见 §4「自学 vs 听课」 |
+| 「我是自学，不喜欢听课」 | 见 `docs/specification/教学取向.md` |
 | 「题量对不上」 | 自检页曾经**永远是 3 题**（写死的兜底），其余靠 agent 手补 |
 | 「读网页会被拦、会截断，这不是假的吗」 | 预览 2000 字符 vs 正文平均 **17,443** —— 只读到 **11%** |
 
@@ -164,469 +164,60 @@
 ---
 
 ## 2. 本 fork 独有的文件 = 地图
+改之前先看这里，**你要改的东西大概率已经有主了**；**本 fork 独有的文件全表（45 个文件 + 5 个运行期目录，逐行带「干什么 / 关键实测依据」）在 `docs/implementation/modules.md` 第四节**，这里只做路由。
 
-改之前先看这里，**你要改的东西大概率已经有主了**。
-
-| 文件 | 干什么 | 关键实测依据 |
-|---|---|---|
-| `lib/server/agent-runtime/config.ts` | 所有运行期开关（含 `selfStudyDefault`） | 加了 `selfStudyDefault` 后 `/api/whoami` 会回报它 |
-| `lib/server/agent-runtime/study-mode.ts` | 「听课 / 自学」怎么落地 + 每页密度目标 | 见 §4 |
-| `lib/server/self-study-mode.ts` | 经典路径的 slide 密度覆盖（追加到 system prompt 末尾） | 352–390 字/页 |
-| `lib/server/agent-runtime/course-design.ts` | 每条 `generate_scene` brief 必须写什么 | brief 是内容生成器**唯一**的指令 |
-| `lib/server/agent-runtime/course-search.ts` | `course_search` + `read_document` 接进工作台 | L4 = 本地文档层 |
-| `lib/server/agent-runtime/browse-url.ts` | `browse_url` 接进工作台（真浏览器） | 见 §5 |
-| `lib/server/agent-runtime/learner-profile.ts` | 注入 `学习画像.md`（**每次运行重读**） | 改画像不用重启 |
-| `lib/server/agent-runtime/materials-library.ts` | `read_materials` / `update_materials` + **`listMaterialText()`** | agent 自己维护的材料库；**它的 URL 会喂进会话的 URL 信任闸**（`store.ts` 的建会话钩子）—— 见 §3.1 那条假红与结论库 |
-| `lib/server/agent-runtime/mcp-tools.ts` + `mcp-client.ts` | 外部 MCP（GitHub）接进工作台 | 连不上只记 failed，不拖死会话 |
-| `lib/server/agent-runtime/compaction.ts` | 原生上下文压缩 + ★ `usageAnchorIsStale()`：**用量锚点比最新一条 compaction 还旧就不采信**（`estimateAgentContextTokens(…, { trustUsageAnchor })`） | **默认关**，本部署开着。不检查它 ⇒ 提示恒为 `N -> N`，且**每次压缩后必然白压一次**（见结论库 §压缩锚点） |
-| `lib/server/agent-runtime/session-commands.ts` | `/compact` 之类的会话命令 | 手动挡**不需要** ENABLED —— 它绕过阈值也绕过开关 |
-| `lib/server/agent-runtime/prompt-context-file.ts` | 画像/材料库的"路径加载时求值、内容每次重读" | |
-| `lib/server/agent-runtime/fetch-url.ts` | `fetch_url`（**上游就有**，我们改了两处） | 见 §5 |
-| `lib/export/use-export-pptx.ts` | `buildPptxBlob` / `buildResourcePackZip` + 共用的 `collectInteractivePages` | 单课导出；resource pack = PPTX + 交互页 |
-| `lib/export/batch-export.ts` | **批量下载**：多门课 → 一个 ZIP（每课一文件夹） | 见 §10 |
-| `components/workbench/workspace/BatchDownloadDialog.tsx` | 批量下载对话框（多选 + 进度 + 逐课结果） | 入口在课程标签页工具栏 |
-| `app/api/whoami/route.ts` | 一次性诊断：owner + 课程数 + **运行期开关实际值** | 改 `.env.local` 后先看这里 |
-| `lib/quiz/attempt-fold.ts` | **答题状态折叠器**：把 `runtime_records` 里的 quiz 记录折叠成「这一页学成什么样」。纯函数，形状照 `lib/pbl/v2/runtime/fold.ts` | 见 结论库「答题状态早就在库里了」 |
-| `lib/quiz/learner-state.ts` | **状态渲染器**：折叠结果 + 页面内容 → 一段能注入提示词的文本（把题号还原成题干） | 同上 |
-| `lib/server/agent-runtime/learner-state.ts` | 状态文件的**读 / 写 / 刷新**：`refreshLearnerStateFromRuntime()` 离线查库写文件；`resolveLearnerState()` 热路径只读文件 | 见 结论库「学习状态文件」 |
-| `lib/quiz/coverage-gap.ts` | **覆盖缺口检查**（查）：这一页题干/选项/解析里的内容块，在它之前所有页里出现过吗。纯函数、可算、不花模型 | 见 结论库「覆盖缺口检查」 |
-| `lib/quiz/quiz-grounding.ts` | **出题前注入**（拦）：把「前面已讲过的词表 + 页码表 + 五条硬规矩」追加到 quiz 生成器的 system prompt 末尾 | 同上；与 `coverage-gap` **共用同一个单位** |
-| `lib/server/agent-runtime/assessment-mode.ts` | **评估方式**轴：「讲课 / 作业 / 考试」。与 `study-mode.ts` 的「听课 / 自学」（**输入方式**轴）**正交，别合并** | 见 结论库「评估方式这条轴」 |
-| `lib/server/agent-runtime/course-outline-write.ts` | **T1：让 brief 落盘** —— `generate_scene` 写页之后，把这条 `SceneOutline` 按 outlineId/order upsert 进课程计划 | 见 结论库「计划从来没落盘过」；**`upsertOutlineEntry` 的身份键由调用方选**（`matchBy` 取 `'id'` 或 `'order'`）—— `plan_freeze` 传 `order`（它的 id 从 order 推，按 id 认会**偷别的页的条目**） |
-| `lib/server/agent-runtime/audit-tools.ts` | **`course_audit`**：课程级审计（承接率 + 超载），**纯只读**、无条件注册 | 修一门已有课程**先审它**；见 结论库「先量再建」 |
-| `lib/server/agent-runtime/scratch-tools.ts` | **草稿纸**：存储 + `scratch` 工具 + 提示词块（照材料库成例一个文件） | `promote` 按 `listMaterialTopics()` **对照磁盘校验**；见 结论库「幽灵参数」 |
-| `lib/server/agent-runtime/practice-tools.ts` | **`practice_scaffold`**（写练习文件夹）+ **`practice_result`**（读回结果） | **不起进程**；与 VS Code 的联动靠 `.vscode/` 配置 |
-| `lib/practice/scaffold.ts` | 脚手架**内容**生成（`check.mjs` runner / README / `.vscode`） | 编码坑（GBK）在 runner 里**修一次** |
-| `lib/practice/results.ts` | 读练习目录下的 `result.json` → 渲染进 `学习状态.md` | T9 走**读取侧**，不开新写入路径 |
-| `lib/scratch/scratchpad.ts` | 草稿纸**纯逻辑**：编号 `s001`（永不复用）/ 两层 / 索引 / 「只有 1 个来源」 | 与材料库的边界在 `promote` |
-| `lib/server/agent-runtime/plan-freeze.ts` | 阶段冻结的**判据**（`planGate` 三条）+ 总开关 `planGateEnabled()` + ★★ **`planSpecGaps()`：「这份计划是不是规格」**（作者写的条目必须有 `keyPoints` + `【Unit …】` 抬头，练习条目必须有 `difficulty`；**`backfill` 派生的不算账**） | 开关默认关；本部署 `OPENMAIC_PLAN_GATE=1`。<br>★★ 这闸之前只验「条目数不为 0」⇒ 实测那门 66 条里 24 条占位、`keyPoints` 有内容的 **0** 条**照样冻结成功**。闸拒新计划、`status` 报老课程（用户说「帮我修这门课」，agent 自己就看见「这份计划不是规格」）。判据 `tests/agent-runtime/plan-freeze.test.ts` 末组 |
-| `lib/server/agent-runtime/plan-freeze-store.ts` | 冻结状态的**独立小文件**读写（`data/plan-freeze/`） | 不放 `document_outlines`（怕静默失效） |
-| `lib/server/agent-runtime/plan-freeze-tools.ts` | **`plan_freeze`**（status / add / backfill / freeze / revise）+ 提示词块。★ `revise` 带 **`shift`**（拆页 ⇒ 页号顺延）/ **`removeOrders`** / `entries` —— **它真的改计划**（原来只记一次理由） | `backfill` **只补缺、绝不覆盖** |
-| `lib/quiz/course-audit.ts` | 课程级**审计判据**（承接率 + 超载线 `NOVEL_P90=60`），纯函数。★ **超载线只对 `slide` 有效**（`pbl` p50=95、`interactive` p50=11 是别的量纲；项目页进 `scaffoldPages`，**不叫超载**） | 超载线是 146 个真实讲解页的 p90 标定的 |
-| `lib/quiz/plan-check.ts` | **计划期**依赖校验：超前引用 / 无归属 / 预算（三条只输出「补」和「挪」） | `conceptsPerPage` 默认关；见 结论库 |
-| `components/generation/self-study-button.tsx` | 首页那条链上的「自学」开关（经典路径，与工作台的 `study-mode.ts` 不同一条路） | 在工作台路径上搜不到 `selfStudy` |
-| `lib/quiz/code-block.ts` | **「这段文字该不该是 `code` 元素」两批规则**（`codeBlockVerdict`）+ **转换器**（`codeElementFromText`，几何不变、行首缩进保留） | 2026-10-09 复量：原判据要求 `;` 是**最后一个字符** ⇒ **带行尾注释的真代码块整批落进第二批**（28 个候选里 **6** 个）。复现 `OPENMAIC_CODE_BLOCK_LIVE_TSV=<dump> TEST_LOAD_LOCAL_ENV=1 npx vitest run tests/quiz/code-block-live.test.ts`。<br>★★ **"几何不变"是陷阱（实测栽过）**：`code` 的开销与 `text` 不同 —— 内边距 **24px**、每行 **1.6 × fontSize**、边框 2px、等宽字符宽 **≈ 0.64em**。照搬 `text` 的盒子 ⇒ 第 5 行的 `}` 看不见、最长一行右边被切。**盒子按内容算，别照抄** |
-| `components/slide-renderer/components/element/CodeElement/BaseCodeElement.tsx` | 幻灯片上 `code` 元素**长什么样**（顶栏 / 行号 / 圆角 / 投影 / 内边距全在这里） | ★ 2026-10-09 用户否掉了原版（原话「**感觉这个代码块丑丑的**」），量出来不只是丑：仿 macOS 顶栏 **32px** 占盒子高度 **26%**、行号槽 **49px** 占宽度 **20%** ⇒ **纵向溢出 35px / 横向溢出 47px**。现在：**顶栏整条删掉**、**行号默认 `false`**、6px 圆角 + 1px 细边框 + **无投影**。判据 `tests/components/slide-renderer/code-element-chrome.test.ts`（5 条 + 三道变异） |
-| `lib/quiz/layout-check.ts` | **版面检查**（纯函数）：溢出画布 / 元素重叠 / 文字装不下 / 字号过小。★ **agent 看不到画面**（`render_scene_preview` 要 `RENDER_SERVICE_URL`，没配就不注册，§1.1）；这几件事**不需要画面也能算** —— 元素本来就带坐标。挂在 `scene-diagnostics.ts` 上 ⇒ **两条写入路径共用** | 2026-10-10 加（学习者：『我这边没有渲染预览的工具』——随后更正为『我说的是它没有』，指 agent）。阈值只有两个且都可算：字号下限 **14px**、重叠按**较小那个的 15%**。**别往里塞「好不好看」** —— 那不可算，硬编阈值就是编数据。<br>★★ 「底板 + 文字」**不算重叠**（包含不算，涉及文字的部分相交才算）。<br>★★ 量余量用**最大全空矩形**，不是空白面积占比。<br>★★★ 参数必须与渲染器同源（`lib/slide/text-metrics.ts`）；`layoutDelta` 给改前/改后差集 ⇒ **"是不是我改坏的"不用人眼**。 |
-| `lib/slide/text-metrics.ts` | **文本框行高/内边距的唯一来源**：渲染器**写进 DOM**，`lib/quiz/layout-check.ts` 直接 import | ★ 原先是两处会各漂的字面量（class `leading-[1.5]` vs 检查器 `1.6`）⇒ 24 个盒子里 **19 条假阳性**；**库里 1084 个 text 元素只有 5 个带 `lineHeight`**（改这里=改所有页面的行高）。判据 `tests/components/slide-renderer/text-line-height-pin.test.ts`（6 条 + 三道变异） |
-| `lib/quiz/page-text.ts` | **「学生实际看得见的文字」**：slide / quiz / pbl 静态精确抽取；★ **interactive 页真渲染**（jsdom 跑它自己的 `init()`），渲染失败或渲染出空 ⇒ **退回源码并标注 `NOT RENDERED`** | 20 个 interactive 页里 **8 页正文只在 `<script>` 里**；第 28 页 48,080 字符 html → **34,952 字**。★ 与 `extractTaughtText` 方向相反（那个故意少收），只共用 `stripMarkup`、别合并。★★ **三个已知缺口**（判据全文 → §1.22） |
-| `lib/server/agent-runtime/page-review.ts` | **写入后带上下文再审一页**（`sceneWriteDiagnosticsWithReview()` 用的那半，6 条判据） | ★ **还没在真会话里跑过**（见 §8）；三条纪律有判据：结论进回话 / 抛错被吞掉写入照常 / 没传就一个字不加 |
-| `lib/server/agent-runtime/review-tools.ts` | **`review_course`**：对抗性内容审查 —— **一次隔离的模型调用**（system 里只有页面文本 + 规矩），**没有会话历史 / 画像 / 工具**；结论必须带页码引用，否则 `isError`。★ 候选机制 + **`outOfScopeGapClaims()`**：报告把**本段之前就出现过**的词说成"没解释" ⇒ **指名作废**（见 §6.10 第 4 条） | 用户原话「审查 agent 要**完全没有任何基础**，不能想『噢原来是这个』」。判据 `tests/agent-runtime/review-tools.test.ts`（20 条 + 十道变异） |
-| `lib/server/agent-runtime/scene-diagnostics.ts` | **两条写入路径共用**的写入后诊断（`generate_scene` **与** `patch_stage`） | 见 结论库「门禁必须挂在两条路径上」 |
-| `lib/playback/reading-navigation.ts` | **阅读页滚轮翻页的判据**（阈值 12 / 去抖 450ms / 两道闸：用户开关 + 页内还能滚） | 规格见 `docs/specification/domains/F2-reading-pace.md`；`readingPage` 是**必填**布尔量，漏传只是静默还回播放键 |
-
-**运行期可变目录** —— **五个都在 `/api/whoami` 的 `runtime` 里回显**，"它到底写哪去了"随时可查：
-
-| 环境变量 | 默认 | whoami 的键 |
-|---|---|---|
-| `OPENMAIC_LEARNER_PROFILE_PATH` | `个人数据\学习画像.md` | `learnerProfilePath` |
-| `OPENMAIC_MATERIALS_DIR` | `个人数据\材料清单` | `materialsDir` |
-| `OPENMAIC_SCRATCHPAD_DIR` | `<仓库>\data\scratchpad` | `scratchpadDir` |
-| `OPENMAIC_PLAN_FREEZE_DIR` | `<仓库>\data\plan-freeze` | `planFreezeDir` |
-| `OPENMAIC_PRACTICE_DIR` | `课程与学习\练习` | `practiceDir` |
-
-★ **2026-10-07 对账四个数据目录时发现 `practiceDir` 根本没被回显**（而这一段原来写着
-"三个都在…里回显"，还列了五个变量）—— 于是"我生成的练习去哪了"没有地方可查。
-已补进 whoami。**加新目录时，顺手把它加进 whoami 的 `runtime`。**
-
-测试用 `tests/setup-env.ts` 把它们指到临时目录（hermetic）。
-`data/scratchpad/` 与 `课程与学习\练习/` 是**懒创建**的 —— 没用过就不存在，这不代表坏了。
-
-**`/api/whoami` 是第一站。** 它回显 `runtime.selfStudyDefault` 等**模块加载时求值**的
-开关 —— "我改了 `.env.local` 怎么没反应"的答案通常是"没重启"，而它会直接告诉你进程
-当前握着什么值。
+| 我要改… | 去哪一节（括号里是入口文件；细节都在 modules.md 第四节） |
+|---|---|
+| 运行期开关 / 上下文压缩 / 会话命令 | §二 M2/M5（`lib/server/agent-runtime/config.ts`、`lib/server/agent-runtime/session-commands.ts`、`lib/server/agent-runtime/compaction.ts`、`lib/server/agent-runtime/prompt-context-file.ts`、`usageAnchorIsStale()`） |
+| 生成提示词 / brief 规矩 / 听课 vs 自学 | §二 M4（`lib/server/agent-runtime/course-design.ts`、`lib/server/agent-runtime/study-mode.ts`、`lib/server/self-study-mode.ts`、`lib/server/agent-runtime/course-outline-write.ts`） |
+| 写入后诊断 / 版面判据 / 审查 | §二 M9/M13（`lib/server/agent-runtime/scene-diagnostics.ts`、`lib/quiz/layout-check.ts`、`lib/slide/text-metrics.ts`、`lib/server/agent-runtime/review-tools.ts`、`lib/server/agent-runtime/page-review.ts`、`sceneWriteDiagnosticsWithReview()`、`outOfScopeGapClaims()`） |
+| 答题状态 / 覆盖缺口 / 出题注入 / 题库文本 | §二 M6/M12（`lib/quiz/attempt-fold.ts`、`lib/quiz/learner-state.ts`、`lib/quiz/coverage-gap.ts`、`lib/quiz/quiz-grounding.ts`、`lib/quiz/page-text.ts`） |
+| 练习 / 草稿纸 / 计划冻结 / 导出翻页 / MCP 与审计 | §二 M3/M7/M8/M10/M11（`lib/practice/scaffold.ts`、`lib/practice/results.ts`、`lib/scratch/scratchpad.ts`、`lib/server/agent-runtime/plan-freeze.ts`、`lib/export/batch-export.ts`、`lib/playback/reading-navigation.ts`、`lib/server/agent-runtime/mcp-tools.ts`、`lib/server/agent-runtime/audit-tools.ts`、`refreshLearnerStateFromRuntime()`） |
 
 ---
 
 ## 3. 证据：怎么知道改对了
 
-### 3.1 先跑测试，别先跑产品
+三条铁律，**命令原文、报错原文、实测数字、判据全部在 `docs/implementation/自检.md` §8**（原 §3 整段搬去的就是）：
 
-**改完固定四步，顺序不要换**（前三步是 CI 的门，第四步是文档层）：
-
-```bash
-cd D:/文档/jelly_ware/program/OpenMAIC
-node node_modules/prettier/bin/prettier.cjs --write <改过的文件>   # 别用 npx；★ 只管代码，*.md 见下
-npx tsc --noEmit                                                   # 必须 0 error
-node scripts/check-i18n-keys.mjs                                   # 别用 pnpm：store 权限报 os error 5
-python -X utf8 scripts/check-layers.py                             # 末行要 LAYER CHECKS: PASS ✅
-```
-
-★ **prettier 不管 Markdown**：`.prettierignore` 有 `*.md` ⇒ 第一步对 `.md` 是**空跑**
-（写坏了也不报）。文档判据只有 `check-layers.py` 与人眼，别把「prettier 绿了」当文档没问题。
-
-★ **`npx tsc --noEmit` 的必要前置**：`packages/@openmaic/renderer/dist/` 里只有 `.js`
-没有 `.d.ts`（`types` 指向 `./dist/index.d.ts`），导出会全部退化成 `any`，**凭空冒出 33 个 error**。
-修法是补一次声明文件，不是去改代码：
-
-```bash
-cd packages/@openmaic/renderer && npx tsc --emitDeclarationOnly --declarationDir dist
-```
-
-**单元测试按需跑，别拿全量当判据**：
-
-```bash
-npx vitest run tests/agent-runtime/          # 主战场，末尾看 Tests N passed
-npx vitest run <某个文件>                     # 判定"是不是我弄坏的"永远用这个
-```
-
-★ **本机全量跑必然假红，CI 不会**：`vitest run` 单机并发在这台 Windows 上会撞 5000ms
-默认超时，199 个文件时能报 `Test Files 13–14 failed`，**隔离重跑后 12/13 全绿**。
-CI 用 `--shard=N/4` 四分片独立 runner，不会有这批假红。
-⇒ **看到红先单跑那个文件**；单跑过就是负载，不是回归。
-
-**基线同样红、属本机环境、不修**（已逐个 A/B 过：`git stash` 掉改动照样红）：
-`tests/agent-runtime/document-image-parser.test.ts`（`process.cwd()` 拼 `/` 比 `\`）、
-`tests/utils/course-thumbnail-cache.test.ts`、`chart-schema-lockstep`、
-`scene-preview-self-contained`、`material-extraction`、`owner-extraction-options`、
-`session-materials`、`voice-clone-tools`。
-
-**一条会骗人的环境开关**：仓根 `server-providers.yml`（被 `.gitignore:55` 忽略）会把部署
-切到 legacy，使 `status='disabled'` 的槽可被请求覆盖 —— `tests/server/model-config/llm.test.ts`
-因此红。`mv` 走该文件即绿。它不在版本控制里，别照它推结论。
-
-**测试是 hermetic 的**：`tests/setup-env.ts` **默认不加载 `.env.local`**，所以测试不依赖
-本机配置；要跑真端点才用 `TEST_LOAD_LOCAL_ENV=1`。
-★ **本机三件环境噪声**（fake-IP DNS 让 SSRF 判据永拒 / Windows 无 `getuid` /
-`join()` 给反斜杠让路径判据空转）→ 结论库「本机环境」。
-
-### 3.2 然后重启 —— 这一步不能省
-
-**两件不同的事，别混：**
-
-| 改了什么 | 怎么生效 |
-|---|---|
-| `lib/` `app/` `components/` 里的产品代码 | 整台 `next dev` 重启（`lib/server/agent-runtime/**` **不会热重载**） |
-| `_tools/dsh-plugins/**` 里的 **DSH 插件** | ① 源改了要**重建** `node build.mjs` ② 再**同步部署副本** ③ 再**重启 DSH 应用** |
-
-```bash
-# 1) 找 3000 的 PID（taskkill / Get-CimInstance 在这台机器上会挂死，别用）
-netstat -ano | grep -E ":3000\\s" | grep LISTENING
-# 2) 杀
-powershell -NoProfile -Command "Stop-Process -Id <PID> -Force"
-# 3) 起（脚本自己会清 Turbopack 残留链接，见 §6）
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:/文档/jelly_ware/_tools/openmaic/start_all.ps1"
-# 4) 验
-curl -s http://127.0.0.1:3000/api/whoami
-```
-
-★ **修完不重启 = 白修**。`3000` 是 OpenMAIC 自己的生产构建；DSH 会话在 `61123`，
-插件两半各自的生效路径见 §12。
-
-```bash
-# 1) 找 3000 的 PID（taskkill / Get-CimInstance 在这台机器上会挂死，别用）
-netstat -ano | grep -E ":3000\s" | grep LISTENING
-# 2) 杀
-powershell -NoProfile -Command "Stop-Process -Id <PID> -Force"
-# 3) 起（脚本自己会清 Turbopack 残留链接，见 §6）
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:/文档/jelly_ware/_tools/openmaic/start_all.ps1"
-# 4) 验
-curl -s http://127.0.0.1:3000/api/whoami
-```
-
-★ **`3000` 不是生产常驻**：本机全量起服务是 `start_all.ps1`，PG 在 `5433`。
-`curl http://127.0.0.1:3000/workspace` **不再是**「起没起来」的判据 —— 那个端口
-今天很可能根本没监听（实测 NOT listening）。**第一站永远是 `local_services`。**
-
-### 3.3 ★ 真话在数据库里，不在日志里
-
-"agent 到底做了什么"只有一处能查：`agent_session_events`（每场会话一条一条事件流，
-含每次工具调用的**入参与结果**）。这比读日志准得多。
-
-```bash
-PGPASSWORD=postgres PGCLIENTENCODING=UTF8 \
-  "D:/PostgreSQL-OpenMAIC/pgsql/bin/psql.exe" -h 127.0.0.1 -p 5433 -U postgres -d postgres
-```
-
-```sql
--- 工具调用分布：一眼看出 agent 在拿什么补什么
-SELECT data->>'toolName' AS tool, count(*) FROM agent_session_events
-WHERE type='tool_execution_end' GROUP BY 1 ORDER BY 2 DESC;
-
--- generate_scene 实际产出多少动作（含 speech）
-SELECT data->'result'->'details'->>'type' AS t, count(*),
-       round(avg((data->'result'->'details'->>'actionCount')::numeric),1)
-FROM agent_session_events
-WHERE type='tool_execution_end' AND data->>'toolName'='generate_scene'
-  AND data->'result'->'details' ? 'actionCount' GROUP BY 1;
-
--- 自检页真实题量
-SELECT stage_id||' ord='||scene_order||' q='||
-       coalesce(jsonb_array_length(data->'content'->'questions')::text,'?')
-FROM document_scenes WHERE data->>'type'='quiz' ORDER BY 1;   -- ★ 只有一列，ORDER BY 2 会报错
-```
-
-**★★ `data/usage/*.jsonl` 的 token 口径（2026-10-10 实测，我先踩了）**：
-
-**上下文大小 = `inputTokens` 单独一个数。不要加 `cacheReadTokens`。**
-`cacheReadTokens` / `cacheCreationTokens` 是 `inputTokens` 的**明细拆分**，不是相加项。
-相加会把上下文**放大一倍**：同一时刻 `inputTokens` = **139,175**，相加 = **277,031**，
-而官方压缩读数（`agent_session_events` 里 `type='trace'` 的 `N -> M tokens`）是 **139,827** ✓。
-★ 我拿错的口径推出了**两个错结论**（"90 万没用上"/"压完还剩 2.7 倍"），
-是事件流里的官方数字把我拦下来的。**量之前先找一个已知值对表。**
-
-```sql
--- 压缩的真实前后读数 —— 不用推断，这就是官方数字
-SELECT to_timestamp(ts/1000) AT TIME ZONE 'Asia/Shanghai', data->>'message'
-  FROM agent_session_events WHERE type='trace' AND data->>'message' LIKE '%compacted%'
- ORDER BY ts DESC LIMIT 12;
-```
-
-**实测结论**（2026-10-10，1234 次 agent-runtime 调用）：中位 **120,899**、p90 221,520、
-最大 **444,038**；压缩**触发 ~140K → 压到 ~25K**（正常且激进）。
-触发线是 `.env.local` 的 `OPENMAIC_AGENT_COMPACTION_CONTEXT_BUDGET=150000`，
-而模型窗口是 **1,048,576** ⇒ **离上限还有 55 万，不紧张**。
-
-**中文 SQL 字面量的坑**：`psql.exe` 在 Git Bash 下会把字面量按 GBK 发出去 ⇒
-`invalid byte sequence for encoding "UTF8"`。两种绕法：
-
-```sql
-t LIKE U&'%\65C1\767D%'      -- '旁白' 的码点转义，最省事
-```
-或者把 SQL 写进 **UTF-8 文件**再 `psql -f`。
+1. **§3.1 先跑测试，别先跑产品** —— 改完固定四步、顺序不要换：prettier → `npx tsc --noEmit`（必须 0 error）→ `node scripts/check-i18n-keys.mjs` → `python -X utf8 scripts/check-layers.py`（末行要 `LAYER CHECKS: PASS ✅`）；看到红**先单跑那一个文件**（`npx vitest run tests/agent-runtime/generation-tools.test.ts` 这种单个路径）—— 本机全量有 Windows 环境假红，CI 才是判据。
+2. **§3.2 然后重启，这一步不能省** —— `lib/**`、`app/**` 一律整台 `next dev` 重启（`lib/server/agent-runtime/**` **不会热重载**）；修完不重启＝白修。第一站永远是 `local_services`，别再拿 `curl :3000/workspace` 当判据。
+3. **§3.3 真话在数据库里，不在日志里** —— 「agent 到底做了什么」只有 `agent_session_events` 能查（工具名、入参、结果全在里面）；量 token 用 `data/usage/*.jsonl`，**上下文 = `inputTokens` 一个数字，别加 `cacheReadTokens`**。
 
 ---
 
 ## 4. 自学 vs 听课（**已经吵过一轮，别重开**）
 
-### 结论
-
-内容原先**被有意设计成放在讲稿里**（SDK 模板原话："Slides are visual aids, NOT
-lecture scripts"、"all elaboration … must appear here in speech text"）。对"边听边学"
-合理；对"我自己看材料"是灾难。
-
-### 曾经的错（值得记住的教训）
-
-自学模式**只写在提示词里**（"不要跑 `generate_actions`"）。但讲稿根本不是 agent
-生成的 —— 是 `generate_scene` **内部**自己调 `generateSceneActions` 写的。
-于是实测：
-
-| 2026-10-05 那节课（28 页） | |
-|---|---|
-| `generate_scene` | **162** 次 |
-| 其中 slide 页产出动作 | **79 / 79，100%**，平均 **13.2** 条 |
-| `patch_stage` | **160** 次 |
-| 其中明写「移除自动生成的旁白与高亮」 | **36** 次 |
-
-**提示词约束不住的东西，必须在代码里给默认值。** 现在是：
-`OPENMAIC_SELF_STUDY=true`（`.env.local`）→ `generate_scene` 压根不调讲稿生成器；
-单页可用 `generate_scene.selfStudy` 覆盖。
-
-### 自学页的写作要求
-
-内容必须**在屏幕上**：目标 **350–400 汉字/页**（≈ 1000×562.5 画布在可读字号下的
-上限）。**要多就加页，不要加每页字数** —— 加字数会溢出或缩成灰块。
-不要旁白腔（"我们接下来"、"请注意"、"同学们"）。
+取向定过了：内容在屏幕上，不是听讲。**提示词约束不住的东西必须在代码里给默认值**
+（`OPENMAIC_SELF_STUDY=true`），实测数字与「曾经的错」都在正文里。
+详见 `docs/specification/教学取向.md`；密度判据 `docs/specification/domains/F1-content-density.md`。
 
 ---
 
-## 5. 读网页：三道门，各自的作用（改之前先分清）
+## 5. 读网页：三道门
 
-| 工具 | 机制 | 已知失效模式 |
-|---|---|---|
-| `web_search` | 外部检索 API | 没配就没有这个工具 |
-| `fetch_url` | 一次 HTTP，抽正文，**存成 session material** | 见下 |
-| `browse_url` | **真浏览器**（Playwright + Edge） | 需要 8730 在跑 |
-| `read_material` | 分段精读那份 material（8000 字符/页） | |
-
-### 5.1 `fetch_url` 的两个实测缺陷（**已修**）
-
-1. **预览只有 2000 字符**，而实测 56 次成功抓取平均 **17,443** 字符 ⇒ 模型只看得到
-   **11%**。更糟的是 `nextOffset` 以前是**死指针**：`fetch_url` 的参数只有一个
-   `url`，没有任何工具接收 offset。现在结果里带 `nextStep`，明说"这是前 N 个字符、
-   共 M 个、继续读用 `read_material(materialId, offset=…)`"。
-2. **反爬关键词对整页 HTML 做子串匹配** —— `<script>` 里任何一处 `captcha` 就整页
-   拒绝（现代 bundle 里很常见）。实测 75 次抓取里 3 次被拦，**2 次是被裸词
-   `captcha` 误伤**。现在只对**抽取后的正文**判定：真正的验证码拦截页可见文字里
-   必然有这些词，照样拦得住。
-
-**改这两处时注意**：`fetch_url` 是**上游文件**，我们的改动要尽量小且带注释，
-否则以后 rebase 会疼。
-
-### 5.2 顺序（写进提示词的分工）
-
-```
-web_search  找有哪些页面（返回的 URL 进 session 信任门）
-   ↓
-browse_url  打开看（JS 渲染页 / 403 / 要正文）
-   ↓
-fetch_url   值得留的页面**存下来**（变成 material）
-   ↓
-read_material  分段精读，跟着 nextOffset 翻到没有为止
-```
-
-**只说"优先用浏览器"是错的** —— 模型会用浏览器读一遍就走，内容没落成 material，
-后面的精读、页面生成、上下文压缩之后的重读全都引用不到。**「看」和「存」必须分开讲。**
+`web_search` / `fetch_url` / `browse_url` / `read_material` 分工固定，**「看」和「存」必须分开讲**；
+`fetch_url` 是上游文件，改动要小、要带注释。
+详见 `docs/implementation/网页读取.md`；验收判据 `docs/contracts/domains/F6-browser-fetch.md`。
 
 ---
 
-## 6. 坑（每条都真实浪费过一小时）
+## 6. 坑（每条都真实浪费过一小时）→ 全文见 [`docs/implementation/坑.md`](docs/implementation/坑.md)
 
-### 6.1 Turbopack junction：一键启动"卡住"的真因
+> **动那个东西之前，先扫一眼这里有没有对应的坑。** 每一条都**真实浪费过一小时**，
+> 每一条都是**实测**的（命令 / 读数 / 日期 / 报错原文都在全文里）。搬出去的理由同 §7：
+> 本文件会被自动注入，有 **65536 字节**硬预算，超了**静默截断**。
 
-`next dev`（Turbopack）会在 `.next/dev/node_modules/` 下给每个外部包建 junction。
-**硬杀**（`Stop-Process -Force`）会留下残留，下次启动第一秒就 panic：
-
-```
-TurbopackInternalError: failed to create junction point …
-Caused by: 文件存在。(os error 80)   ← 硬杀留下的残留
-          拒绝访问。(os error 5)     ← 间歇性，同一台机器连试两次第一次崩
-```
-
-端口因此永远不开，而老版 `start_all.ps1` 只会**盲等 180 秒**再报 FAILED。
-现在脚本会清残留 + 盯 `_openmaic_dev.err.log` + 最多重试 3 次：
-实测冷启动 **188s（FAILED）→ 65s（成功）**。
-
-> **绝对不要**对 `.next/dev/node_modules` 跑 `rmdir /s`、`Remove-Item -Recurse` 或
-> `shutil.rmtree` —— 它们会**顺着 junction 走进 `node_modules/.pnpm` 删真包**。
-> 正确做法是自己走目录树，遇到 `ReparsePoint` **不下钻**，用**非递归**的
-> `[System.IO.Directory]::Delete($path, $false)` 只摘链接。
-> 见 `_tools/openmaic/start_all.ps1` 的 `Clear-TurbopackJunctions`。
-
-### 6.1b ★ `127.0.0.1:3000` 打开时"所有按钮都没反应" —— Next 16 的 dev origin 拦截
-
-Next.js 16 的 dev server **默认只允许 `localhost`**，把其它来源对自己 `/_next/*`
-的请求当**跨域**拦掉。而本机（以及桌面快捷方式）用的是 `127.0.0.1:3000`：
-
-```
-HTML 能加载、页面看起来正常，但 JS 分块全被 403 拦掉
-⇒ 所有按钮都没反应（事件处理器根本没挂上）
-⇒ 控制台里是 "Blocked cross-origin request to Next.js dev resource /_next/..."
-```
-
-**不是**你的组件坏了、也不是 hydration 失败 —— 是**资源根本没到浏览器**。
-修法在 `next.config.ts` 的 `allowedDevOrigins: ['127.0.0.1', 'localhost']`
-（**只影响开发期**，生产构建不看这个键）。改完要重启 dev server。
-
-### 6.2 这台机器上会挂死的命令
-
-| 别用 | 用 |
-|---|---|
-| `taskkill`、`Get-CimInstance` | `netstat -ano` 找 PID + `Stop-Process -Id` |
-| `powershell … \| tr -d '\r'` | 重定向到文件再读。**有 detached 子进程继承管道时它永不返回** —— 2026-10-08 **又踩一次**：`start_all.ps1 \| tail -25`（那脚本自己会 detached 起服务）⇒ 作业 7 分钟不返回，只能杀掉作业，而**dev server 一起被带走**（再跑一次才回来）。**启动脚本的输出一律 `> 文件 2>&1`**，别接管道、也别接 `tail`/`grep` |
-| `$pid`（PowerShell 里只读） | `$procId` |
-| PowerShell 5.1 读非 BOM 的 `.ps1`（当 ANSI） | **脚本只写 ASCII**，路径从 `$PSScriptRoot` 推 |
-
-### 6.3 其他
-
-- **改环境变量要重启**：`.env.local` 在进程启动时读。先看 `/api/whoami` 的 `runtime`。
-- **单会话单 worker**：worker 循环的闸是 `ctx.running.size < config.maxConcurrent`（`runner.ts` 的 `runWorker`）。`maxConcurrent` 读 `OPENMAIC_AGENT_RUNTIME_MAX_CONCURRENT`（**代码默认 2，本部署 `.env.local` 刻意设 1**），第一站看 `/api/whoami` 的 `runtime.maxConcurrent`。
-  （2026-10-07：这条原来写的是 `RUNNING_MAP` —— 那个符号**在代码里根本不存在**，照着它去搜会一无所获。）
-- **UI 有两层折叠**：左边栏默认「对话」，课程在折叠的文件夹里 —— 用户说"课程不见了"
-  先怀疑这个，再怀疑数据。
-- **`DELETE /api/stages/<id>` 是软删**（`stage_meta.deleted_at`），不是真删。
-- **`psql` 中文 SQL 字面量** ⇒ 见 §3.3。
-
-### 6.4 ★ 两条已结案的环境事实
-
-· **代码注释里的数字可能是上游作者账号的快照**（`WorkspaceRail.tsx` 的 "139 courses"）；
-· **`@openmaic/dsl` 没有 `require` 条件** —— 想"读真数据"就写成 vitest 用例，别写独立脚本。
-
-### 6.6 ★ `document_scenes.id` **只在 stage 内唯一** —— 任何按 sceneId 做键的地方都要带上 stage_id
-
-2026-10-07 实测，而且这是**我自己的代码踩的**，所以单列：
-
-```sql
--- 主键就是复合的
-SELECT pg_get_constraintdef(oid) FROM pg_constraint
- WHERE conrelid='document_scenes'::regclass AND contype='p';
---  document_scenes_pkey | PRIMARY KEY (stage_id, id)
-```
-
-而 `scene-p7` / `scene-p9` / `scene-p12` 这种 id **本部署各有 6 个 stage 在用**。
-后果不是"顺序不对"，是**张冠李戴**：
-
-- 折叠器一开始按 `sceneId` 单独做键 ⇒ 两门课的同名页会被**合并成一页**；
-- 内容查询 `WHERE id = ANY(...)` 少了 `stage_id` ⇒ 取到**另一门课的题干**。
-  实测那次：`stage-7tNoR37iqT`（Git/OOP/HTTP 课）的 `scene-p9` 是《OOP 用大白话讲一遍》，
-  但查询匹配到了 `stage--ShZtYAYOj` 的《自检：Dart 语法八道题》——
-  **差一点就把「你错了 Dart 的 async/await」注进一个在学 Git 的人的提示词里。**
-- 单元测试**抓不住**（假 id 都唯一），短读的 live 测试也抓不住（那次记录恰好全在一门课里）。
-  是"折叠结果 + 页面内容"做 join 的那一刻才炸出来的。
-
-**规矩**：
-
-1. 页面身份一律是 `(stageId, sceneId)`；`lib/quiz/attempt-fold.ts` 的 `sceneKey()` 是这个键
-   的唯一实现，别在别处再拼一个。
-2. 折叠器的 `sceneStateOf(fold, stageId, sceneId)` **两个参数都要** —— 让"取错课的那一页"
-   在编译期就不可能（同 F2 的 `readingPage` 必填那条思路）。
-3. 查 `document_scenes` 永远带 `stage_id`；`runtime_sessions` 的 `stage_id` 就是它的来源。
-4. 回归 pin：`tests/quiz/attempt-fold.test.ts`「keeps same-named pages in different courses apart」、
-   `tests/quiz/learner-state.test.ts`「does not borrow another course's question text…」。
-   **改这两个模块时先看这两条。**
-
-### 6.7 ★ `document_scenes` 里 slide 的 `content` **就是 HTML** —— 拿它当纯文本用会把 CSS 关键词喂给模型
-
-2026-10-07 实测。原文长这样（直接从库里取的）：
-
-```html
-<p style="font-size: 32px;"><strong>Java 条件语句：和 Python 有什么不同</strong></p>
-<p style="font-size: 16px;">• if (条件) { }</p>
-```
-
-后果不是"多几个字"，是**注入块变成垃圾**：`coverage-gap` / `quiz-grounding` 把
-`font` / `style` / `size` / `strong` / `16px` / `14px` / `monospace` / `Consolas` /
-`color` / `family` / `nbsp` 全当成"这门课讲过的词"。实测注入的词表**前 12 个全是它们** ——
-而那块注入的作用正是告诉出题器"只许用这些词"，于是**比不注入更糟**。
-
-**修法**：`stripMarkup()` 在**两个入口**各剥一次 —— `extractTaughtText()`（haystack
-必须是无标记纯文本）和 `contentChunks()`（它是共享单位，两侧都从这里过，在入口剥比
-要求每个调用点记得剥可靠）。剥完实测同一门课：
-
-| | 词表前 12 个 |
-|---|---|
-| 剥之前 | `font / style / size / strong / 16px / 14px / nbsp / monospace / Consolas / family / color / int` |
-| 剥之后 | `int / Java / for / Python / else / if / boolean / Maven / JDK / 素数 / 条件 / String` |
-
-**规矩**：任何把 `document_scenes.data->'content'` 当文本用的地方（生成、检索、计数、
-向量化），先过 `stripMarkup()` 或 `extractTaughtText()`。回归 pin：
-`tests/quiz/coverage-gap.test.ts`「strips tags so CSS keywords never become "taught terms"」。
-
-### 6.8 ★ `个人数据\` 只放**学习成长**的东西 —— harness 的调试产物跟 harness 走
-
-用户的原话：「**个人数据里不要塞和我学习成长无关的东西，审计归审计**」。
-
-我往里写过一个提示词 dump 和一个会话轨迹导出，被当场纠正 —— 这是对的：
-`个人数据\` 里是**关于这个人**的东西（`学习画像.md` / `学习状态.md` / `材料清单\`），
-而"某个工具输出了什么"是**机器的调试垃圾**。混在一起之后，就没有人分得清哪些该保留、
-哪些可以随时删。
-
-| 东西 | 放哪 |
-|---|---|
-| 学习画像 / 学习状态 / 材料清单 | `个人数据\`（**只放这些**） |
-| 提示词 dump、会话轨迹、审计报告等 harness 产物 | `_tools\openmaic\diagnostics\` |
-| harness 运行日志 | `_tools\openmaic\logs\` |
-| 课程产物与练习 | `课程与学习\`（**不是** `个人数据\`） |
-
-写新 dump/报告时**默认值就往 `_tools\openmaic\diagnostics\` 写**，别让默认值落到
-`个人数据\`（`tests/agent-runtime/prompt-audit-live.test.ts` 的 `DUMP_DIR` 是可以照抄的
-样子，需要时用 `OPENMAIC_PROMPT_DUMP_DIR` 覆盖）。
-
-### 6.9 ★ 拿上游的估算器当下游决策依据之前，先问它假设了什么没变
-
-全文与实测读数在 [`复盘/已结案结论.md`](复盘/已结案结论.md#估算器的假设)。引用上游的估算/判据/渲染
-函数做决策前先写下它的假设，再问「我新加的功能打破了哪一条」——尤其是假设里出现
-「上一次 / 最新一次 / 默认 / 不变」时。
-
-### 6.10 ★ 分段的工具里，「前面所有页」必须指**全课**的前面 —— 否则假阳性是工具自己造的
-
-`review_course` 按字符预算分段跑（剩下的用 `fromOrder` 接着审），曾有两处把「这一段」
-当成「整门课」⇒ **审查者照着工具给的错前提说话**。已修：前缀吃满**本段之前**的所有页，
-提示词改成「全课目录（共 M 页）」+「本次给你的正文：第 A–B 页」。
-
-★ 判据必须让 `fromOrder` 落在**第二页** —— 拿"一次给两页"的夹具，前缀恰好在本段里，照不到这个洞。
-
-**同形还有三条未修**（别再当成"审查者不行"）：`stripMarkup` 会把纯文本里的 `<…>` 换成空格
-（`List<String>` → `List `）；压平 `left`/`top` 让审查把**两栏**读成"挤在同一行"；jsdom 报错
-要按「按钮还绑不绑得上」分真假（`renderMathInElement is not defined` 是桩、非致命；
-`CodeMirror is not a function` 是**真缺陷**）。
-
-★ **通用判据**：「审查说蠢话」分两种，修法相反 —— **(A) 工具给了错前提 ⇒ 修工具**；
-**(B) 工具对了、模型没照做 ⇒ 修提示词 + 加机器复核**。先量是哪一种。
-**审查者的输出不能超过它拿到的输入** —— 看到蠢话先问「它当时看到的到底是什么」。
-
-量第 2 条的工具：`_tools/openmaic/diagnostics/probe-interactive-offline.mjs`（退出码 1 = 有死页）；
-全部细节与读数 → 结论库 2.26。
+- **§6.1 Turbopack junction**：硬杀 dev server 会留下 junction 残留，下次启动第一秒必 panic → 详见 `docs/implementation/坑.md`
+- **§6.1b Next 16 的 dev origin 拦截**：`127.0.0.1` 打开时按钮全没反应 —— 不是组件坏了，是 JS 分块被当跨域拦掉 → 详见 `docs/implementation/坑.md`
+- **§6.2 这台机器上会挂死的命令**：`taskkill` / `Get-CimInstance` / 给启动脚本接管道，都能让作业永不返回 → 详见 `docs/implementation/坑.md`
+- **§6.3 其他零碎**：改 `.env.local` 要重启、单会话单 worker、左栏两层折叠、`DELETE /api/stages` 是软删 → 详见 `docs/implementation/坑.md`
+- **§6.4 两条已结案的环境事实**：注释里的数字可能是上游账号快照；`@openmaic/dsl` 没有 `require` 条件 → 详见 `docs/implementation/坑.md`
+- **§6.6 `sceneId` 只在 stage 内唯一**：按 sceneId 做键必须带 `stage_id`，否则会把别门课的题干注进这个人的提示词 → 详见 `docs/implementation/坑.md`
+- **§6.7 slide 的 `content` 就是 HTML**：当纯文本用会把 CSS 关键词当成「讲过的词」喂给模型，比不注入更糟 → 详见 `docs/implementation/坑.md`
+- **§6.8 `个人数据\` 只放学习成长的东西**：harness 的调试产物跟 harness 走，别混进去 → 详见 `docs/implementation/坑.md`
+- **§6.9 拿上游估算器做下游决策前先问假设**：先写下它假设了什么没变，再问新功能打破了哪一条 → 详见 `docs/implementation/坑.md`
+- **§6.10 分段工具的「前面所有页」必须指全课**：否则假阳性是工具自己造的；「审查说蠢话」先分工具错前提还是模型没照做 → 详见 `docs/implementation/坑.md`
 
 ---
 
@@ -656,7 +247,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
    OpenMAIC 立方体 + `OpenMAIC`，不是「课件 课件」。
 
 别的「未决」只跟主仓别的子项目有关，与本 fork 无关，别当 bug 重修：
-`zone-of-proximal-development` 措辞与题量参数未对齐（见 §4）；`program/#228`、
+`zone-of-proximal-development` 措辞与题量参数未对齐（见 `docs/specification/教学取向.md`）；`program/#228`、
 `program/framework`、`program/pdf-compress` 未归类、`selfcheck/` 与 `literature-eval/`
 是否并入 `ultrarag/`（用户说先留着）；`dblp.ico` 是自绘的等官方 logo；两条 1KB 残留
 （`owner_material` 的 `端到端测试材料.md`、孤儿目录 `data/materials/owner-1/`）。
@@ -670,7 +261,7 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 2. 改 lib/ 或 app/（不要动 packages/@openmaic）
 3. node node_modules/prettier/bin/prettier.cjs --write <改过的文件>
    npx tsc --noEmit  +  node scripts/check-i18n-keys.mjs  +  python -X utf8 scripts/check-layers.py
-4. 重启 next dev（§3.2）—— agent-runtime 不热重载；改了插件见 §12
+4. 重启 next dev（§3.2）—— agent-runtime 不热重载；改了插件见 `docs/implementation/DSH宿主.md`
 5. curl /api/whoami 确认开关进去了
 6. 要真跑一遍：让用户在工作台里跑，然后**用 §3.3 的 SQL 查事件流**下结论
 7. 把结论写回两处：
@@ -690,49 +281,22 @@ SELECT pg_get_constraintdef(oid) FROM pg_constraint
 
 ## 10. 批量下载（工作台）
 
-功能说明（入口 / 流程 / 产物 / 命名 / 失败隔离 / 浏览器级验证）在
-[`docs/intention/needs.md`](docs/intention/needs.md) 的 N8 与
-[`docs/specification/domains/F4-bulk-export.md`](docs/specification/domains/F4-bulk-export.md)；
-这里只留动手前必看的三条：
-
-动手前必看：`lib/export/batch-export.ts` 顶部的注释（设计口径）；`复盘/已结案结论.md` 里
-「不能静态 import `use-export-pptx`」那条（这条链路上最容易踩的性能坑）；入口在**课程**标签
-（**默认是对话标签**，别在对话页找它）。
+功能与流程在 N8 与 F4，不在手册。动手前必看 `lib/export/batch-export.ts` 顶部注释、
+以及「不能静态 import `use-export-pptx`」那条性能坑；入口在**课程**标签（默认是对话标签）。
+详见 `docs/implementation/架构图.md` §7。
 
 ---
 
 ## 11. ★ 多窗口并发：两个对话窗口共用一个工作区
 
-2026-10-06 真事故：两窗口都改本文件，一次 `git add` 把对方那段一起提交了 —— 文档从此**描述了一个代码还没进 git 的功能**。
-
-1. **并行干不相干的活用 `git worktree add ../OpenMAIC-<主题> -b <分支>`** —— 唯一根治，新建 worktree **默认开不起来**（`node_modules` 走 PowerShell `New-Item -ItemType Junction`）→ [`docs/implementation/运维.md`](docs/implementation/运维.md) §四
-2. **只用 `git add <文件>`**，**绝不用 `-A` / `.` / `commit -a`** —— 别人的半成品卷进来，**提交信息会撒谎**。单个文件也**不**安全。
-3. **开工先现算**：`git status --short` 有没有不是自己建的文件、`git rev-parse --short HEAD`（§0.1 是快照，不符先 `git log --oneline`，**别当数据损坏**）。
-4. **本文件只加不改旧段**（§0.1 与 §8 例外）。
+并行干不相干的活用 `git worktree`；只用 `git add <文件>`，**绝不 `-A` / `.` / `commit -a`**；
+开工先现算 `git status --short` 与 `git rev-parse --short HEAD`。
+详见 `docs/implementation/运维.md` §八（纪律）与 §四（怎么建 worktree）。
 
 ---
 
 ## 12. ★ DSH 宿主层：插件不在本仓，改完必须两步
 
-目标是**换宿主**（DSH 里看课件、随口问、顺手改，不开 Edge、不维护两套）⇒ 插件即产品。
-插件在 `D:/文档/jelly_ware/_tools/dsh-plugins/`，两包 **30 个工具**（`openmaic-course` **25** +
-`openmaic-local-capabilities` 5），每包分**宿主半**/**浏览器半**：
-
-- 宿主半 `index.js` ⇒ 改完**重启 DSH**；浏览器半 `client.src.js` ⇒ `node build.mjs` → 再重启（`client.js` 13.9 MB 是产物）
-- **★ 两坑**：① 部署副本是**实体拷贝** ⇒ cp 再重启（`diff -rq lib <部署目录>` 空）；② 只改浏览器半才重建
-- 判据：四条冒烟末行 `… PASS ✅`（render/quiz/wheel/thumb；**别用** smoke-client.mjs）
-- 已收口缺陷：① `/page` 回页本体、**没有 `data` 层** ② 差集剥几何要同时剥文字 ③ `SlideCanvas` 是唯一渲染器
-- 侧栏图标是 `register(spec, 图标函数)` 的**第二参数**，取 `lib/brand/brand-config.ts` 的 `productName`/`markSrc` → §1.14
-
-**诊断/冻结/纸/材料/练习 10 个工具**都走 `lib/diag.mts` 桥（index.js 取数走 stdin，桥不碰库）：tsx 点名 `node_modules/tsx/dist/cli.mjs`、别名须 `import * as m` 再 `m.default ?? m`；**都不复刻**、直调仓内 builder → §1.16/§1.17
-- 纸与材料落文件系统：草稿纸 `data/scratchpad/<owner>.json`（`sNNN` **永不复用**）；材料库 `个人数据/材料清单/*.md`（目录读 `.env.local`，**没配不回默认值**）★ 写走沙盒且**先把真文件复制进去**（否则丢原内容）
-- 练习落 `课程与学习/练习/<stage>/`（桥纯算、宿主判越界与不覆盖）★ 沙盒 env 必须设**在 import 之前**（常量加载期求值）→ §1.18
-**编排四件**（`stage_admin` 六动作 / `whoami` / `read_document` / `quiz_fold`）：stage_admin 的 list·outline 走桥（
-`mergeStageOutline` 判据只一份）、四条写走 `db-write.mjs`（**index.js 里不拼 SQL**）→ §1.20
-- ★ **归属只在 `stage_meta`**（`document_stages.owner_id` 恒 null）；库里 9 行、本机 owner 看得见 **7 门**
-- ★ **`generation_complete` 两处独立**：`stage_meta` 全 false、计划信封全 true ⇒ 桥按**信封**判（同 `curriculum-tools.ts`）
-- ★ quiz 记录必须按 `data->'payload' ? 'phase'` 过滤（只判 payload 非空会混进 pbl 事件）
-**审查两件**（`review_course` / `page_review`）**唯一真调模型**：模型只在宿主 ⇒ 桥走**行协议 RPC**（`spawn` 保持 stdin、桥写一行 `{"__rpc":"llm",…}`、宿主调 `ctx.llm.stream` 回一行），判据不重抄 → §1.21。★ `inject` 加 `llm`+`agentDefaultModel`，**不复用** OpenMAIC 授权链；桥写完须 `stdin.destroy()` + `write` 回调里 `process.exit(0)`（否则宿主 `close` 不触发）；`page_review` 的 `null`/抛错都只是「没验成」⇒ `notVerified`，**绝不让写入失败**
-**导出两件**（`export_course` / `export_batch`）走**同一条**桥命令（单课 = 只传一门课的批量）：打包在桥做（教室 ZIP 要注入真 `store` + 内存 KV，interactive 内联要 jsdom），宿主只决定落哪。★ 桥的 `paths` 必须**扫 `exports` 表把 33 条 `@openmaic/*` 子路径全映射**（只映射两条会逐个炸）→ §1.22
-**面板件**（quiz / 滚轮 / 缩略图 / 画布编辑）判据全从仓里引（esbuild `alias` 打进 bundle），**一条不重抄**；quiz **只本地判分不写库**（记录归浏览器端 `lib/quiz/runtime.ts`，再写一份两边分叉）；缩略图走 `/thumbs`（只带 slide canvas）→ §1.23、画布编辑走 `POST /patch`（缺省 `dryRun`）→ §1.24
-**写入面**：`document_scenes` **没有版本列** ⇒ 并发保护靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；★ CAS 基准必须取**整份 data**（`db.mjs raw`），用 `page`（只有精选字段）当基准会稳定报「被别人改过了」。`dryRun:true` 默认只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
+宿主半改完重启 DSH、浏览器半 `node build.mjs` 再重启 —— 少一步就是不生效。
+判据是四条冒烟（render / quiz / wheel / thumb），**别拿 `smoke-client.mjs` 当验收**。
+详见 `docs/implementation/DSH宿主.md`。

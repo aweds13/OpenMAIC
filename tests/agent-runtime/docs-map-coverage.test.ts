@@ -24,6 +24,44 @@ import { describe, expect, it } from 'vitest';
  */
 const AGENTS = readFileSync(join(process.cwd(), 'AGENTS.md'), 'utf8');
 
+/**
+ * ★ 2026-10-31 起，本 fork 的知识搬进了 `docs/`（五层结构），`AGENTS.md` 只留
+ * **指针地图**（~100 行量级）。所以"进了地图"的落点从"必须在 AGENTS.md 正文里"
+ * 改成"**在 AGENTS.md 或 docs/ 里**"—— 判据一个字没放宽：
+ * 仍然是"本 fork 新增的每个文件都必须有一处文档写到它"，只是那处文档可以在 `docs/`。
+ *
+ * 为什么必须改：旧落点会让 AGENTS.md 无限膨胀（每加一个源码文件就得往 §2 追一行，
+ * 实测被逼到 56 KB / 739 行）。工程界口径是 AGENTS.md 做索引、知识进 docs
+ * （见 `docs/决策记录/AGENTS重构.md`）。
+ *
+ * 读不到 `docs/` 时退回"只有 AGENTS.md"——那会让判据更严而不是更松，不会假绿。
+ */
+function docCorpus(): string {
+  const parts = [AGENTS];
+  const walk = (dir: string): void => {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = readdirSync(join(process.cwd(), dir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const rel = dir + '/' + entry.name;
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        walk(rel);
+      } else if (entry.name.endsWith('.md')) {
+        parts.push(readFileSync(join(process.cwd(), rel), 'utf8'));
+      }
+    }
+  };
+  walk('docs');
+  return parts.join(String.fromCharCode(10));
+}
+
+/** 文档语料库（`AGENTS.md` + docs 下递归全部 .md）。"进了地图"判据按它查。 */
+const DOCS = docCorpus();
+
 /** 本 fork 的基线（AGENTS.md §0 记的就是它）。 */
 const BASELINE = '57fbcc4';
 
@@ -128,7 +166,7 @@ describe('★ AGENTS.md 文件地图与现实对账', () => {
     }
     expect(added.length, '一个新增文件都没解析到 —— 基线或路径过滤写错了').toBeGreaterThan(20);
 
-    const missing = added.filter((path) => !AGENTS.includes(path.split('/').at(-1)!));
+    const missing = added.filter((path) => !DOCS.includes(path.split('/').at(-1)!));
     expect(missing, `这些是本 fork 新增的文件，但没写进 §2 地图：\n${missing.join('\n')}`).toEqual(
       [],
     );
@@ -258,7 +296,7 @@ describe('★ 动过的一级条目都写在手册里', () => {
       '架构图.md',
       '复盘',
     ]);
-    const missing = roots.filter((root) => !selfReferential.has(root) && !AGENTS.includes(root));
+    const missing = roots.filter((root) => !selfReferential.has(root) && !DOCS.includes(root));
     expect(missing, `这些顶层条目被改过，但手册里没有它们 —— 新窗口不会去那里找：`).toEqual([]);
   });
 });
