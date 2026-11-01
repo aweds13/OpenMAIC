@@ -36,4 +36,21 @@
 **审查两件**（`review_course` / `page_review`）**唯一真调模型**：模型只在宿主 ⇒ 桥走**行协议 RPC**（`spawn` 保持 stdin、桥写一行 `{"__rpc":"llm",…}`、宿主调 `ctx.llm.stream` 回一行），判据不重抄 → `复盘/已结案结论.md` §1.21。★ `inject` 加 `llm`+`agentDefaultModel`，**不复用** OpenMAIC 授权链；桥写完须 `stdin.destroy()` + `write` 回调里 `process.exit(0)`（否则宿主 `close` 不触发）；`page_review` 的 `null`/抛错都只是「没验成」⇒ `notVerified`，**绝不让写入失败**
 **导出两件**（`export_course` / `export_batch`）走**同一条**桥命令（单课 = 只传一门课的批量）：打包在桥做（教室 ZIP 要注入真 `store` + 内存 KV，interactive 内联要 jsdom），宿主只决定落哪。★ 桥的 `paths` 必须**扫 `exports` 表把 33 条 `@openmaic/*` 子路径全映射**（只映射两条会逐个炸）→ `复盘/已结案结论.md` §1.22
 **面板件**（quiz / 滚轮 / 缩略图 / 画布编辑）判据全从仓里引（esbuild `alias` 打进 bundle），**一条不重抄**；quiz **只本地判分不写库**（记录归浏览器端 `lib/quiz/runtime.ts`，再写一份两边分叉）；缩略图走 `/thumbs`（只带 slide canvas）→ `复盘/已结案结论.md` §1.23、画布编辑走 `POST /patch`（缺省 `dryRun`）→ `复盘/已结案结论.md` §1.24
+**面板四件（F88 标签页 / F77 批量下载 / F84 折叠 / F89 请求活动，2026-11-01 落地）**：
+- F88 课程标签页只搬**行为契约**（`role=tablist` + `aria-selected` + ←/→ Home/End Delete + 关闭按钮
+  `tabIndex:-1` 且 `stopPropagation` + 关掉当前页签接管给邻页签、都没有就留空）；仓里那 259 行用的
+  是 `.ws-ctab` 样式表 + 滚动淡出贴图，面板里没有那张表，搬过来等于搬一半进去。
+- F77 批量下载：宿主 `POST /export-batch` → 桥 `mode:"batch"`（`buildBatchExportZip` 同一条路，判据一条不重抄）；
+  **必须用 `runDiagAsync`（spawn + Promise）** —— 原来的 `runDiag` 是 `spawnSync`，批量导十门课几分钟会把
+  DSH 事件循环按住。回执里**不含 blob**：ZIP 落磁盘、回路径；面板再造一条下载链会把「落在哪」变成两个答案。
+- F84 折叠：左栏/中栏可折（折叠后 16px 竖条，点它展开），**主区永远不折** —— 与仓里
+  `resolveWorkspaceRender` 的「最后一个可见 pane 不能折叠」同一条理由。
+- F89 请求活动：宿主 `ACTIVITY` 环形缓冲（最近 40 条）+ `GET /activity`，挂 `res` 的 `finish` **与** `close`
+  （正常结束走 finish、连接早断走 close）；`/activity` 自己不入账（面板每开一次就来读，记了会把要看的冲掉）。
+- ★ **视图互斥只写一遍**：材料/活动/下载三个视图收敛成一个 `setView(next)`。第一版让每个按钮各自去关
+  另外两个，实测漏了材料那处（点材料时活动面板不关）—— 三处逻辑必须永远一致，改一处就漏一处。
+- ★ **面板级断言必须限定在那一块区域里**：F85 折叠判据用全局 `textContent`，命中了课程标签条里的课名；
+  F87「没有写按钮」扫了全部 `<button>`，命中工具栏的画布编辑按钮（F18）。同一个词会同时出现在导航、
+  工具栏、内容区三处，全局匹配会把「另一处的正确行为」当成「这一处的错误」。
+
 **写入面**：`document_scenes` **没有版本列** ⇒ 并发保护靠 jsonb 值本身（CAS `where stage_id=$2 and id=$3 and data=$4::jsonb`）；★ CAS 基准必须取**整份 data**（`db.mjs raw`），用 `page`（只有精选字段）当基准会稳定报「被别人改过了」。`dryRun:true` 默认只算差集 = **设计不是不方便**。`openmaic_active` 是**进程内状态**，重启就空 —— **空 ≠ 坏**。
