@@ -60,6 +60,9 @@ describe('materials library tools', () => {
 
     expect(out.content[0].text).toContain('| dart | x |');
     expect(out.content[0].text).toContain('dart-flutter');
+    // ★ 索引正文只从这里出去，所以它必须在围栏里（反向保护：
+    // 提示词侧已不放它，若这里也不围，就没人守了）。
+    expect(out.content[0].text).toMatch(/^<untrusted-material-content-[0-9a-f]{16}>/);
   });
 
   it('read_materials refuses a topic that escapes the folder', async () => {
@@ -150,7 +153,7 @@ describe('resolveMaterialsIndex', () => {
 describe('materialsIndexPromptBlock', () => {
   it('makes the gather → ask → record order explicit', async () => {
     const mod = await loadWith(undefined);
-    const block = mod.materialsIndexPromptBlock('# 索引\n');
+    const block = mod.materialsIndexPromptBlock();
 
     expect(block).toContain('## Materials library');
     // 用户的核心要求：清单是 agent 问过之后写出来的，不是用户预填的。
@@ -159,7 +162,9 @@ describe('materialsIndexPromptBlock', () => {
     expect(block).toContain('web_search');
     // 别凭书名猜内容（最容易犯的错）。
     expect(block).toContain('Do not reconstruct a material');
-    // 索引本体必须在里面。
-    expect(block).toContain('# 索引');
+    // ★ 索引正文**不在**系统提示词里：围栏 nonce 每轮变，进了就把它后面几块推出前缀缓存。
+    // 索引由 read_materials 不带 topic 时从工具结果给出（见工具侧围栏测试）。
+    expect(block).not.toContain('# 索引');
+    expect(block).toContain('The index itself is not in this prompt');
   });
 });

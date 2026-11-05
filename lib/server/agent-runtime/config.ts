@@ -17,6 +17,33 @@ const numberFromEnv = (value: string | undefined, fallback: number) =>
  */
 export const DEFAULT_COMPACTION_CONTEXT_BUDGET_TOKENS = 150_000;
 
+/**
+ * A read whose whole range fits in this many characters comes back in one
+ * piece; only a longer one is paged. 30k is about one long article — enough
+ * that the model stops paging through four 8k pages to read something it
+ * already asked for in full.
+ */
+export const DEFAULT_MATERIAL_FULLTEXT_THRESHOLD_CHARS = 30_000;
+
+/**
+ * The material read-side full-text threshold, in characters.
+ *
+ * Read at call time, not at module load: an operator sets
+ * `MATERIAL_FULLTEXT_THRESHOLD` (or the house-prefixed
+ * `OPENMAIC_MATERIAL_FULLTEXT_THRESHOLD`) and a test can set it per case
+ * without re-importing the module graph. A value that is not a positive
+ * integer falls back to the default rather than making reads throw.
+ */
+export function materialFulltextThresholdChars(): number {
+  const raw =
+    process.env.MATERIAL_FULLTEXT_THRESHOLD?.trim() ||
+    process.env.OPENMAIC_MATERIAL_FULLTEXT_THRESHOLD?.trim();
+  if (!raw) return DEFAULT_MATERIAL_FULLTEXT_THRESHOLD_CHARS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_MATERIAL_FULLTEXT_THRESHOLD_CHARS;
+  return Math.floor(parsed);
+}
+
 export const agentRuntimeConfig = {
   /** How often the runner scans for claimable sessions. */
   scanIntervalMs: numberFromEnv(process.env.OPENMAIC_AGENT_RUNTIME_SCAN_INTERVAL_MS, 1000),

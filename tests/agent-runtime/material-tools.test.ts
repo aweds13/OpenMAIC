@@ -110,6 +110,25 @@ function isErrorOf(result: unknown): boolean | undefined {
   return (result as { isError?: boolean }).isError;
 }
 
+/**
+ * Pin the read-side full-text window for one test.
+ *
+ * `materialFulltextThresholdChars()` reads the environment per call, so a test
+ * that is about paging boundaries asks for a small window instead of writing
+ * 30k-character fixtures. The default (30k, one whole read for most materials)
+ * has its own test below.
+ */
+async function withReadWindow<T>(chars: number, body: () => Promise<T>): Promise<T> {
+  const previous = process.env.MATERIAL_FULLTEXT_THRESHOLD;
+  process.env.MATERIAL_FULLTEXT_THRESHOLD = String(chars);
+  try {
+    return await body();
+  } finally {
+    if (previous === undefined) delete process.env.MATERIAL_FULLTEXT_THRESHOLD;
+    else process.env.MATERIAL_FULLTEXT_THRESHOLD = previous;
+  }
+}
+
 /** Strip the house untrusted fence, returning the verbatim page body. */
 function fencedBodyOf(result: { content: Array<{ type?: string; text?: string }> }): string {
   const text = (result.content[0] as { text: string }).text;
@@ -408,7 +427,7 @@ describe('material agent tools', () => {
     expect(JSON.stringify(result)).not.toContain('foreign');
   });
 
-  it('pages text at 8000 characters inside the untrusted fence and returns the next offset', async () => {
+  it('pages text at the configured window inside the untrusted fence and returns the next offset', async () => {
     const text = 'a'.repeat(8000) + 'b'.repeat(25);
     const read = tool(
       buildMaterialTools({
@@ -418,7 +437,9 @@ describe('material agent tools', () => {
       }),
       'read_material',
     );
-    const first = await read.execute('call_1', { materialId: 'mat_visible' } as never);
+    const first = await withReadWindow(8000, () =>
+      read.execute('call_1', { materialId: 'mat_visible' } as never),
+    );
     expect(fencedBodyOf(first)).toBe('a'.repeat(8000));
     // The fence frames the page as untrusted data; the trusted metadata stays
     // in details.
@@ -432,11 +453,13 @@ describe('material agent tools', () => {
       revision: 'session:mat_visible',
     });
 
-    const second = await read.execute('call_2', {
-      materialId: 'mat_visible',
-      offset: 8000,
-      revision: 'session:mat_visible',
-    } as never);
+    const second = await withReadWindow(8000, () =>
+      read.execute('call_2', {
+        materialId: 'mat_visible',
+        offset: 8000,
+        revision: 'session:mat_visible',
+      } as never),
+    );
     expect(fencedBodyOf(second)).toBe('b'.repeat(25));
     expect(second.details).toMatchObject({ offset: 8000, totalChars: 8025 });
     expect(second.details).not.toHaveProperty('nextOffset');
@@ -455,17 +478,21 @@ describe('material agent tools', () => {
       }),
       'read_material',
     );
-    const first = await read.execute('call_1', { materialId: 'mat_visible' } as never);
+    const first = await withReadWindow(8000, () =>
+      read.execute('call_1', { materialId: 'mat_visible' } as never),
+    );
     expect(fencedBodyOf(first)).toBe('a'.repeat(7999));
     expect(first.details).toMatchObject({ offset: 0, nextOffset: 7999, totalChars: 8026 });
 
     // A caller-provided offset inside the pair snaps back to the pair start,
     // so the emoji is delivered whole.
-    const second = await read.execute('call_2', {
-      materialId: 'mat_visible',
-      offset: 8000,
-      revision: 'session:mat_visible',
-    } as never);
+    const second = await withReadWindow(8000, () =>
+      read.execute('call_2', {
+        materialId: 'mat_visible',
+        offset: 8000,
+        revision: 'session:mat_visible',
+      } as never),
+    );
     expect(fencedBodyOf(second)).toBe('😀' + 'b'.repeat(25));
     expect(second.details).toMatchObject({ offset: 7999, totalChars: 8026 });
   });
@@ -885,7 +912,9 @@ describe('material agent tools', () => {
       }),
       'read_material',
     );
-    const result = await read.execute('call_1', { materialId: 'src_a' } as never);
+    const result = await withReadWindow(8000, () =>
+      read.execute('call_1', { materialId: 'src_a' } as never),
+    );
     // Only content reaches the model.
     expect(result.content).toHaveLength(2);
     const metadata = (result.content[1] as { text: string }).text;

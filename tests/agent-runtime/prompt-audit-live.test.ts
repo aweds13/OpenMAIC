@@ -89,7 +89,7 @@ describe.skipIf(process.env.TEST_LOAD_LOCAL_ENV !== '1')('工作台提示词审�
       ...(planGateEnabled() ? { planFreeze: planFreezePromptBlock() } : {}),
       courseDesign: courseDesignPromptBlock({ hasMaterials: true, hasCourseLibrary: true }),
       curriculum: CURRICULUM_TOOLS_PROMPT,
-      ...(materialsIndex ? { materialsLibrary: materialsIndexPromptBlock(materialsIndex) } : {}),
+      ...(materialsIndex ? { materialsLibrary: materialsIndexPromptBlock() } : {}),
       ...(learnerProfile ? { learnerProfile: learnerProfilePromptBlock(learnerProfile) } : {}),
       fetch: fetchPromptBlock(),
       untrustedContent: untrustedContentPolicyPromptBlock(),

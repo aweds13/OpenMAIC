@@ -141,9 +141,10 @@ export function fetchPromptBlock(): string {
     '',
     '**The preview is about 2000 characters of a page that is often ten times longer.** Read it',
     'to decide whether the page matters, then page through the rest with',
-    '`read_material(materialId, offset)` — 8000 characters per call, following `nextOffset` until',
-    'it stops coming back. Reading only the preview and then describing the page is claiming to',
-    'have read something you have not read; when the user needs a specific section, use',
+    '`read_material(materialId, offset)` — up to about 30000 characters in one read, following',
+    '`nextOffset` until it stops coming back. Reading only the preview and then describing the',
+    'page is claiming to have read something you have not read; when the user needs a specific',
+    'section, use',
     '`search_material` to land on it instead of paging from the top.',
     'If a fetch is refused by an anti-bot check or returns 403/404, say so plainly and search for',
     'another source — do not present a blocked page as if its content had been read.',
@@ -267,7 +268,7 @@ export function buildFetchUrlTool(deps: FetchUrlToolDependencies): AgentTool<nev
        * 只能拿 2000 字符当"我读过了"。
        *
        * 现在这条提示把死指针接上：明确说这是第几段、总长多少、下一段怎么取。
-       * 续读走 `read_material`（每页 8000 字符，见 material-tools.ts）。
+       * 续读走 `read_material`（一次最多约 30000 字符，见 material-tools.ts）。
        */
       const continuation =
         nextOffset === undefined

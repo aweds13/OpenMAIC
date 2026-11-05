@@ -49,6 +49,7 @@ import {
 import { assembleRunnerTools, buildRunnerCoursePrompt } from './runner-contract';
 import type { CoursePromptBlocks } from './course-tools';
 import { buildMaterialTools } from './material-tools';
+import { expandMaterialQuery } from './material-query-expansion';
 import { defaultLocale, supportedLocaleOf, type Locale } from '@/lib/i18n/types';
 import { startExtractionWatcher, type ExtractionWatcher } from './extraction-watcher';
 import { buildMaterialLibraryTools, type MaterialLibraryChange } from './material-library-tools';
@@ -1766,6 +1767,9 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       onLibraryChanged: onMaterialLibraryChanged,
       extractionWatcher,
       locale: () => runLocale,
+      // 查询扩展走回归模型（`web-search-query-rewrite` 槽位）；它永不抛，
+      // 没模型 / 超时 / 任何失败都只搜原词（§D3）。
+      expandQuery: (query, signal) => expandMaterialQuery(query, { ownerId: meta.ownerId, signal }),
     });
     // Organizing the knowledge base: the run's owner, never a parameter.
     const materialLibraryTools = buildMaterialLibraryTools({
@@ -1981,7 +1985,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         : undefined,
       browse: browse ? browsePromptBlock({ hasWebSearch: Boolean(search) }) : undefined,
       mcp: mcp.names.length ? mcpPromptBlock(mcp.names) : undefined,
-      materialsLibrary: materialsIndex ? materialsIndexPromptBlock(materialsIndex) : undefined,
+      materialsLibrary: materialsIndex ? materialsIndexPromptBlock() : undefined,
       learnerProfile: learnerProfile ? learnerProfilePromptBlock(learnerProfile) : undefined,
       // fetch_url 没配能力时整块不出现：注册面、allowedToolNames、这里三处同源（§1.1）。
       fetch: fetchConnection ? fetchPromptBlock() : undefined,

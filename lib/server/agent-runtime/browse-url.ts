@@ -38,7 +38,7 @@
  *   1. `web_search`     —— 找有哪些页面（返回 URL，进 session 信任门）
  *   2. `browse_url`     —— 打开页面**看内容**（渲染后取正文，可以带 maxChars）
  *   3. `fetch_url`      —— 把**值得留下的**页面整篇抓成本会话的 web material
- *   4. `read_material`  —— 分段精读那份 material（8000 字符/页）
+ *   4. `read_material`  —— 分段精读那份 material（一次最多约 30000 字符）
  *
  * 如果只说"优先用浏览器"，模型会用浏览器读一遍、然后就没有然后了 ——
  * 内容没有落成 material，也就没法精读、没法在后面的页面生成里引用。
@@ -135,12 +135,14 @@ export function browsePromptBlock(capabilities: BrowsePromptCapabilities): strin
           "1. `web_search` — find which pages exist (a returned URL enters this session's trust gate).",
           '2. `browse_url` — open a candidate and see what is actually on it.',
           '3. `fetch_url` — once a page is worth keeping, store it; then `read_material` through the',
-          '   stored copy at 8000 characters a page, following `nextOffset` until it stops coming back.',
+          '   stored copy in reads of up to about 30000 characters, following `nextOffset` until it',
+          '   stops coming back.',
         ]
       : [
           '1. `browse_url` — open a candidate and see what is actually on it.',
           '2. `fetch_url` — once a page is worth keeping, store it; then `read_material` through the',
-          '   stored copy at 8000 characters a page, following `nextOffset` until it stops coming back.',
+          '   stored copy in reads of up to about 30000 characters, following `nextOffset` until it',
+          '   stops coming back.',
         ]),
     '',
     'Reading a page you browsed but never fetched means you cannot quote it, page through it, or',

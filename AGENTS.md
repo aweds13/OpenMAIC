@@ -300,4 +300,5 @@
 
 宿主半改完重启 DSH、浏览器半 `node build.mjs` 再重启 —— 少一步就是不生效。
 判据是四条冒烟（render / quiz / wheel / thumb），**别拿 `smoke-client.mjs` 当验收**。
+★ 插件仓另有 `npm run check`（工具注册面 + 参数 DSL 静态扫）与 `build.mjs` 内三道构建守卫；它们**不在 engineering 那 22 道门里**，也不该进去（那 22 道门跑的是本仓 Python/文档/UI，对「插件能不能起」零信息量）。
 详见 `docs/implementation/DSH宿主.md`。
