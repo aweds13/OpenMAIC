@@ -218,6 +218,7 @@
 - **§6.8 `个人数据\` 只放学习成长的东西**：harness 的调试产物跟 harness 走，别混进去 → 详见 `docs/implementation/坑.md`
 - **§6.9 拿上游估算器做下游决策前先问假设**：先写下它假设了什么没变，再问新功能打破了哪一条 → 详见 `docs/implementation/坑.md`
 - **§6.10 分段工具的「前面所有页」必须指全课**：否则假阳性是工具自己造的；「审查说蠢话」先分工具错前提还是模型没照做 → 详见 `docs/implementation/坑.md`
+- **§6.11 DSH 的 `{type:"object"}` 参数必须显式写 `additionalProperties`**：`defineTool` 的 DSL 会抛，而插件 `register()` 把它吞成一条 `console.warn`（DSH 不落启动日志）⇒ 那个工具**静默不进模型侧**，源码 29 个只到 28 → 详见 `复盘/已结案结论.md` §1.28
 
 ---
 
