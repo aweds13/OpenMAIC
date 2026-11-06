@@ -8,7 +8,6 @@
 import type { NextRequest } from 'next/server';
 
 import { isAgentRuntimeConfigured } from '@/lib/config/feature-flags';
-import { deleteMaterialFolder, renameMaterialFolder } from '@/lib/persistence/material-library';
 import { ownerJson, withOwnerResponseHeaders } from '@/lib/server/agent-runtime/route-response';
 import { withRequestOwner } from '@/lib/server/identity/with-owner';
 import {
@@ -18,6 +17,7 @@ import {
   libraryRefusal,
   libraryWriteError,
 } from '@/lib/server/materials/library-routes';
+import { createMaterialAdminService } from '@/lib/server/materials/material-service';
 import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -34,7 +34,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params;
   return withRequestOwner(req, async ({ ownerId }, headers) => {
     try {
-      const outcome = await renameMaterialFolder(await libraryPersistence(), {
+      const service = createMaterialAdminService(await libraryPersistence());
+      const outcome = await service.renameFolder({
         ownerId,
         folderId: id,
         name,
@@ -61,7 +62,8 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const { id } = await params;
   return withRequestOwner(req, async ({ ownerId }, headers) => {
     try {
-      const outcome = await deleteMaterialFolder(await libraryPersistence(), {
+      const service = createMaterialAdminService(await libraryPersistence());
+      const outcome = await service.deleteMaterialFolder({
         ownerId,
         folderId: id,
         fence: 'request',

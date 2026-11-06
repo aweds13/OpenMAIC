@@ -5,14 +5,13 @@
  * Body `{ materialIds: string[], folderId: string | null }`. All or nothing:
  * 422 `not_movable` lists the ids that cannot move (missing, another owner's,
  * deleted, not ready, or a derivative), and nothing moves; 404 when the
- * folder is missing or another owner's. A thin adapter over
- * `lib/persistence/material-library.ts`, which the agent's `move_materials`
- * calls too.
+ * folder is missing or another owner's. A thin adapter over the material
+ * service (`lib/server/materials/material-service.ts`), which the agent's
+ * `move_materials` calls too.
  */
 import type { NextRequest } from 'next/server';
 
 import { isAgentRuntimeConfigured } from '@/lib/config/feature-flags';
-import { moveMaterials } from '@/lib/persistence/material-library';
 import { ownerJson } from '@/lib/server/agent-runtime/route-response';
 import { withRequestOwner } from '@/lib/server/identity/with-owner';
 import {
@@ -22,6 +21,7 @@ import {
   libraryRefusal,
   libraryWriteError,
 } from '@/lib/server/materials/library-routes';
+import { createMaterialAdminService } from '@/lib/server/materials/material-service';
 
 export const runtime = 'nodejs';
 
@@ -45,7 +45,8 @@ export async function POST(req: NextRequest) {
   }
   return withRequestOwner(req, async ({ ownerId }, headers) => {
     try {
-      const outcome = await moveMaterials(await libraryPersistence(), {
+      const service = createMaterialAdminService(await libraryPersistence());
+      const outcome = await service.moveMaterials({
         ownerId,
         materialIds: materialIds as string[],
         folderId: folderId as string | null,

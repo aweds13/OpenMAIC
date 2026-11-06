@@ -19,7 +19,6 @@
 import type { NextRequest } from 'next/server';
 
 import { isAgentRuntimeConfigured } from '@/lib/config/feature-flags';
-import { listMaterialFolderNames } from '@/lib/persistence/material-library';
 import { attachedMaterialIds, listOwnerLibrary } from '@/lib/persistence/session-material-links';
 import { ownerJson, ownerNotFound } from '@/lib/server/agent-runtime/route-response';
 import {
@@ -29,6 +28,7 @@ import {
 import { withRequestOwner } from '@/lib/server/identity/with-owner';
 import { libraryPersistence, libraryRefusal } from '@/lib/server/materials/library-routes';
 import { libraryLimits, libraryMaterialView } from '@/lib/server/materials/library-view';
+import { createMaterialAdminService } from '@/lib/server/materials/material-service';
 
 export const runtime = 'nodejs';
 
@@ -61,7 +61,9 @@ export async function GET(req: NextRequest) {
     if (sessionId && !(await resolveOwnedSession(sessionId, ownerId))) {
       return ownerNotFound(headers);
     }
-    const { pool } = await libraryPersistence();
+    const persistence = await libraryPersistence();
+    const { pool } = persistence;
+    const service = createMaterialAdminService(persistence);
     const [entries, limits, folders] = await Promise.all([
       listOwnerLibrary(pool, ownerId, {
         ...(folderId !== undefined ? { folderId } : {}),
@@ -71,7 +73,7 @@ export async function GET(req: NextRequest) {
         limit,
       }),
       includeLimits ? libraryLimits(pool, ownerId) : undefined,
-      listMaterialFolderNames(pool, ownerId),
+      service.listFolderNames({ ownerId }),
     ]);
     const attached = sessionId
       ? await attachedMaterialIds(

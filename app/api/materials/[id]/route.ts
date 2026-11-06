@@ -14,8 +14,9 @@ import { fenceOwnerWrite } from '@/lib/persistence/owner-merges';
  * owner's library: its display name, keeping the uploaded file name;
  * `unchanged` when it already shows that name. A derivative answers 409
  * `derivative` (it is named after its source); a missing or another owner's
- * material 404. A thin adapter over `lib/persistence/material-library.ts`,
- * which the agent's `rename_material` calls too.
+ * material 404. A thin adapter over the material service
+ * (`lib/server/materials/material-service.ts`), which the agent's
+ * `rename_material` calls too.
  *
  * DELETE /api/materials/[id] deletes the request owner's ready source and
  * its derivatives atomically (204, no body). Missing, foreign, uploading
@@ -46,7 +47,6 @@ import { resolveMaterial } from '@/lib/server/agent-runtime/material-resolver';
 import { sessionScopeMaterialView } from '@/lib/server/materials/library-view';
 import { ownerJson, ownerNotFound } from '@/lib/server/agent-runtime/route-response';
 import { withRequestOwner } from '@/lib/server/identity/with-owner';
-import { deleteMaterial, renameMaterial } from '@/lib/persistence/material-library';
 import {
   jsonObjectBody,
   libraryNotFound,
@@ -54,6 +54,7 @@ import {
   libraryRefusal,
   libraryWriteError,
 } from '@/lib/server/materials/library-routes';
+import { createMaterialAdminService } from '@/lib/server/materials/material-service';
 
 export const runtime = 'nodejs';
 
@@ -101,7 +102,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params;
   return withRequestOwner(req, async ({ ownerId }, headers) => {
     try {
-      const outcome = await renameMaterial(await libraryPersistence(), {
+      const outcome = await createMaterialAdminService(await libraryPersistence()).renameMaterial({
         ownerId,
         materialId: id,
         name,
@@ -137,7 +138,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       const classic = usesClassicExtraction(record);
       if (!classic && !isAgentRuntimeConfigured())
         return new Response('Not found', { status: 404, headers });
-      const outcome = await deleteMaterial(persistence, {
+      const outcome = await createMaterialAdminService(persistence).deleteMaterial({
         ownerId,
         materialId: id,
         fence: 'request',
