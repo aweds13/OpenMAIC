@@ -52,6 +52,7 @@ import {
   heartbeatOwnerMaterialExtraction,
   publishOwnerMaterialExtraction,
   settleOwnerMaterialExtractionFailure,
+  sweepExpiredExtractions,
   type OwnerExtractionClaim,
   type OwnerExtractionDerivative,
   type OwnerExtractionPublication,
@@ -698,6 +699,23 @@ export function startOwnerExtractionRunner(
     if (stopping) return;
     try {
       const resolved = await dependencies();
+      // Before claiming: a claim whose worker died leaves the row `running`
+      // with a lease nothing renews. `claimNextOwnerMaterialExtraction` takes
+      // such a row over while its owner's limit and the claim budget allow,
+      // and that stays the first line of recovery; this settles the ones
+      // nothing will ever pick up again (owner limit full, or no runner
+      // anywhere near the row), so the library shows a retryable failure
+      // instead of a spinner that never ends. Two lease periods: a live
+      // worker renews once per period.
+      try {
+        await sweepExpiredExtractions(resolved.persistence.pool, {
+          leaseTtlMs: options.leaseTtlMs ?? OWNER_EXTRACTION_LEASE_TTL_MS,
+          now: resolved.now?.(),
+        });
+      } catch (error) {
+        // A sweep that failed settles nothing; the next tick tries again.
+        console.warn('[owner-extraction] sweep failed', error);
+      }
       for (let slot = running.size; !stopping && slot < maxConcurrent; slot += 1) {
         const run: Promise<void> = runNextOwnerExtraction(resolved, {
           ...options,

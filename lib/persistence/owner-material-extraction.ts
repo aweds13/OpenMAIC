@@ -374,6 +374,60 @@ export async function settleOwnerMaterialExtractionFailure(
 }
 
 /**
+ * The lease a claim is given, mirrored from the runner
+ * (`OWNER_EXTRACTION_LEASE_TTL_MS` in
+ * `lib/server/material-extraction/owner-extraction.ts`). It cannot be imported
+ * from there: that module already imports this one. Only the sweep's default
+ * reads it; the runner passes its own value in.
+ */
+export const DEFAULT_OWNER_EXTRACTION_LEASE_TTL_MS = 60_000;
+
+export interface SweepExpiredExtractionsOptions {
+  now?: number;
+  leaseTtlMs?: number;
+}
+
+/**
+ * Settle claims whose worker died: a `running` source whose lease has not been
+ * renewed for two whole lease periods is written `failed` with
+ * `processing_interrupted`, so the library shows a failure the user can retry.
+ *
+ * Two periods, not one: a live worker renews once per period (a PDF parser can
+ * hold the event loop for most of one), so only a claim that missed a renewal
+ * *and* then went quiet for another period is gone. Taking over an expired
+ * lease (`claimNextOwnerMaterialExtraction`) stays the first line of recovery;
+ * this is the backstop for claims nothing else picks up -- a source whose
+ * owner limit is already full, or a runner that is no longer running at all.
+ *
+ * One statement, no select-then-update: the condition is re-read under the row
+ * lock the `UPDATE` takes, so a claim renewed meanwhile is not swept.
+ * Returns only how many rows it settled.
+ */
+export async function sweepExpiredExtractions(
+  queryable: Queryable,
+  options: SweepExpiredExtractionsOptions = {},
+): Promise<{ swept: number }> {
+  const leaseTtlMs = options.leaseTtlMs ?? DEFAULT_OWNER_EXTRACTION_LEASE_TTL_MS;
+  if (!Number.isSafeInteger(leaseTtlMs) || leaseTtlMs <= 0) {
+    throw new Error('owner extraction: leaseTtlMs must be a positive integer');
+  }
+  const now = options.now ?? Date.now();
+  const expiredBefore = now - 2 * leaseTtlMs;
+  const result = await queryable.query(
+    `UPDATE owner_material
+        SET extraction = $2::jsonb,
+            extraction_error = 'extraction was interrupted: its lease expired',
+            extraction_token = NULL, extraction_lease_at = NULL
+      WHERE kind = 'source' AND deleted_at IS NULL
+        AND ${STATUS} = 'running'
+        AND (extraction_lease_at IS NULL OR extraction_lease_at < $1::double precision)
+      RETURNING id`,
+    [expiredBefore, statusJson('failed', 'processing_interrupted')],
+  );
+  return { swept: result.rows.length };
+}
+
+/**
  * Inside an allocation's transaction, after its owner fence: throw
  * {@link OwnerExtractionClaimLostError} unless the claim is still the current
  * one of an undeleted source of `ownerId`. A plain read, deliberately not a

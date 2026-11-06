@@ -113,6 +113,28 @@ export async function register(): Promise<void> {
     console.error('[instrumentation] Material extractor startup failed', error);
   }
   try {
+    // Owner-level extraction of library sources (RFC #1716): what a
+    // conversation links is extracted once per owner, beside the session
+    // chain, which keeps serving copies made before links.
+    //
+    // Library uploads are a persistence capability, not an agent-runtime one:
+    // a deployment that configures only persistence still accepts uploads into
+    // the library. Starting this runner from the agent-runtime branch alone
+    // therefore left such deployments with rows stuck in `pending` forever --
+    // accepted, with no worker to claim them. Hence the disjunction below.
+    // It does not double-start where both hold: the agent runtime already
+    // requires persistence (lib/config/feature-flags.ts), and this is the
+    // only place that starts the runner.
+    const { isAgentRuntimeConfigured, isServerPersistenceConfigured } =
+      await import('@/lib/config/feature-flags');
+    if (isServerPersistenceConfigured() || isAgentRuntimeConfigured()) {
+      const ownerExtraction = await import('@/lib/server/material-extraction/owner-extraction');
+      ownerExtractionRunner = ownerExtraction.startOwnerExtractionRunner();
+    }
+  } catch (error) {
+    console.error('[instrumentation] Owner extraction runner startup failed', error);
+  }
+  try {
     const { isAgentRuntimeConfigured } = await import('@/lib/config/feature-flags');
     if (isAgentRuntimeConfigured()) {
       // One dedicated LISTEN connection per application instance. The HTTP
@@ -128,11 +150,6 @@ export async function register(): Promise<void> {
       runner = runtime.startAgentRunner();
       const extraction = await import('@/lib/server/material-extraction/runner');
       extractionRunner = extraction.startMaterialExtractionRunner();
-      // Owner-level extraction of library sources (RFC #1716): what a
-      // conversation links is extracted once per owner, beside the session
-      // chain, which keeps serving copies made before links.
-      const ownerExtraction = await import('@/lib/server/material-extraction/owner-extraction');
-      ownerExtractionRunner = ownerExtraction.startOwnerExtractionRunner();
       // Two bounded passes over old material objects, one per start each;
       // neither blocks register() (see lib/server/materials/migrate-to-pool.ts).
       const materialPasses = import('@/lib/server/materials/migrate-to-pool');
