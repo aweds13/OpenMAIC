@@ -19,6 +19,8 @@
 | 实现 | [`docs/implementation/modules.md`](docs/implementation/modules.md) | M1–M13 模块索引；`coverage.md` 的判据矩阵 |
 | 品味 | [`docs/taste/README.md`](docs/taste/README.md) | 产品 / 架构 / 工程品味与红线、冲突排序 |
 
+表外还有 [`docs/research/`](docs/research/README.md)：**不是第六层**，是证据留存区（动手之前的勘察读数，只写实测不写应该怎样）。出路两条 —— 被推翻就删，成立就升格进上面五层。**别把规格写成 research**。
+
 | 活文件 | 给谁看 | 装什么 |
 |---|---|---|
 | **本文件**（`AGENTS.md`） | **agent** | **规则 + 现状**：改哪一层、文件地图、证据命令、坑；§0 一句话现状、§8 未决项。★ **会被注入，预算 56000 字节** |
