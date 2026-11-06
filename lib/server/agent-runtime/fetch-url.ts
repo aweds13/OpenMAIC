@@ -27,6 +27,7 @@ import {
 } from '@/lib/web-fetch/builtin-extraction';
 import { createWebMaterial } from './session-materials';
 import { isSessionUrlAllowed } from './session-urls';
+import { untrustedMaterialBlock } from './untrusted-material';
 
 export {
   FetchUrlError,
@@ -293,8 +294,33 @@ export function buildFetchUrlTool(deps: FetchUrlToolDependencies): AgentTool<nev
         content: preview,
       };
       const structured = { trusted, untrusted };
+      /**
+       * 模型看到的那份：围栏外只有**产物自己的**元数据（url、material id、总长、
+       * 续读指针），围栏内是网页正文的逐字预览。
+       *
+       * 以前这里是把 `{trusted, untrusted}` 直接 `JSON.stringify` 出去 —— 正文
+       * 于是以一个**看起来可信的结构化字段**（`untrusted.content`）出现在模型
+       * 眼前，字段名里的 "untrusted" 是给读代码的人看的，不是给模型看的边界。
+       * 05 规格要求正文处在不可伪造的围栏内，这里补上。
+       *
+       * `details` 仍保留**未围栏**的原值：它不进模型上下文，测试与事件日志按
+       * 原形状读它（tool-presentation.ts 读 `details.trusted.status`）。
+       *
+       * 标题是单行短字符串，不是正文 —— 按本仓对低带宽注入面的既有做法不逐行
+       * 围栏（`material-tools.ts` 里的材料名同理），但必须降级成「页面自己给的」，
+       * 否则它和元数据长得一样。同时把标题里的换行压成空格：否则一个带换行的
+       * 标题就能在围栏外伪造出一行元数据。
+       */
+      const titleForModel = untrusted.title.replace(/\s+/gu, ' ');
+      const modelVisible = [
+        `Fetched ${page.finalUrl} (page title, as given by the page — untrusted): ${titleForModel}`,
+        `Stored as material ${record.id}; ${page.markdown.length} characters total, ` +
+          `fetched ${page.fetchedAt}${page.truncated ? ', byte-truncated at the download cap' : ''}.`,
+        untrustedMaterialBlock(preview),
+        continuation,
+      ].join('\n');
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(structured, null, 2) }],
+        content: [{ type: 'text' as const, text: modelVisible }],
         details: structured,
       };
     },
