@@ -125,8 +125,16 @@ export function buildMaterialMediaTool(deps: MaterialMediaDeps): AgentTool<never
           isError: true,
         };
       }
-      if (!deps.ownerId) {
-        throw new Error('Material media cannot be copied without the run owner');
+      const ownerId = deps.ownerId;
+      if (!ownerId) {
+        // A run without an owner is a refusal, not an exception: the model
+        // gets a readable failure and the rest of the run keeps going.
+        const message = 'Material media cannot be copied without the run owner';
+        return {
+          content: [{ type: 'text', text: message }],
+          details: { materialId: material.id, status: 'invalid_argument', message },
+          isError: true,
+        };
       }
       // Copy-on-use (RFC #1716 §4): a new pending entry of its own, even for
       // the same owner and the same bytes, so the course never depends on the
@@ -136,7 +144,7 @@ export function buildMaterialMediaTool(deps: MaterialMediaDeps): AgentTool<never
       // is returned a write may already name it, so expiry is the only
       // cleanup that is always safe.
       const stored = await (deps.storeAsset ?? storeGeneratedAsset)({
-        ownerId: deps.ownerId,
+        ownerId,
         stageId: params.stageId,
         bytes: source.bytes,
         mimeType: source.mime,

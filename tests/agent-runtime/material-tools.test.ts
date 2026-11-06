@@ -1350,7 +1350,10 @@ describe('material agent tools', () => {
     expect(listMaterials).not.toHaveBeenCalled();
   });
 
-  it('rejects a query outside the 1-200 character range at runtime', async () => {
+  it.each([
+    ['empty', ''],
+    ['201 characters', 'x'.repeat(201)],
+  ])('refuses a %s query as a readable failure, not an exception', async (_label, query) => {
     const search = tool(
       buildMaterialTools({
         sessionId: 'ses_1',
@@ -1359,11 +1362,31 @@ describe('material agent tools', () => {
       }),
       'search_material',
     );
-    await expect(search.execute('call_1', { query: '' } as never)).rejects.toThrow(
-      'search_material query must contain 1 to 200 characters',
+    const result = await search.execute('call_1', { query } as never);
+    expect(isErrorOf(result)).toBe(true);
+    expect(result.details).toMatchObject({ status: 'invalid_argument' });
+    expect(result.content).toEqual([
+      expect.objectContaining({
+        text: 'search_material query must contain 1 to 200 characters',
+      }),
+    ]);
+  });
+
+  it('refuses extract_material on a non-source material as a readable failure', async () => {
+    const extract = tool(
+      buildMaterialTools({
+        sessionId: 'ses_1',
+        getMaterial: vi
+          .fn()
+          .mockResolvedValue(material({ id: 'mat_image', kind: 'image', textAssetId: null })),
+      }),
+      'extract_material',
     );
-    await expect(search.execute('call_2', { query: 'x'.repeat(201) } as never)).rejects.toThrow(
-      'search_material query must contain 1 to 200 characters',
-    );
+    const result = await extract.execute('call_1', { materialId: 'mat_image' } as never);
+    expect(isErrorOf(result)).toBe(true);
+    expect(result.details).toMatchObject({ status: 'invalid_argument' });
+    expect(result.content).toEqual([
+      expect.objectContaining({ text: 'extract_material only accepts source materials.' }),
+    ]);
   });
 });

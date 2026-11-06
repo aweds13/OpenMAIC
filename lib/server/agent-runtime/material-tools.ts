@@ -246,6 +246,15 @@ function notFoundResult(copy: MaterialModelCopy) {
   };
 }
 
+/** An argument the tool refuses: a readable failure, not an exception the run dies on. */
+function invalidArgumentResult(message: string) {
+  return {
+    content: [{ type: 'text' as const, text: message }],
+    details: { status: 'invalid_argument' as const, message },
+    isError: true,
+  };
+}
+
 /** A text-bearing material whose recorded text no longer resolves. */
 function textUnavailableResult(materialId: string, copy: MaterialModelCopy) {
   return {
@@ -840,7 +849,7 @@ export function buildMaterialTools(deps: MaterialToolDependencies): AgentTool<ne
       }
 
       if (params.query.length === 0 || params.query.length > 200) {
-        throw new Error('search_material query must contain 1 to 200 characters');
+        return invalidArgumentResult('search_material query must contain 1 to 200 characters');
       }
       // Expansion is best-effort: the expander never throws and a missing or
       // unusable answer leaves exactly the literal search there was before.
@@ -1035,7 +1044,9 @@ export function buildMaterialTools(deps: MaterialToolDependencies): AgentTool<ne
       const material = await resolve(deps.sessionId, params.materialId, scopeOf(params.scope));
       throwIfAborted(signal);
       if (!material) return notFoundResult(copy);
-      if (!isSource(material)) throw new Error('extract_material only accepts source materials.');
+      if (!isSource(material)) {
+        return invalidArgumentResult('extract_material only accepts source materials.');
+      }
 
       let state: ReportedExtraction & { stats?: unknown };
       let started = false;

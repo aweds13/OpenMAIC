@@ -1735,4 +1735,80 @@ describe('material library routes and tools (PGlite)', () => {
     ).toEqual([]);
     expect((await run('list_materials', { scope: 'library' })).details.materials).toHaveLength(1);
   });
+
+  it('measures a folder name by display width, not by its character count', async () => {
+    await boot();
+    const tools = buildMaterialLibraryTools({
+      ownerId: ACCOUNT,
+      sessionId: 'ses-width',
+      locale: () => 'en-US',
+    });
+    const createFolder = tools.find((tool) => tool.name === 'create_material_folder')!;
+    // Through the real pi-ai argument validation: the schema must not bind the
+    // name by code-point count, or 21 full-width characters never reach the
+    // display-width rule (40 half-width / 20 full-width) that decides.
+    const run = async (name: string) => {
+      const validated = validateToolArguments(createFolder, {
+        type: 'toolCall',
+        id: 'call',
+        name: createFolder.name,
+        arguments: { name },
+      });
+      return createFolder.execute('call', validated as never) as Promise<{
+        details: Record<string, unknown>;
+        isError?: boolean;
+        content: Array<{ text: string }>;
+      }>;
+    };
+
+    const halfWidth = await run('a'.repeat(40));
+    expect(halfWidth.isError).toBeUndefined();
+    expect(halfWidth.details).toMatchObject({ status: 'created', name: 'a'.repeat(40) });
+
+    const fullWidth = await run('第'.repeat(20));
+    expect(fullWidth.isError).toBeUndefined();
+    expect(fullWidth.details).toMatchObject({ status: 'created', name: '第'.repeat(20) });
+
+    const tooManyHalfWidth = await run('a'.repeat(41));
+    expect(tooManyHalfWidth.isError).toBe(true);
+    expect(tooManyHalfWidth.details).toMatchObject({ status: 'invalid_name' });
+    expect(tooManyHalfWidth.content[0]!.text).toContain(
+      'at most 40 half-width or 20 full-width characters',
+    );
+
+    const tooManyFullWidth = await run('第'.repeat(21));
+    expect(tooManyFullWidth.isError).toBe(true);
+    expect(tooManyFullWidth.details).toMatchObject({ status: 'invalid_name' });
+    expect(tooManyFullWidth.content[0]!.text).toContain(
+      'at most 40 half-width or 20 full-width characters',
+    );
+  });
+
+  it('bounds a material name at 255 characters at the write, not only in the schema', async () => {
+    const h = await boot();
+    await seedSource(h, 'src-name');
+    const tools = buildMaterialLibraryTools({
+      ownerId: ACCOUNT,
+      sessionId: 'ses-name',
+      locale: () => 'en-US',
+    });
+    const rename = tools.find((tool) => tool.name === 'rename_material')!;
+    // Straight to execute: the schema also caps at 255, but the write is the
+    // last line of defence and must refuse on its own.
+    const run = (name: string) =>
+      rename.execute('call', { materialId: 'src-name', name } as never) as Promise<{
+        details: Record<string, unknown>;
+        isError?: boolean;
+        content: Array<{ text: string }>;
+      }>;
+
+    const atLimit = await run('n'.repeat(255));
+    expect(atLimit.isError).toBeUndefined();
+    expect(atLimit.details).toMatchObject({ status: 'renamed', name: 'n'.repeat(255) });
+
+    const overLimit = await run('n'.repeat(256));
+    expect(overLimit.isError).toBe(true);
+    expect(overLimit.details).toMatchObject({ status: 'invalid_name' });
+    expect(overLimit.content[0]!.text).toContain('at most 255 characters');
+  });
 });

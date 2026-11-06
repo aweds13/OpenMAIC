@@ -33,11 +33,19 @@ const LIST_FOLDERS_SCHEMA = Type.Object({
   ),
 });
 const CREATE_FOLDER_SCHEMA = Type.Object({
-  name: Type.String({ minLength: 1, maxLength: 80, description: 'The folder name.' }),
+  // No `maxLength`: the limit is display width (40 half-width / 20 full-width),
+  // which a code-point bound cannot express. The write validates it at runtime.
+  name: Type.String({
+    minLength: 1,
+    description: 'The folder name, at most 40 half-width or 20 full-width characters.',
+  }),
 });
 const RENAME_FOLDER_SCHEMA = Type.Object({
   folderId: Type.String({ description: 'The folderId from list_material_folders.' }),
-  name: Type.String({ minLength: 1, maxLength: 80, description: 'The new name.' }),
+  name: Type.String({
+    minLength: 1,
+    description: 'The new name, at most 40 half-width or 20 full-width characters.',
+  }),
 });
 const MOVE_SCHEMA = Type.Object({
   materialIds: Type.Array(Type.String(), {
