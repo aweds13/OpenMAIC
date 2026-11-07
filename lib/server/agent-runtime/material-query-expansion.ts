@@ -1,7 +1,7 @@
 /**
  * Query expansion for the material search (read side, step ③).
  *
- * `search_material` matches literal text, so a question phrased one way misses
+ * `search_materials` matches literal text, so a question phrased one way misses
  * a page phrased another ("显存不够" vs "OOM"). Before the scan, one cheap model
  * call turns the question into a handful of alternative literal terms.
  *

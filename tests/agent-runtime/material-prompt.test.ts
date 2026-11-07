@@ -108,36 +108,42 @@ describe('materialsPromptBlock', () => {
   it('teaches the knowledge base to a conversation with nothing attached', () => {
     const prompt = materialsPromptBlock([]);
     expect(prompt).toContain('## Materials and the knowledge base');
-    expect(prompt).toContain('`list_materials` lists what this conversation has');
-    expect(prompt).toContain("scope: 'library'");
+    // 一个列表工具同时给两侧：每行自带 source，没有 scope 参数。
+    expect(prompt).toContain('`list_materials` lists it, newest first');
     expect(prompt).toContain(
-      "`read_material`, `search_material`, `extract_material`, `wait_for_materials` and `use_material_media` take `scope: 'library'` too",
+      'each row says whether it is `attached` to this conversation and where it sits in the knowledge base',
     );
-    expect(prompt).toContain(
-      'Every other tool, PowerPoint import included, reaches only what is attached.',
-    );
-    expect(prompt).not.toContain('Every material tool takes');
-    expect(prompt).toContain(
-      'call `extract_material` with its id, then `wait_for_materials`, then `read_material` with the same id',
-    );
+    expect(prompt).toContain('the call also returns every folder with how many materials it holds');
+    expect(prompt).toContain('`top-level` means not in a folder');
+    // 真分页：nextBefore → before；游标失效回空页 + staleCursor。
+    expect(prompt).toContain('when one returns `nextBefore`, call again with `before`');
+    expect(prompt).toContain('a cursor from different filters comes back as an empty page');
+    expect(prompt).toContain('`staleCursor`');
+    // 读：分页续读要回传 revision；未解析是状态不是死路；主题笔记同一条路径。
+    expect(prompt).toContain('`read_material` with its id');
+    expect(prompt).toContain('continue with the `nextOffset` and the `revision`');
+    expect(prompt).toContain('`extraction_required`');
+    expect(prompt).toContain('parsing is started by the upload');
+    expect(prompt).toContain('by the id `topic:<slug>`');
+    expect(prompt).toContain('`search_materials`');
+    expect(prompt).toContain('`use_material_media`');
+    // 组织与笔记写入各一个工具，用 action / target 分派。
+    expect(prompt).toContain('`organize_materials`');
+    expect(prompt).toContain('`action` naming what to do');
+    expect(prompt).toContain('`add_materials` with `target: "note"`');
+    expect(prompt).toContain('`mode: "replace"` rewrites it and needs the revision');
     expect(prompt).toContain('`revision`');
-    expect(prompt).toContain('Read a `web` material directly');
-    expect(prompt).toContain('read through the `extraction` material');
+    expect(prompt).toContain('A `web` material is already fetched and extracted');
     expect(prompt).toContain('import_pptx');
     expect(prompt).toContain('layout-preserving');
-    for (const tool of [
-      'list_material_folders',
-      'create_material_folder',
-      'rename_material_folder',
-      'move_materials',
-      'rename_material',
-      'use_material_media',
-      'search_material',
-    ]) {
-      expect(prompt).toContain(tool);
-    }
+    // 删除**只**在用户侧：agent 没有任何删除动词。
+    expect(prompt).toContain('Deleting a material or a folder is left to the user');
     expect(prompt).toContain('you cannot delete');
     expect(prompt).toContain('use those words with the user as they are');
+    // 旧参数名一个都不许留 —— 模型照着传只会拿到 invalid_argument。
+    for (const retired of ['scope', 'nextBefore: "', 'extract_material', 'wait_for_materials']) {
+      expect(prompt, retired).not.toContain(retired);
+    }
     expect(prompt).not.toContain('Nothing is attached');
     expect(prompt).not.toContain('Attached to this conversation');
     expect(prompt).not.toContain('read_material` on the resulting extraction');

@@ -159,11 +159,11 @@
     },
     "label": {
       "listMaterials": "Kiểm tra tài liệu",
-      "extractMaterial": "Bóc tách tài liệu",
-      "waitMaterials": "Chờ bóc tách tài liệu",
+      "organizeMaterials": "Sắp xếp kho kiến thức",
+      "addMaterials": "Viết ghi chú tài liệu",
       "readMaterial": "Đọc tài liệu",
+      "searchMaterials": "Tìm trong tài liệu",
       "useMaterialMedia": "Dùng phương tiện từ tài liệu",
-      "searchMaterial": "Tìm trong tài liệu",
       "clipAudio": "Cắt audio tham chiếu",
       "registerVoice": "Đăng ký giọng nhân bản",
       "listVoices": "Liệt kê giọng nói khả dụng",
@@ -205,12 +205,7 @@
       "listFolderCourses": "Xem thư viện lớp học",
       "createStage": "Tạo lớp học",
       "renameStage": "Đổi tên lớp học",
-      "readStageOutline": "Đọc dàn ý lớp học",
-      "listMaterialFolders": "Kiểm tra thư mục kho kiến thức",
-      "createMaterialFolder": "Tạo thư mục trong kho kiến thức",
-      "renameMaterialFolder": "Đổi tên thư mục kho kiến thức",
-      "moveMaterials": "Di chuyển tài liệu",
-      "renameMaterial": "Đổi tên tài liệu"
+      "readStageOutline": "Đọc dàn ý lớp học"
     },
     "chip": {
       "seconds": "{{count}} giây",
@@ -247,22 +242,18 @@
       "movedToFolder": "Đã chuyển vào thư mục",
       "materialFolders": "{{count}} thư mục",
       "materials": "{{count}} tài liệu",
-      "extractionStarted": "Đã bắt đầu bóc tách",
-      "extractionInProgress": "Đang bóc tách",
-      "extractionDone": "Đã bóc tách trước đó",
-      "extractionComplete": "Bóc tách xong",
-      "extractionStillRunning": "Vẫn đang bóc tách",
-      "parseFailed": "Phân tích thất bại",
       "folderExisted": "Thư mục đã có sẵn",
+      "noteCreated": "Ghi chú mới",
       "unchanged": "Không thay đổi",
       "movedOutOfFolder": "Đã chuyển ra khỏi thư mục",
       "material": "{{count}} tài liệu"
     },
     "error": {
-      "materialExtraction": "Bóc tách tài liệu thất bại",
       "listMaterials": "Không kiểm tra được tài liệu",
+      "organizeMaterials": "Không sắp xếp được kho kiến thức",
+      "addMaterials": "Không viết được ghi chú tài liệu",
       "readMaterial": "Không đọc được tài liệu",
-      "searchMaterial": "Không tìm được trong tài liệu",
+      "searchMaterials": "Không tìm được trong tài liệu",
       "clipAudio": "Không cắt được audio tham chiếu",
       "registerVoice": "Không đăng ký được giọng nhân bản",
       "listVoices": "Không thể liệt kê giọng nói khả dụng",
@@ -297,12 +288,7 @@
       "createStage": "Không tạo được lớp học",
       "renameStage": "Không đổi được tên lớp học",
       "readStageOutline": "Không đọc được dàn ý lớp học",
-      "generic": "Lần gọi tool thất bại",
-      "listMaterialFolders": "Không kiểm tra được thư mục kho kiến thức",
-      "createMaterialFolder": "Không tạo được thư mục kho kiến thức",
-      "renameMaterialFolder": "Không đổi tên được thư mục kho kiến thức",
-      "moveMaterials": "Không di chuyển được tài liệu",
-      "renameMaterial": "Không đổi tên được tài liệu"
+      "generic": "Lần gọi tool thất bại"
     },
     "progress": {
       "scene": {

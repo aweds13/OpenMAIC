@@ -47,9 +47,7 @@ import {
   deleteRollbackScenario,
   deleteExtractionScenario,
   deleteReadsScenario,
-  watcherRetryScenario,
   watcherNullExtractionScenario,
-  watcherStaleWaitScenario,
   attachByIdScenario,
   attachRefusalScenario,
   bootLibraryHarness,
@@ -68,7 +66,6 @@ import {
   libraryListingScenario,
   listingDerivedFieldsScenario,
   libraryReachScenario,
-  libraryToolFlowScenario,
   legacyCopyLibraryToolsScenario,
   sessionListingPaginationScenario,
   ownerListingWithSessionCopyScenario,
@@ -261,7 +258,7 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
       await seedSource(h, 'text-outside-fence', { owner: ANON });
       await ensure(h, 'text-outside-fence', ANON);
       await runNextOwnerExtraction(h.deps());
-      const result = (await stateOf(h, 'text-outside-fence')).extraction_result!;
+      const result = (await stateOf(h, 'text-outside-fence')).result!;
       let entered!: () => void, release!: () => void;
       const reached = new Promise<void>((r) => (entered = r));
       const paused = new Promise<void>((r) => (release = r));
@@ -320,7 +317,7 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
         ),
       ).toBe('published');
       expect(await withinBudget(deletion!)).toMatchObject({ status: 'deleted' });
-      const derivative = (await stateOf(h, claim.materialId)).extraction_result!.derivatives[0]!;
+      const derivative = (await stateOf(h, claim.materialId)).result!.derivatives[0]!;
       expect(
         (await h.pool.query('SELECT deleted_at FROM owner_material WHERE id = $1', [derivative.id]))
           .rows[0],
@@ -405,7 +402,7 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
             ),
           ).toBe('reused');
           expect(await withinBudget(second!)).toMatchObject({ status: 'deleted' });
-          expect((await stateOf(h, recipient.materialId)).extraction_result!.reusedFrom).toBe(
+          expect((await stateOf(h, recipient.materialId)).result!.reusedFrom).toBe(
             donor.materialId,
           );
           expect(h.mediaExtract).toHaveBeenCalledTimes(1);
@@ -425,17 +422,17 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
           ).toMatchObject({ status: 'deleted' });
           expect(await withinBudget(second!)).toBe('published');
           expect(
-            (await stateOf(h, recipient.materialId)).extraction_result!.reusedFrom,
+            (await stateOf(h, recipient.materialId)).result!.reusedFrom,
           ).toBeUndefined();
           expect(h.mediaExtract).toHaveBeenCalledTimes(2);
         }
-        const donorResult = (await stateOf(h, donor.materialId)).extraction_result!;
+        const donorResult = (await stateOf(h, donor.materialId)).result!;
         for (const id of [donor.materialId, ...donorResult.derivatives.map((d) => d.id)]) {
           expect(
             (await h.pool.query('SELECT * FROM asset_root_refs WHERE root_id = $1', [id])).rows,
           ).toEqual([]);
         }
-        const result = (await stateOf(h, recipient.materialId)).extraction_result!;
+        const result = (await stateOf(h, recipient.materialId)).result!;
         for (const id of [result.text.assetId, ...result.derivatives.map((d) => d.assetId)]) {
           expect(
             await h.provider.assetStore.resolve({ key: `owner:${ACCOUNT}` }, id),
@@ -572,7 +569,7 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
         ),
       ).toMatchObject({ status: 'moved' });
       expect(await withinBudget(publication!)).toBe('published');
-      const [derivative] = (await stateOf(h, 'vid-a')).extraction_result!.derivatives;
+      const [derivative] = (await stateOf(h, 'vid-a')).result!.derivatives;
       expect((await stateOf(h, derivative!.id)).folder_id).toBe(target);
     });
 
@@ -599,7 +596,7 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
         ),
       ).toBe('published');
       expect(await withinBudget(move!)).toMatchObject({ status: 'moved' });
-      const [derivative] = (await stateOf(h, 'vid-a')).extraction_result!.derivatives;
+      const [derivative] = (await stateOf(h, 'vid-a')).result!.derivatives;
       expect((await stateOf(h, derivative!.id)).folder_id).toBe(target);
       expect((await stateOf(h, 'vid-a')).folder_id).toBe(target);
     });
@@ -678,7 +675,7 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
           ).toEqual({ status: 'deleted' });
           expect(await withinBudget(second!)).toBe('published');
         }
-        const result = (await stateOf(h, claim.materialId)).extraction_result!;
+        const result = (await stateOf(h, claim.materialId)).result!;
         expect(result.derivatives.length).toBeGreaterThan(0);
         const ids = [claim.materialId, ...result.derivatives.map((d) => d.id)];
         const rows = await h.pool.query(
@@ -791,14 +788,8 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
     },
   );
 
-  it('keeps watching a retry when an older failed poll returns', async () => {
-    await watcherRetryScenario(await boot());
-  });
   it('does not settle a NULL extraction, but settles tombstones and missing sources', async () => {
     await watcherNullExtractionScenario(await boot());
-  });
-  it('reports once when a wait returns a stale running snapshot', async () => {
-    await watcherStaleWaitScenario(await boot());
   });
 
   describe('links', () => {
@@ -973,9 +964,6 @@ describe.skipIf(!contractUrl)('material library on PostgreSQL', { timeout: 20_00
     });
     it('keeps library search, listing and follow-up reads consistent with legacy-copy precedence', async () => {
       await legacyCopyLibraryToolsScenario(await boot());
-    });
-    it('extracts, waits for, reads and searches a library source by its own id', async () => {
-      await libraryToolFlowScenario(await boot());
     });
   });
   describe('source deletion', () => {

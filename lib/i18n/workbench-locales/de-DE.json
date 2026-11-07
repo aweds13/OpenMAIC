@@ -159,11 +159,11 @@
     },
     "label": {
       "listMaterials": "Materialien prüfen",
-      "extractMaterial": "Material aufbereiten",
-      "waitMaterials": "Auf Materialaufbereitung warten",
+      "organizeMaterials": "Wissensbasis ordnen",
+      "addMaterials": "Materialnotiz schreiben",
       "readMaterial": "Material lesen",
+      "searchMaterials": "Materialien durchsuchen",
       "useMaterialMedia": "Materialmedien verwenden",
-      "searchMaterial": "Materialien durchsuchen",
       "clipAudio": "Referenzaudio zuschneiden",
       "registerVoice": "Geklonte Stimme registrieren",
       "listVoices": "Verfügbare Stimmen auflisten",
@@ -205,12 +205,7 @@
       "listFolderCourses": "Klassenbibliothek ansehen",
       "createStage": "Klasse erstellen",
       "renameStage": "Klasse umbenennen",
-      "readStageOutline": "Klassengliederung lesen",
-      "listMaterialFolders": "Ordner der Wissensbasis prüfen",
-      "createMaterialFolder": "Ordner in der Wissensbasis erstellen",
-      "renameMaterialFolder": "Ordner der Wissensbasis umbenennen",
-      "moveMaterials": "Materialien verschieben",
-      "renameMaterial": "Material umbenennen"
+      "readStageOutline": "Klassengliederung lesen"
     },
     "chip": {
       "seconds": "{{count}} Sek.",
@@ -247,22 +242,18 @@
       "movedToFolder": "In Ordner verschoben",
       "materialFolders": "{{count}} Ordner",
       "materials": "{{count}} Materialien",
-      "extractionStarted": "Gestartet",
-      "extractionInProgress": "Läuft bereits",
-      "extractionDone": "Bereits aufbereitet",
-      "extractionComplete": "Abgeschlossen",
-      "extractionStillRunning": "Wird noch aufbereitet",
-      "parseFailed": "Analyse fehlgeschlagen",
       "folderExisted": "Ordner gab es bereits",
+      "noteCreated": "Neue Notiz",
       "unchanged": "Keine Änderung",
       "movedOutOfFolder": "Aus dem Ordner verschoben",
       "material": "{{count}} Material"
     },
     "error": {
-      "materialExtraction": "Materialaufbereitung fehlgeschlagen",
       "listMaterials": "Materialien konnten nicht geprüft werden",
+      "organizeMaterials": "Die Wissensbasis konnte nicht geordnet werden",
+      "addMaterials": "Die Materialnotiz konnte nicht geschrieben werden",
       "readMaterial": "Material konnte nicht gelesen werden",
-      "searchMaterial": "Materialien konnten nicht durchsucht werden",
+      "searchMaterials": "Materialien konnten nicht durchsucht werden",
       "clipAudio": "Referenzaudio konnte nicht zugeschnitten werden",
       "registerVoice": "Geklonte Stimme konnte nicht registriert werden",
       "listVoices": "Verfügbare Stimmen konnten nicht aufgelistet werden",
@@ -297,12 +288,7 @@
       "createStage": "Die Klasse konnte nicht erstellt werden",
       "renameStage": "Die Klasse konnte nicht umbenannt werden",
       "readStageOutline": "Die Klassengliederung konnte nicht gelesen werden",
-      "generic": "Tool-Aufruf fehlgeschlagen",
-      "listMaterialFolders": "Die Ordner der Wissensbasis konnten nicht geprüft werden",
-      "createMaterialFolder": "Der Ordner der Wissensbasis konnte nicht erstellt werden",
-      "renameMaterialFolder": "Der Ordner der Wissensbasis konnte nicht umbenannt werden",
-      "moveMaterials": "Die Materialien konnten nicht verschoben werden",
-      "renameMaterial": "Das Material konnte nicht umbenannt werden"
+      "generic": "Tool-Aufruf fehlgeschlagen"
     },
     "progress": {
       "scene": {

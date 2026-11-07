@@ -39,10 +39,12 @@ function sourceOf(relativePath: string): string {
   return readFileSync(join(process.cwd(), relativePath), 'utf8');
 }
 
-const AGENT_TOOL_SOURCES = [
-  'lib/server/agent-runtime/material-tools.ts',
-  'lib/server/agent-runtime/material-library-tools.ts',
-];
+/**
+ * The one module that builds the agent's material tools. `material-library-tools.ts`
+ * used to sit here too; the five-tool surface folded its operations into
+ * `organize_materials`, and the file is gone.
+ */
+const AGENT_TOOL_SOURCES = ['lib/server/agent-runtime/material-tools.ts'];
 
 const MATERIAL_ROUTES = [
   'app/api/materials/route.ts',

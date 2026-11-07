@@ -32,7 +32,11 @@
 import { randomUUID } from 'node:crypto';
 
 import type { Queryable } from '@openmaic/storage/document/pg';
-import { applySchemaMigrations, type SchemaMigrationSet } from '@openmaic/storage/pg-migrations';
+import {
+  applySchemaMigrations,
+  type MigrationQueryable,
+  type SchemaMigrationSet,
+} from '@openmaic/storage/pg-migrations';
 import { encodeJson } from '@openmaic/storage/pg-json';
 import {
   nodePostgresTransaction,
@@ -348,8 +352,103 @@ $$;
 
 `;
 
+/**
+ * Version 6 (part a): the table's invariants, the result-column rename, and
+ * the one dead column that nothing reads.
+ *
+ * This is deliberately v6a, not the whole of v6. The classic upload path
+ * (`POST /api/materials` without `scope=library`, which finalizes a row into
+ * `ready` with no pool pointer) and the classic extractor
+ * (`lib/server/materials/extraction.ts`, still imported by the generation
+ * runner) are live, and they own `extraction`, `oss_key`, `extraction_worker`
+ * and `extraction_heartbeat_at`. Dropping those is v6b: it can only happen once
+ * that path is gone, and doing it here would mean rewriting the classic claim
+ * and heartbeat queries with no test that can run on this machine
+ * (`tests/server/material-extraction.pg.test.ts` needs a real PostgreSQL).
+ *
+ * The migration is a function rather than SQL because the ledger cannot be
+ * replayed: v2 dropped `asset_id` and v5 added it back, so a database's actual
+ * column set depends on which versions it ran. Every step below probes first,
+ * and does nothing when it has already happened, which is also what makes a
+ * re-run (a rolled-back statement, a restored dump) harmless.
+ *
+ * * `extraction_result` becomes `result`. The column is the row's extraction
+ *   result; the `extraction_` prefix belongs to the claim bookkeeping
+ *   (`extraction_token`, `extraction_claims`, ...), which is not a result.
+ * * `retention` goes. v5 added it defaulted and its own comment says it has no
+ *   runtime membership, processing or lifecycle semantics; nothing in `lib/`
+ *   or `app/` reads it.
+ * * Two invariants arrive, as CHECKs so no trigger or application code is part
+ *   of the truth: `status` has two values; an `image` row is a derivative of a
+ *   source.
+ *
+ * The third invariant -- a live ready row must name its bytes -- is v6b, not
+ * v6a, and the reason is not laziness. `asset_id` cannot be required while
+ * classic rows are still waiting for the backfill (spec 01 section 6.1, risk 4:
+ * "must be two versions"), and the weaker CHECK against `oss_key` is worse than
+ * nothing here: rows written before v2 ran have `oss_key = ''` by its DEFAULT,
+ * and those rows exist in every database old enough to have skipped v2. A
+ * validating CHECK fails `ALTER TABLE` outright on such a database, which would
+ * turn a schema upgrade into a failed boot; making it NOT VALID would still
+ * reject the very inserts this migration is meant to keep working. Measured on
+ * the live database at 127.0.0.1:5433: 10 rows, 6 of them classic `ready` rows
+ * with `oss_key` set and `asset_id` NULL -- all six become illegal the moment
+ * `asset_id` is required. So the tightening lands in v6b, after the backfill
+ * has run: `lib/server/materials/migrate-to-pool.ts` (`migrateOwnerMaterialsToPool`,
+ * only under `MATERIALS_POOL_BACKFILL=1`) and the gate is this query returning
+ * `classic_ready = 0`:
+ *
+ *   select count(*) filter (where status = 'ready' and asset_id is null
+ *                            and oss_key is not null and oss_key <> '')
+ *     from owner_material where deleted_at is null;
+ *
+ * That function has no dry run -- `--dry-run` is on the directory importer,
+ * not on the pool backfill -- so the count is the only honest gate.
+ */
+const OWNER_MATERIAL_V6 = async (queryable: MigrationQueryable): Promise<void> => {
+  const columns = await queryable.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'owner_material'`,
+  );
+  const present = new Set(columns.rows.map((row) => row.column_name));
+
+  if (present.has('extraction_result') && !present.has('result')) {
+    await queryable.query('ALTER TABLE owner_material RENAME COLUMN extraction_result TO result');
+  }
+
+  await queryable.query('ALTER TABLE owner_material DROP COLUMN IF EXISTS retention');
+
+  // ADD CONSTRAINT has no IF NOT EXISTS, hence the guards.
+  await queryable.query(`
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'owner_material_status_check'
+       AND conrelid = 'owner_material'::regclass
+  ) THEN
+    ALTER TABLE owner_material
+      ADD CONSTRAINT owner_material_status_check
+      CHECK (status IN ('uploading', 'ready'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'owner_material_image_derived_from_check'
+       AND conrelid = 'owner_material'::regclass
+  ) THEN
+    ALTER TABLE owner_material
+      ADD CONSTRAINT owner_material_image_derived_from_check
+      CHECK (kind <> 'image' OR derived_from IS NOT NULL);
+  END IF;
+END
+$$;
+`);
+};
+
 // Historical v5 retention DDL remains unchanged for ledger compatibility;
-// the column has no runtime membership, processing or lifecycle semantics.
+// the column had no runtime membership, processing or lifecycle semantics and
+// v6 drops it.
 export const OWNER_MATERIAL_MIGRATIONS: SchemaMigrationSet = {
   store: 'owner-material',
   migrations: [
@@ -358,6 +457,7 @@ export const OWNER_MATERIAL_MIGRATIONS: SchemaMigrationSet = {
     { version: 3, name: 'extraction_lease', up: OWNER_MATERIAL_EXTRACTION_LEASE },
     { version: 4, name: 'touched_at', up: OWNER_MATERIAL_TOUCHED_AT },
     { version: 5, name: 'material_library', up: OWNER_MATERIAL_LIBRARY },
+    { version: 6, name: 'persistence_v6', up: OWNER_MATERIAL_V6 },
   ],
 };
 
@@ -380,7 +480,7 @@ export interface RawOwnerMaterialRow extends Record<string, unknown> {
   sha256: string | null;
   status: string;
   extraction: unknown;
-  extraction_result?: unknown;
+  result?: unknown;
   created_at: number | string;
   deleted_at: number | string | null;
 }
@@ -398,7 +498,7 @@ export const OWNER_MATERIAL_COLUMNS = `id,
   sha256,
   status,
   extraction,
-  extraction_result,
+  result,
   created_at,
   deleted_at`;
 
@@ -416,7 +516,7 @@ export function ownerMaterialRowToRecord(row: RawOwnerMaterialRow): OwnerMateria
     sha256: row.sha256,
     status: row.status as OwnerMaterialStatus,
     extraction: extractionOf(row.extraction),
-    extractionResult: (row.extraction_result ?? null) as
+    extractionResult: (row.result ?? null) as
       | import('./owner-material-extraction').OwnerExtractionResult
       | null,
     createdAt: Number(row.created_at),
@@ -554,7 +654,7 @@ export async function deleteOwnerMaterial(
           SET deleted_at = $3
         WHERE id = $1
           AND owner_id = $2
-          AND status = 'ready' AND asset_id IS NULL AND extraction_result IS NULL
+          AND status = 'ready' AND asset_id IS NULL AND result IS NULL
           AND NOT EXISTS (SELECT 1 FROM asset_root_refs WHERE root_kind = 'material' AND root_id = owner_material.id)
           AND deleted_at IS NULL
         RETURNING oss_key`,

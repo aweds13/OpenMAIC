@@ -7,7 +7,7 @@
  * owner's `owner_material` row instead, so every conversation shares one
  * extraction of one source.
  *
- * `extract_material` ensures a source's extraction here, the owner runner
+ * `the upload path` ensures a source's extraction here, the owner runner
  * (`lib/server/material-extraction/owner-extraction.ts`) claims and publishes,
  * and the material tools read the results through the shared resolver
  * (RFC #1716 Phase 2).
@@ -29,7 +29,7 @@
  *   a takeover of an expired lease included, spends one; a source whose
  *   lease keeps expiring fails once the budget is spent instead of being
  *   claimed forever.
- * - `extraction_result`: the latest successful extraction, written in the
+ * - `result`: the latest successful extraction, written in the
  *   same statement that sets `done`, so `done` without a result cannot be
  *   stored. Its `revision` is the token of the claim that published it.
  *
@@ -112,7 +112,7 @@ export interface OwnerExtractionDerivative {
   key?: string;
 }
 
-/** The latest successful extraction of a source, as `extraction_result` stores it. */
+/** The latest successful extraction of a source, as `result` stores it. */
 export interface OwnerExtractionResult {
   /** Changes whenever the result does: the token of the claim that published it. */
   revision: string;
@@ -457,7 +457,7 @@ interface LockedRow extends Record<string, unknown> {
   deleted_at: number | string | null;
   status: string | null;
   extraction_token: string | null;
-  extraction_result: unknown;
+  result: unknown;
 }
 
 /**
@@ -480,7 +480,7 @@ export async function publishOwnerMaterialExtraction(
   return withMaterialRoots({ withTransaction }, locks, async ({ tx, ownerId, changeRoots }) => {
     const locked = await tx.query<LockedRow>(
       `SELECT id, owner_id, kind, folder_id, deleted_at, ${STATUS} AS status,
-              extraction_token, extraction_result
+              extraction_token, result
          FROM owner_material
         WHERE id = ANY($1::text[])
         ORDER BY id`,
@@ -500,7 +500,7 @@ export async function publishOwnerMaterialExtraction(
     }
     if (publication.donor) {
       const donor = byId.get(publication.donor.materialId);
-      const result = donor?.extraction_result as OwnerExtractionResult | null | undefined;
+      const result = donor?.result as OwnerExtractionResult | null | undefined;
       if (
         !donor ||
         donor.owner_id !== ownerId ||
@@ -583,7 +583,7 @@ export async function publishOwnerMaterialExtraction(
     };
     await tx.query(
       `UPDATE owner_material
-          SET extraction = $2::jsonb, extraction_result = $3::jsonb, extraction_cache_key = $4,
+          SET extraction = $2::jsonb, result = $3::jsonb, extraction_cache_key = $4,
               extraction_token = NULL, extraction_lease_at = NULL, extraction_error = NULL
         WHERE id = $1`,
       [
@@ -608,19 +608,17 @@ export async function findOwnerExtractionCacheHit(
   sourceId: string,
   cacheKey: string,
 ): Promise<{ materialId: string; result: OwnerExtractionResult } | null> {
-  const found = await queryable.query<{ id: string; extraction_result: unknown }>(
-    `SELECT donor.id, donor.extraction_result
+  const found = await queryable.query<{ id: string; result: unknown }>(
+    `SELECT donor.id, donor.result
        FROM owner_material AS source
        JOIN owner_material AS donor ON donor.owner_id = source.owner_id
       WHERE source.id = $1 AND donor.extraction_cache_key = $2 AND donor.id <> source.id
         AND donor.kind = 'source' AND donor.deleted_at IS NULL
-        AND (donor.extraction->>'status') = 'done' AND donor.extraction_result IS NOT NULL
+        AND (donor.extraction->>'status') = 'done' AND donor.result IS NOT NULL
       ORDER BY donor.created_at DESC, donor.id
       LIMIT 1`,
     [sourceId, cacheKey],
   );
   const row = found.rows[0];
-  return row
-    ? { materialId: row.id, result: row.extraction_result as OwnerExtractionResult }
-    : null;
+  return row ? { materialId: row.id, result: row.result as OwnerExtractionResult } : null;
 }

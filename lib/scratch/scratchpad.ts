@@ -25,7 +25,7 @@
  * | **可复用** | `status: 'promoted'` 的条目 | **进材料库**（`promotedTo: mat_...`） |
  *
  * ★ **它不是第二份材料库，是材料库的候场区（漏斗）。** 可复用的东西只有一条出口：
- *   走已有的 `update_materials` 进材料库；这张纸只留一个指针。避免"两个库"这种重复功能。
+ *   走已有的 `add_materials`（`target: "note"`）进材料库；这张纸只留一个指针。避免"两个库"这种重复功能。
  *
  * ── 编号：为什么是 `s001` 这种短号 ──────────────────────────────
  *
@@ -309,7 +309,7 @@ export function formatScratchIndex(
  * 检索。
  *
  * ★ **不做向量检索**：草稿纸条目少、结构清楚，关键词/类型/状态过滤就够用，
- *   而且它是确定的、便宜的、可测的。要语义检索就去材料库那边（已有 `search_material`）。
+ *   而且它是确定的、便宜的、可测的。要语义检索就去材料库那边（已有 `search_materials`）。
  */
 export function searchScratchItems(
   pad: Scratchpad,

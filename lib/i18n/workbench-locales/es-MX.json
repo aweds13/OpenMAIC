@@ -159,11 +159,11 @@
     },
     "label": {
       "listMaterials": "Revisar materiales",
-      "extractMaterial": "Procesar material",
-      "waitMaterials": "Esperar el procesamiento de materiales",
+      "organizeMaterials": "Ordenar la base de conocimientos",
+      "addMaterials": "Escribir una nota de material",
       "readMaterial": "Leer material",
+      "searchMaterials": "Buscar en los materiales",
       "useMaterialMedia": "Usar contenido multimedia del material",
-      "searchMaterial": "Buscar en los materiales",
       "clipAudio": "Recortar audio de referencia",
       "registerVoice": "Registrar voz clonada",
       "listVoices": "Listar voces disponibles",
@@ -205,12 +205,7 @@
       "listFolderCourses": "Ver la biblioteca de aulas",
       "createStage": "Crear aula",
       "renameStage": "Renombrar aula",
-      "readStageOutline": "Leer el esquema del aula",
-      "listMaterialFolders": "Revisar carpetas de la base de conocimientos",
-      "createMaterialFolder": "Crear carpeta en la base de conocimientos",
-      "renameMaterialFolder": "Renombrar carpeta de la base de conocimientos",
-      "moveMaterials": "Mover materiales",
-      "renameMaterial": "Renombrar material"
+      "readStageOutline": "Leer el esquema del aula"
     },
     "chip": {
       "seconds": "{{count}} s",
@@ -247,22 +242,18 @@
       "movedToFolder": "Movido a la carpeta",
       "materialFolders": "{{count}} carpetas",
       "materials": "{{count}} materiales",
-      "extractionStarted": "Iniciado",
-      "extractionInProgress": "Ya está en curso",
-      "extractionDone": "Ya se había procesado",
-      "extractionComplete": "Terminado",
-      "extractionStillRunning": "Aún en procesamiento",
-      "parseFailed": "Error al analizar",
       "folderExisted": "La carpeta ya existía",
+      "noteCreated": "Nota nueva",
       "unchanged": "Sin cambios",
       "movedOutOfFolder": "Sacado de la carpeta",
       "material": "{{count}} material"
     },
     "error": {
-      "materialExtraction": "Falló el procesamiento del material",
       "listMaterials": "No se pudieron revisar los materiales",
+      "organizeMaterials": "No se pudo ordenar la base de conocimientos",
+      "addMaterials": "No se pudo escribir la nota del material",
       "readMaterial": "No se pudo leer el material",
-      "searchMaterial": "No se pudo buscar en los materiales",
+      "searchMaterials": "No se pudo buscar en los materiales",
       "clipAudio": "No se pudo recortar el audio de referencia",
       "registerVoice": "No se pudo registrar la voz clonada",
       "listVoices": "No se pudieron listar las voces disponibles",
@@ -297,12 +288,7 @@
       "createStage": "No se pudo crear el aula",
       "renameStage": "No se pudo renombrar el aula",
       "readStageOutline": "No se pudo leer el esquema del aula",
-      "generic": "La llamada al tool falló",
-      "listMaterialFolders": "No se pudieron revisar las carpetas de la base de conocimientos",
-      "createMaterialFolder": "No se pudo crear la carpeta de la base de conocimientos",
-      "renameMaterialFolder": "No se pudo renombrar la carpeta de la base de conocimientos",
-      "moveMaterials": "No se pudieron mover los materiales",
-      "renameMaterial": "No se pudo renombrar el material"
+      "generic": "La llamada al tool falló"
     },
     "progress": {
       "scene": {

@@ -7,7 +7,7 @@
  * deleted, not ready, or a derivative), and nothing moves; 404 when the
  * folder is missing or another owner's. A thin adapter over the material
  * service (`lib/server/materials/material-service.ts`), which the agent's
- * `move_materials` calls too.
+ * `organize_materials` calls too.
  */
 import type { NextRequest } from 'next/server';
 

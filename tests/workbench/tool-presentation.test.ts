@@ -11,7 +11,6 @@ import { COURSE_AUDIO_DECK_TOOL_NAMES } from '@/lib/server/agent-runtime/course-
 import { MATERIAL_MEDIA_TOOL_NAME } from '@/lib/server/agent-runtime/material-media';
 import { CURRICULUM_ALLOWLIST } from '@/lib/server/agent-runtime/curriculum-tools';
 import { MATERIAL_TOOL_NAMES } from '@/lib/server/agent-runtime/material-tools';
-import { MATERIAL_LIBRARY_TOOL_NAMES } from '@/lib/server/agent-runtime/material-library-tools';
 import { ROSTER_TOOL_NAMES } from '@/lib/server/agent-runtime/roster-tools';
 import { VOICE_CLONE_TOOL_NAMES } from '@/lib/server/agent-runtime/voice-clone-tools';
 import { RENDER_SCENE_PREVIEW_TOOL_NAME } from '@/lib/server/agent-runtime/scene-preview';
@@ -113,10 +112,12 @@ describe('generic typed tool presentation', () => {
 
 describe('material tool presentation', () => {
   it.each([
+    ['add_materials', '写材料笔记'],
     ['list_materials', '检查材料'],
+    ['organize_materials', '整理知识库'],
     ['read_material', '读取材料'],
     ['use_material_media', '复用媒体素材'],
-    ['search_material', '搜索材料'],
+    ['search_materials', '搜索材料'],
   ])('shows %s as a quiet human-labelled card', (toolName, label) => {
     const presentation = presentTool(
       toolNode({
@@ -145,23 +146,16 @@ describe('material tool presentation', () => {
     expect(presentation.errorText).toBeUndefined();
   });
 
-  it('says a failed parse as a quiet chip on a successful extract or wait', () => {
-    const extract = toolNode({
-      toolName: 'extract_material',
+  it('says a write that changed nothing as a quiet chip, not an error', () => {
+    const node = toolNode({
+      toolName: 'add_materials',
       toolState: 'done',
-      toolDetails: { materialId: 'mat_x', status: 'failed', started: false },
+      toolDetails: { status: 'revision_changed', changed: false, topic: 'dart' },
     });
-    const wait = toolNode({
-      toolName: 'wait_for_materials',
-      toolState: 'done',
-      toolDetails: { complete: true, materials: [{ materialId: 'mat_x', status: 'failed' }] },
-    });
-    for (const node of [extract, wait]) {
-      expect(isWorkbenchToolFailed(node)).toBe(false);
-      const presentation = presentTool(node);
-      expect(presentation.errorText).toBeUndefined();
-      expect(presentation.chips).toEqual([{ label: '解析失败', tone: 'neutral' }]);
-    }
+    expect(isWorkbenchToolFailed(node)).toBe(false);
+    const presentation = presentTool(node);
+    expect(presentation.errorText).toBeUndefined();
+    expect(presentation.chips).toEqual([{ label: '没有变化', tone: 'neutral' }]);
   });
 
   it('still shows an error when the material call itself failed', () => {
@@ -201,10 +195,12 @@ describe('every tool has a verb of its own', () => {
     // Reading its own work.
     ['list_scenes', '检查当前课堂'],
     // Material, questions, the web.
+    ['add_materials', '写材料笔记'],
     ['list_materials', '检查材料'],
+    ['organize_materials', '整理知识库'],
     ['read_material', '读取材料'],
     ['use_material_media', '复用媒体素材'],
-    ['search_material', '搜索材料'],
+    ['search_materials', '搜索材料'],
     ['ask_user', '向你确认'],
     ['web_search', '联网搜索'],
     ['fetch_url', '抓取网页'],
@@ -502,92 +498,136 @@ describe('material library rows', () => {
       (chip) => chip.label,
     );
 
-  it('says whether extract_material started the extraction, or found it going or done', () => {
-    expect(chipsOf('extract_material', { status: 'pending', started: true })).toEqual(['Started']);
-    expect(chipsOf('extract_material', { status: 'running', started: false })).toEqual([
-      'Already in progress',
-    ]);
-    expect(chipsOf('extract_material', { status: 'done', started: false })).toEqual([
-      'Already extracted',
-    ]);
-  });
-
-  it('says whether a wait finished or ran out of time', () => {
-    expect(chipsOf('wait_for_materials', { complete: true, timedOut: false })).toEqual([
-      'Finished',
-    ]);
-    expect(chipsOf('wait_for_materials', { complete: false, timedOut: true })).toEqual([
-      'Still extracting',
-    ]);
+  it('shows the folder count a listing carried', () => {
+    expect(chipsOf('list_materials', { folders: [{ folderId: 'f1' }, { folderId: 'f2' }] })).toEqual(
+      ['2 folders'],
+    );
+    expect(chipsOf('list_materials', { folders: [] })).toEqual([]);
   });
 
   it('shows what an organizing call changed, and when it changed nothing', () => {
-    expect(chipsOf('list_material_folders', { folders: [{}, {}] })).toEqual(['2 folders']);
     expect(
-      chipsOf('create_material_folder', { status: 'exists', created: false, name: 'Unit' }),
-    ).toEqual(['Folder already existed']);
+      chipsOf('organize_materials', {
+        action: 'create_folder',
+        changed: false,
+        created: false,
+        name: 'Unit',
+      }),
+    ).toEqual(['No change', 'Folder already existed']);
     expect(
       presentTool(
         toolNode({
-          toolName: 'create_material_folder',
-          toolDetails: { created: true, name: 'Unit 1' },
+          toolName: 'organize_materials',
+          toolDetails: { action: 'create_folder', changed: true, created: true, name: 'Unit 1' },
         }),
         [],
         en,
       ).subject,
     ).toBe('Unit 1');
-    expect(chipsOf('rename_material_folder', { status: 'unchanged', name: 'Unit' })).toEqual([
-      'No change',
-    ]);
     expect(
-      chipsOf('move_materials', { status: 'moved', materialIds: ['a', 'b'], folderId: 'f' }),
+      chipsOf('organize_materials', {
+        action: 'rename_folder',
+        changed: false,
+        folderId: 'f1',
+        name: 'Unit',
+      }),
+    ).toEqual(['No change']);
+    expect(
+      chipsOf('organize_materials', {
+        action: 'move',
+        changed: true,
+        materialIds: ['a', 'b'],
+        moved: ['a', 'b'],
+        movedCount: 2,
+        folderId: 'f1',
+      }),
     ).toEqual(['2 materials']);
     // Named two, moved one: the row counts what moved.
     expect(
-      chipsOf('move_materials', {
-        status: 'moved',
+      chipsOf('organize_materials', {
+        action: 'move',
+        changed: true,
         materialIds: ['a', 'b'],
-        folderId: 'f',
+        moved: ['a'],
         movedCount: 1,
+        folderId: 'f1',
       }),
     ).toEqual(['1 material']);
     expect(
-      chipsOf('move_materials', { status: 'moved', materialIds: ['a'], folderId: null }),
+      chipsOf('organize_materials', {
+        action: 'move',
+        changed: true,
+        materialIds: ['a'],
+        moved: ['a'],
+        movedCount: 1,
+        folderId: null,
+      }),
     ).toEqual(['1 material', 'Moved out of folder']);
     // Nothing moved: no "moved out" (the result names no source folder either way).
     expect(
-      chipsOf('move_materials', { status: 'unchanged', materialIds: ['a'], folderId: null }),
+      chipsOf('organize_materials', {
+        action: 'move',
+        changed: false,
+        materialIds: ['a'],
+        moved: [],
+        movedCount: 0,
+        folderId: null,
+      }),
     ).toEqual(['No change']);
     expect(
       presentTool(
         toolNode({
-          toolName: 'move_materials',
+          toolName: 'organize_materials',
           toolState: 'failed',
-          toolDetails: { status: 'not_movable', folderId: null },
+          toolDetails: { action: 'move', status: 'not_movable', folderId: null },
         }),
         [],
         en,
       ).chips,
     ).toEqual([]);
-    expect(chipsOf('rename_material', { status: 'unchanged', name: 'Lesson' })).toEqual([
-      'No change',
-    ]);
+    expect(
+      chipsOf('organize_materials', {
+        action: 'rename',
+        changed: false,
+        materialId: 'm1',
+        name: 'Lesson',
+      }),
+    ).toEqual(['No change']);
+  });
+
+  it('marks a note that did not exist before', () => {
+    expect(
+      chipsOf('add_materials', { target: 'note', topic: 'dart', mode: 'replace', created: true }),
+    ).toEqual(['New note']);
+    expect(
+      chipsOf('add_materials', { target: 'note', topic: 'dart', mode: 'append', created: false }),
+    ).toEqual([]);
+    expect(
+      presentTool(
+        toolNode({
+          toolName: 'add_materials',
+          toolDetails: { target: 'note', topic: 'dart', mode: 'append', created: true },
+        }),
+        [],
+        en,
+      ).subject,
+    ).toBe('dart');
   });
 
   it('names the knowledge base in Chinese and hides the payload', () => {
-    const zh = presentTool(toolNode({ toolName: 'create_material_folder', toolDetails: {} }));
-    expect(zh.label).toBe('新建知识库文件夹');
+    const zh = presentTool(toolNode({ toolName: 'organize_materials', toolDetails: {} }));
+    expect(zh.label).toBe('整理知识库');
     expect(zh.hidePayload).toBe(true);
     const refused = presentTool(
       toolNode({
-        toolName: 'move_materials',
+        toolName: 'organize_materials',
         toolState: 'failed',
-        toolDetails: { status: 'not_movable' },
+        toolDetails: { action: 'move', status: 'not_movable' },
       }),
       [],
       en,
     );
-    expect(refused.errorText).toBe('Could not move the materials');
+    expect(refused.errorText).toBe('Could not organize the knowledge base');
     expect(refused.chips).toEqual([]);
   });
 });
@@ -601,7 +641,6 @@ describe('allowlist ↔ presentation reconciliation', () => {
     RENDER_SCENE_PREVIEW_TOOL_NAME,
     ...CURRICULUM_ALLOWLIST,
     ...MATERIAL_TOOL_NAMES,
-    ...MATERIAL_LIBRARY_TOOL_NAMES,
     ...ROSTER_TOOL_NAMES,
     ...VOICE_CLONE_TOOL_NAMES,
     ...SKILL_EDIT_TOOL_NAMES,

@@ -12,11 +12,14 @@
  * {@link resolveConfiguredAssetByteStore} for the collector. Both read the one
  * host registration (`configureAssetByteStore`, in
  * `lib/server/persistence-hooks/`) and otherwise fall back to the built-in
- * choice, S3 when `ASSET_S3_BUCKET` is set and the PostgreSQL column when not.
+ * choice: S3 when `ASSET_S3_BUCKET` is set, and without a bucket
+ * {@link SplitAssetByteStore}, which keeps a blob in `asset_blobs.bytes` up to
+ * 2 MiB and puts larger bytes in a local content-addressed directory (metadata
+ * stays in PostgreSQL either way).
  */
-import { PgAssetByteStore } from '@openmaic/storage/asset/pg-bytes';
 import type { AssetByteStore, Queryable } from '@openmaic/storage/asset/pg';
 
+import { SplitAssetByteStore } from '@/lib/persistence/asset-byte-split-store';
 import { getAssetByteStoreRegistration } from '@/lib/server/persistence-hooks/registry';
 import type { AssetByteStoreRegistration } from '@/lib/server/persistence-hooks/types';
 
@@ -38,15 +41,15 @@ const S3_RESERVED_SUFFIXES = ['-s3alias', '--ol-s3', '.mrap', '--x-s3', '--table
 /**
  * The no-bucket byte layer widened with the transaction-pinned methods the
  * registry and the collector duck-type on (`writeWith` / `readWith` /
- * `deleteWith`). Without a bucket the layer is statically `PgAssetByteStore`,
- * so the methods are always present; the widening exists so the wrapper's
- * forwarding is type-checked against the real implementations rather than
- * declared by hand.
+ * `deleteWith`). Without a bucket the layer is statically
+ * {@link SplitAssetByteStore}, so the methods are always present; the widening
+ * exists so the wrapper's forwarding is type-checked against the real
+ * implementations rather than declared by hand.
  */
-interface PgForwardedByteStore extends AssetByteStore {
-  writeWith: PgAssetByteStore['writeWith'];
-  readWith: PgAssetByteStore['readWith'];
-  deleteWith: PgAssetByteStore['deleteWith'];
+interface SplitForwardedByteStore extends AssetByteStore {
+  writeWith: SplitAssetByteStore['writeWith'];
+  readWith: SplitAssetByteStore['readWith'];
+  deleteWith: SplitAssetByteStore['deleteWith'];
 }
 
 /**
@@ -78,18 +81,23 @@ export function configuredS3Bucket(value: string | undefined): string | undefine
 }
 
 /**
- * The byte store for a configured bucket, or the PostgreSQL byte layer.
+ * The byte store for a configured bucket, or the built-in no-bucket layer.
  *
  * This is the only optional import path. The storage package owns both the SDK
  * dependency and its ignored native import, so resolution happens from the
  * package that declares the peer rather than from this app — and only when a
  * bucket is actually configured.
+ *
+ * The collector builds through this function too, and it must get the same
+ * layer the route wrote through: reclamation of an over-2-MiB blob has to
+ * remove the file as well as the row, which only {@link SplitAssetByteStore}
+ * knows how to do.
  */
 export async function createAssetByteStore(
   bucket: string | undefined,
   queryable: Queryable,
 ): Promise<AssetByteStore> {
-  if (!bucket) return new PgAssetByteStore(queryable);
+  if (!bucket) return new SplitAssetByteStore(queryable);
   const storage = await import('@openmaic/storage/asset/s3-bytes');
   return storage.loadS3AssetByteStore(bucket);
 }
@@ -131,22 +139,23 @@ export function lazyAssetByteStore(
   // simply absent. With a bucket, lazy validation is preserved: the wrapper
   // answers `undefined` when the resolved layer turns out not to sign.
   if (!bucketValue?.trim()) {
-    // No bucket means the layer is statically PgAssetByteStore, whose bytes
-    // live in the registry's own PostgreSQL. Its transaction-pinned
-    // writeWith/readWith/deleteWith MUST be forwarded: without them the
-    // registry's coordinatedWrite duck-type check fails and it falls back to
-    // the plain write on the byte store's own pooled connection, which blocks
-    // forever on the blob-row lock the registry transaction just took -- the
+    // No bucket means the layer is statically SplitAssetByteStore, whose
+    // metadata lives in the registry's own PostgreSQL (only bytes above 2 MiB
+    // go to a local directory). Its transaction-pinned writeWith/readWith/
+    // deleteWith MUST be forwarded: without them the registry's
+    // coordinatedWrite duck-type check fails and it falls back to the plain
+    // write on the byte store's own pooled connection, which blocks forever on
+    // the blob-row lock the registry transaction just took -- the
     // self-deadlock. The layer is known now, so the methods are always
     // present; nothing here is probed lazily.
-    const forwarded: PgForwardedByteStore = {
+    const forwarded: SplitForwardedByteStore = {
       ...base,
       writeWith: async (queryable, hash, bytes) =>
-        ((await resolve()) as PgAssetByteStore).writeWith(queryable, hash, bytes),
+        ((await resolve()) as SplitAssetByteStore).writeWith(queryable, hash, bytes),
       readWith: async (queryable, hash) =>
-        ((await resolve()) as PgAssetByteStore).readWith(queryable, hash),
+        ((await resolve()) as SplitAssetByteStore).readWith(queryable, hash),
       deleteWith: async (queryable, hash) =>
-        ((await resolve()) as PgAssetByteStore).deleteWith(queryable, hash),
+        ((await resolve()) as SplitAssetByteStore).deleteWith(queryable, hash),
     };
     return forwarded;
   }

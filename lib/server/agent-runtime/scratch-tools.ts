@@ -22,7 +22,7 @@
  *
  * 所以本工具**不写材料库**。它只做两件事：
  *   · `promote` **记下指针**（`materialId`）—— 那个 id 只能来自**已经**走完
- *     `update_materials` 的条目，也就是用户已经点头的；
+ *     `add_materials` 写进去的条目，也就是用户已经点头的；
  *   · 搜到但还没被确认的候选，**留在这张纸上**（这正是原本没有落点的那一堆）。
  * 换句话说：草稿纸是材料库的**候场区**，不是第二份材料库。
  *
@@ -164,8 +164,8 @@ function scratchParams(materialsEnabled: boolean) {
     topic: Type.Optional(
       Type.String({
         description: materialsEnabled
-          ? 'For `promote`: the **topic file** it went into (`update_materials` writes topic files and ' +
-            'does not return an id — the topic is the only real unit). Must be one that already exists; ' +
+          ? 'For `promote`: the **topic file** it went into (`add_materials` with `target: "note"` writes topic files and ' +
+            'returns no material id — the topic is the only real unit). Must be one that already exists; ' +
             'only pass this **after** the learner accepted the material.'
           : 'For `promote`: this deployment has no materials library, so nothing can be promoted. ' +
             'Leave the item on the scratchpad.',
@@ -187,16 +187,15 @@ export interface ScratchToolDeps {
   /**
    * 材料库里**实际存在的主题**；**没配材料库时 `null`**（`listMaterialTopics()`）。
    *
-   * ★ 为什么必须传进来（§1.1）：`update_materials` 是**条件注册**的
-   *   （`runner.ts`：`materialsIndex ? MATERIALS_TOOL_NAMES : []`）。没配材料库的部署里
-   *   它根本不存在，而本工具的**描述**与 promote 的**拒绝消息**原本无条件让它去调它 ——
+   * ★ 为什么必须传进来（§1.1）：`add_materials` 的 `target: "note"` 需要材料库配好
+   *   （`materialsIndex`）。没配材料库的部署里它写了也没地方落，而本工具的**描述**与 promote 的**拒绝消息**原本无条件让它去调它 ——
    *   那就是"提一个不存在的能力"，比不给指引更糟。
    *
    * ★ 为什么是**一张表**而不是一个 `materialsEnabled: boolean`：两个标志会漂。
    *   "配了没有"就是 `topics !== null`，一处判定。
    *
-   * ★ 为什么校验的是**主题**而不是某个 id：`update_materials` **不返回 id**
-   *   （`details` 只有 `{ topic, mode, created }`），材料库的单位就是主题文件。
+   * ★ 为什么校验的是**主题**而不是某个 id：`add_materials` **不返回材料 id**
+   *   （`details` 只有 `{ topic, mode, created, revision }`），材料库的单位就是主题文件。
    *   原来那个 `materialId` 参数**任何工具都不会产生** —— 那是让模型去找一个不存在的东西。
    *   跟着部署配置变是允许的（§1.2：进程生命周期内不变），不跟会话状态变。
    */
@@ -217,7 +216,7 @@ export function buildScratchTool(deps: ScratchToolDeps): AgentTool<ScratchParams
       'unclassified item is an owed decision and is reported back to you. `promote` only records a ' +
       (materialsEnabled
         ? 'pointer to the **topic file** it was recorded in (the learner accepted it, and you wrote it ' +
-          'with `update_materials`); never write to the library from here. '
+          'with `add_materials`); never write to the library from here. '
         : 'pointer — but **this deployment has no materials library**, so there is nothing to point ' +
           'at: keep such items here and do not claim they were recorded. ') +
       'Candidates you merely found stay on this paper until ' +
@@ -380,11 +379,11 @@ export function buildScratchTool(deps: ScratchToolDeps): AgentTool<ScratchParams
             {
               type: 'text' as const,
               text:
-                'promote 需要 topic —— **材料库里的单位是主题文件**（`update_materials` 写主题文件，' +
-                '**不返回任何 id**）。现有主题：' +
+                'promote 需要 topic —— **材料库里的单位是主题文件**（`add_materials` 写主题文件，' +
+                '**不返回任何材料 id**）。现有主题：' +
                 topicList +
                 '。**材料库的规矩是只收用户确认要用的**：先把这条给学习者看、等他点头、' +
-                '用 `update_materials` 写进某个主题，再回来 promote。',
+                '用 `add_materials` 写进某个主题，再回来 promote。',
             },
           ],
           details: {},
@@ -401,7 +400,7 @@ export function buildScratchTool(deps: ScratchToolDeps): AgentTool<ScratchParams
               text:
                 `材料库里没有主题「${topic}」。现有主题：` +
                 topicList +
-                '。先用 `update_materials` 把它写进去，再回来 promote —— 不要记一个指向空气的指针。',
+                '。先用 `add_materials` 把它写进去，再回来 promote —— 不要记一个指向空气的指针。',
             },
           ],
           details: {},
@@ -436,7 +435,7 @@ export function scratchPromptBlock(materialsEnabled = false): string {
     ...(materialsEnabled
       ? [
           '- `scratch { action: "promote", id, topic }` — **only** records that an item went into an',
-          '  **existing topic file** (write it with `update_materials` first; that tool returns no id,',
+          '  **existing topic file** (write it with `add_materials` first; that tool returns no material id,',
           '  so the topic is the only real reference). Candidates you merely found stay here until then;',
           '  never write to the materials library from the scratchpad.',
         ]

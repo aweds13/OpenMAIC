@@ -48,7 +48,6 @@ const ID = 'mat_00000000000000000000000000';
 function record(status: string) {
   return {
     id: ID,
-    retention: 'temporary',
     ownerId: 'owner-1',
     kind: 'source',
     derivedFrom: null,

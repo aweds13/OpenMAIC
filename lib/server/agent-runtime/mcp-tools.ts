@@ -11,7 +11,7 @@
  * ── 为什么名字要加前缀 ────────────────────────────────────────────
  *
  * MCP 工具叫 `search_repositories` 这种裸名，直接注册会和内置工具撞车
- * （`read_material`、`search_material`… 已经占了类似的短名）。注册成
+ * （`read_material`、`search_materials`… 已经占了类似的短名）。注册成
  * `mcp__github__search_repositories` 有三个好处：
  *   1. 不会撞；
  *   2. 模型从名字就知道该去哪儿找；

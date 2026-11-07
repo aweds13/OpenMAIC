@@ -132,6 +132,7 @@ describe('uploaded material extraction lifecycle', () => {
     });
     const read = buildMaterialTools({
       sessionId: 'session-1',
+      ownerId: 'owner-1',
       getMaterial: materials.getMaterial.bind(materials),
       readTextAsset: async (_sessionId, assetId) => assets.get(assetId) ?? null,
     }).find((candidate) => candidate.name === 'read_material') as AgentTool<never, never>;
@@ -358,7 +359,11 @@ describe('uploaded material extraction lifecycle', () => {
     ] as const) {
       const listing = buildMaterialTools({
         sessionId: 'session-1',
+        ownerId: 'owner-1',
         listMaterials: (sessionId) => materials.listMaterials(sessionId),
+        listFolders: async () => [],
+        listLibrary: async () => [],
+        attachedIds: async () => new Set<string>(),
         locale: () => locale,
       }).find((candidate) => candidate.name === 'list_materials')!;
       const wire = JSON.stringify(await listing.execute('list', {} as never));

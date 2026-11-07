@@ -171,13 +171,12 @@ describe('system prompt prefix cache', () => {
   it('names nothing from the set and still points at list_materials and the knowledge base', () => {
     const prompt = systemPrompt(materialSets.none!);
     expect(prompt).toContain('## Materials and the knowledge base');
-    expect(prompt).toContain('`list_materials` lists what this conversation has');
-    expect(prompt).toContain("scope: 'library'");
-    expect(prompt).toContain(
-      'call `extract_material` with its id, then `wait_for_materials`, then `read_material` with the same id',
-    );
-    expect(prompt).toContain('Read a `web` material directly');
-    expect(prompt).toContain('read through the `extraction` material');
+    expect(prompt).toContain('`list_materials` lists it, newest first');
+    expect(prompt).toContain('`topic:<slug>`');
+    expect(prompt).toContain('parsing is started by the upload');
+    expect(prompt).toContain('`organize_materials`');
+    expect(prompt).toContain('`add_materials` with `target: "note"`');
+    expect(prompt).toContain('A `web` material is already fetched and extracted');
     expect(prompt).toContain('import_pptx');
     expect(prompt).toContain('layout-preserving');
     expect(prompt).not.toContain('Nothing is attached');
@@ -210,7 +209,7 @@ describe('system prompt prefix cache', () => {
     expect(prompt).not.toContain('Fetched page');
     expect(prompt).not.toContain('src_lesson');
     expect(prompt).not.toContain('mat_web');
-    expect(prompt).toContain('`list_materials` lists what this conversation has');
+    expect(prompt).toContain('`list_materials` lists it, newest first');
 
     const followUp = composeFollowUpText({
       text: 'Use this recording',

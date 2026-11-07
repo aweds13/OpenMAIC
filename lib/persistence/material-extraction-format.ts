@@ -1,6 +1,6 @@
 import type { OwnerMaterialRecord } from './owner-materials';
 
-/** Existing result/queue format owns retries; retention is not a processing mode. */
+/** Existing result/queue format owns retries; a retention class is not a processing mode. */
 export function usesClassicExtraction(
   record: Pick<OwnerMaterialRecord, 'assetId' | 'extraction' | 'extractionResult'>,
 ): boolean {
@@ -18,7 +18,7 @@ export function usesClassicExtraction(
 /** The same format dispatch at the atomic queue write and backfill boundary. */
 export const CLASSIC_EXTRACTION_SQL = `(extraction->>'resultKey' IS NOT NULL
   OR extraction->>'status' IN ('ready', 'extracting')
-  OR (asset_id IS NULL AND extraction_result IS NULL
+  OR (asset_id IS NULL AND result IS NULL
     AND COALESCE(extraction->>'status', 'idle') NOT IN ('pending', 'running', 'done')))`;
 
 export function libraryExtractionStatus(

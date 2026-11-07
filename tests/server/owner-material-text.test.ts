@@ -50,7 +50,7 @@ const location = { id: 'source', ownerId: 'anon:stale', extractionResult: result
 beforeEach(() => {
   state.read.mockReset();
   state.parse.mockReset();
-  state.row = { owner_id: 'user:alice', deleted_at: null, extraction_result: result };
+  state.row = { owner_id: 'user:alice', deleted_at: null, result };
   state.read.mockResolvedValue({
     bytes: Buffer.from('![x](openmaic-derivative:img-1)'),
     revision: 7,
@@ -96,7 +96,7 @@ it('still returns null when the fenced bytes or the parser fail', async () => {
 });
 
 it('does not parse a tombstone found by the fenced re-read', async () => {
-  state.row = { owner_id: 'user:alice', deleted_at: 1, extraction_result: result };
+  state.row = { owner_id: 'user:alice', deleted_at: 1, result };
   await expect(readOwnerMaterialText(location)).resolves.toBeNull();
   expect(state.read).not.toHaveBeenCalled();
   expect(state.parse).not.toHaveBeenCalled();
@@ -113,7 +113,7 @@ it('passes cancellation to parsing and propagates it instead of returning null',
   expect(state.read).toHaveBeenCalledOnce();
 });
 
-it.each(['read_material', 'search_material'])(
+it.each(['read_material', 'search_materials'])(
   'propagates %s cancellation through the production resolver and owner reader',
   async (name) => {
     const controller = new AbortController();
@@ -150,8 +150,12 @@ it.each(['read_material', 'search_material'])(
     });
     const selected = buildMaterialTools({
       sessionId: 'session',
+      ownerId: 'user:alice',
       resolveMaterial: async () => ({ origin: 'owner', entry }),
       listLibrary: async () => [entry],
+      listFolders: async () => [],
+      attachedIds: async (_sessionId, _ids) => new Set<string>(),
+      listSessionScope: async () => [],
     }).find((candidate) => candidate.name === name)!;
     await expect(
       selected.execute(
@@ -187,7 +191,7 @@ it('reads an immutable classic result with a private revision and rejects unread
   state.row = {
     owner_id: legacy.ownerId,
     deleted_at: null,
-    extraction_result: null,
+    result: null,
     extraction: legacy.extraction,
   };
   try {

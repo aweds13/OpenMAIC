@@ -4,7 +4,7 @@
  *
  * `instrumentation.ts` starts {@link startOwnerExtractionRunner} beside the
  * session runner (`./runner.ts`), which keeps serving copies made before
- * links. `extract_material` queues a library source here; the material tools
+ * links. `the upload path` queues a library source here; the material tools
  * and every consumer read the results through
  * `lib/server/agent-runtime/material-resolver.ts` (RFC #1716 Phase 2).
  *

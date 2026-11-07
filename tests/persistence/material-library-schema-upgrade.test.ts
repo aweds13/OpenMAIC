@@ -52,13 +52,13 @@ it('appends library migrations to a recorded main schema without losing material
     await ensureSessionMaterialLinkSchema(db);
   }
   const rows = await db.query(
-    `SELECT oss_key, extraction, retention FROM owner_material WHERE id = 'existing'`,
+    `SELECT oss_key, extraction, result FROM owner_material WHERE id = 'existing'`,
   );
   expect(rows.rows).toEqual([
     {
-      retention: 'temporary',
       oss_key: 'original-key',
       extraction: { status: 'ready', resultKey: 'parsed-key' },
+      result: null,
     },
   ]);
   expect(
@@ -90,20 +90,17 @@ it('appends library migrations to a recorded main schema without losing material
   expect((await db.query(`SELECT * FROM agent_session_material_links`)).rows).toEqual([]);
 });
 
-it('cleanup keeps all successful uploads regardless of historical retention', async () => {
+it('cleanup keeps all successful uploads regardless of how they were uploaded', async () => {
   db = new PGlite();
   await db.waitReady;
   await ensureOwnerMaterialSchema(db);
   await db.query(`CREATE TABLE generation_runs (id TEXT, owner_id TEXT, input JSONB, state TEXT)`);
-  for (const [id, retention] of [
-    ['temp', 'temporary'],
-    ['lib', 'library'],
-  ] as const) {
+  for (const id of ['temp', 'lib'] as const) {
     await db.query(
       `INSERT INTO owner_material
-      (id, owner_id, kind, bytes, oss_key, status, extraction, created_at, retention)
-      VALUES ($1, 'owner', 'source', 1, $1, 'ready', '{"status":"idle"}', 1, $2)`,
-      [id, retention],
+      (id, owner_id, kind, bytes, oss_key, status, extraction, created_at)
+      VALUES ($1, 'owner', 'source', 1, $1, 'ready', '{"status":"idle"}', 1)`,
+      [id],
     );
   }
   expect((await listOwnerLibrary(db, 'owner')).map((row) => row.id)).toEqual(['temp', 'lib']);

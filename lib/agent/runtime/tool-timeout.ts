@@ -40,8 +40,6 @@ export const AGENT_TOOL_TIMEOUT_OVERRIDES: Readonly<Record<string, number>> = {
   // (each provider request is itself bounded) on top of several model calls.
   generate_scene: 15 * 60_000,
   generate_actions: 15 * 60_000,
-  // Material extraction may wait on a slow upstream document pipeline.
-  extract_material: 15 * 60_000,
 };
 
 /** Environment variable that tunes the default tool-call budget. */

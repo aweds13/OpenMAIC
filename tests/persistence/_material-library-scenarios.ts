@@ -145,8 +145,8 @@ export async function seedDerivative(
   await h.pool.query(
     `INSERT INTO owner_material
        (id, owner_id, kind, derived_from, mime, bytes, original_name, oss_key, sha256,
-        status, extraction, created_at, asset_id, retention)
-     VALUES ($1, $2, 'image', $3, 'image/png', 3, $1, '', $4, 'ready', NULL, $5, NULL, 'library')`,
+        status, extraction, created_at, asset_id)
+     VALUES ($1, $2, 'image', $3, 'image/png', 3, $1, '', $4, 'ready', NULL, $5, NULL)`,
     [id, owner, sourceId, createHash('sha256').update(id).digest('hex'), h.clock.now],
   );
 }
@@ -384,7 +384,7 @@ export async function resolverScenario(h: ExtractionHarness): Promise<void> {
   const done = (await resolveMaterial('ses-1', 'src-a'))!;
   const text = await readResolvedMaterialText('ses-1', done);
   expect(text?.text).toContain('# Lesson');
-  expect(text?.revision).toBe((await stateOf(h, 'src-a')).extraction_result!.revision);
+  expect(text?.revision).toBe((await stateOf(h, 'src-a')).result!.revision);
 }
 
 /**
@@ -400,12 +400,12 @@ export async function textAcrossClaimScenario(h: ExtractionHarness): Promise<voi
   const stale = {
     id: 'src-anon',
     ownerId: ANON,
-    extractionResult: (await stateOf(h, 'src-anon')).extraction_result,
+    extractionResult: (await stateOf(h, 'src-anon')).result,
   };
   const staleGone = {
     id: 'src-gone',
     ownerId: ANON,
-    extractionResult: (await stateOf(h, 'src-gone')).extraction_result,
+    extractionResult: (await stateOf(h, 'src-gone')).result,
   };
 
   await claimOwner(ANON, ACCOUNT, { provider: h.provider });
@@ -419,7 +419,7 @@ export async function textAcrossClaimScenario(h: ExtractionHarness): Promise<voi
 
 /** Run one material tool of a conversation with the production dependencies. */
 async function runTool(sessionId: string, name: string, params: Record<string, unknown>) {
-  const tool = buildMaterialTools({ sessionId, waitForDelay: async () => undefined }).find(
+  const tool = buildMaterialTools({ sessionId, ownerId: ACCOUNT }).find(
     (candidate) => candidate.name === name,
   )!;
   return (await tool.execute('call', params as never)) as {
@@ -435,58 +435,6 @@ async function runTool(sessionId: string, name: string, params: Record<string, u
  * and searched by its own id with the revision of its result. Nothing is
  * attached along the way.
  */
-export async function libraryToolFlowScenario(h: ExtractionHarness): Promise<void> {
-  await seedSession(h, 'ses-1');
-  await seedSource(h, 'src-a');
-
-  expect((await runTool('ses-1', 'read_material', { materialId: 'src-a' })).details).toEqual({
-    status: 'not_found',
-  });
-  const listed = await runTool('ses-1', 'list_materials', { scope: 'library' });
-  expect(listed.details.materials).toEqual([
-    expect.objectContaining({
-      materialId: 'src-a',
-      attached: false,
-      // The page's word for the state comes with the code (#1880).
-      extraction: { status: 'idle', statusLabel: expect.any(String) },
-    }),
-  ]);
-
-  const extract = await runTool('ses-1', 'extract_material', {
-    materialId: 'src-a',
-    scope: 'library',
-  });
-  expect(extract.details).toEqual({
-    materialId: 'src-a',
-    status: 'pending',
-    statusLabel: expect.any(String),
-    started: true,
-  });
-  // Again: already queued, not started a second time.
-  expect(
-    (await runTool('ses-1', 'extract_material', { materialId: 'src-a', scope: 'library' })).details,
-  ).toMatchObject({ status: 'pending', started: false });
-
-  expect(await runNextOwnerExtraction(h.deps())).toBe(true);
-  const waited = await runTool('ses-1', 'wait_for_materials', {
-    materialIds: ['src-a'],
-    scope: 'library',
-    timeoutSec: 1,
-  });
-  expect(waited.details).toMatchObject({ complete: true, materials: [{ status: 'done' }] });
-
-  const revision = (await stateOf(h, 'src-a')).extraction_result!.revision;
-  const read = await runTool('ses-1', 'read_material', { materialId: 'src-a', scope: 'library' });
-  expect(read.content[0]!.text).toContain('# Lesson');
-  expect(read.details).toMatchObject({ materialId: 'src-a', revision, offset: 0 });
-
-  const search = await runTool('ses-1', 'search_material', { query: 'lesson', scope: 'library' });
-  expect(search.details.hits).toEqual([expect.objectContaining({ materialId: 'src-a', revision })]);
-
-  // Library reads attach nothing.
-  expect(await linksOf(h, 'ses-1')).toEqual([]);
-}
-
 /** A library enumeration must not advertise owner text under a legacy copy's id. */
 export async function legacyCopyLibraryToolsScenario(h: ExtractionHarness): Promise<void> {
   await seedSession(h, 'ses-1');
@@ -496,29 +444,24 @@ export async function legacyCopyLibraryToolsScenario(h: ExtractionHarness): Prom
   }
   await seedCopy(h, 'ses-1', 'src-shadowed', null);
 
-  const listed = await runTool('ses-1', 'list_materials', { scope: 'library' });
+  const listed = await runTool('ses-1', 'list_materials', { source: 'course' });
   expect(listed.details.materials).toEqual([
     expect.objectContaining({ materialId: 'src-readable' }),
   ]);
-  const broad = await runTool('ses-1', 'search_material', { query: 'lesson', scope: 'library' });
-  const revision = (await stateOf(h, 'src-readable')).extraction_result!.revision;
+  const broad = await runTool('ses-1', 'search_materials', { query: 'lesson', source: 'course' });
+  const revision = (await stateOf(h, 'src-readable')).result!.revision;
   expect(broad.details.hits).toEqual([
-    expect.objectContaining({ materialId: 'src-readable', revision }),
+    expect.objectContaining({ materialId: 'src-readable', source: 'course' }),
   ]);
-  const targeted = await runTool('ses-1', 'search_material', {
+  const targeted = await runTool('ses-1', 'search_materials', {
     query: 'lesson',
-    scope: 'library',
     materialId: 'src-shadowed',
   });
   expect(targeted.details.hits).toEqual([]);
-  const shadowed = await runTool('ses-1', 'read_material', {
-    scope: 'library',
-    materialId: 'src-shadowed',
+  const shadowed = await runTool('ses-1', 'read_material', { materialId: 'src-shadowed',
   });
-  expect(shadowed.details.status).toBe('source_requires_derivative');
-  const followUp = await runTool('ses-1', 'read_material', {
-    scope: 'library',
-    materialId: 'src-readable',
+  expect(shadowed.details.status).toBe('extraction_required');
+  const followUp = await runTool('ses-1', 'read_material', { materialId: 'src-readable',
     revision,
   });
   expect(followUp.content[0]!.text).toContain('# Lesson');
@@ -562,21 +505,24 @@ export async function sessionListingPaginationScenario(h: ExtractionHarness): Pr
   for (let page = 0; page < 10; page += 1) {
     const listed = await runTool('ses-1', 'list_materials', { before });
     const details = listed.details as {
-      materials: Array<{ materialId: string; derivativeCount?: number }>;
+      materials: Array<{ materialId: string; isDerived: boolean }>;
       nextBefore?: string;
     };
     expect(details.materials.length).toBeLessThanOrEqual(50);
     for (const row of details.materials) {
       seen.push(row.materialId);
-      if (row.materialId === 'src-many-images') expect(row.derivativeCount).toBe(100);
+      if (row.materialId === 'src-many-images') expect(row.isDerived).toBe(false);
     }
     before = details.nextBefore;
     if (!before) break;
   }
   expect(before).toBeUndefined();
+  // Paging must cover every row exactly once, whatever order the merge picks.
+  expect(seen).toHaveLength(307);
   expect(new Set(seen).size).toBe(307);
-  expect(seen.slice(0, 207).sort()).toEqual([...copies, 'src-many-images', 'src-later'].sort());
-  expect(seen.slice(207).sort()).toEqual(images.sort());
+  expect([...seen].sort()).toEqual(
+    [...copies, 'src-many-images', 'src-later', ...images].sort(),
+  );
 }
 
 /**
@@ -630,7 +576,7 @@ export async function listingDerivedFieldsScenario(h: ExtractionHarness): Promis
   await h.pool.query(
     `UPDATE owner_material
         SET extraction = '{"status":"done"}'::jsonb,
-            extraction_result = $2::jsonb
+            result = $2::jsonb
       WHERE id = $1`,
     [
       'src-a',
@@ -1071,7 +1017,7 @@ export async function releaseEdgesScenario(h: ExtractionHarness): Promise<void> 
   await expect(
     runClaimedOwnerExtraction(committed, h.deps({ persistence: committedRun as never })),
   ).rejects.toThrow('connection reset');
-  const published = (await stateOf(h, 'vid-committed')).extraction_result!;
+  const published = (await stateOf(h, 'vid-committed')).result!;
   expect((await stateOf(h, 'vid-committed')).status).toBe('done');
   const publishedIds = [published.text.assetId, ...published.derivatives.map((d) => d.assetId)];
   for (const id of publishedIds) expect(await entryExists(h, id)).toBe(true);
@@ -1282,7 +1228,7 @@ export async function documentImagesScenario(h: ExtractionHarness): Promise<void
   expect(await runNextOwnerExtraction(h.deps())).toBe(true);
   const state = await stateOf(h, 'src-doc');
   expect(state.status).toBe('done');
-  const result = state.extraction_result!;
+  const result = state.result!;
   expect(result.derivatives.map((d) => [d.key, d.mime, d.pageNumber])).toEqual([
     ['img-1', 'image/webp', 2],
     ['img-2', 'image/webp', undefined],
@@ -1344,7 +1290,7 @@ export async function documentImagesScenario(h: ExtractionHarness): Promise<void
   await ensure(h, 'src-copy');
   expect(await runNextOwnerExtraction(h.deps())).toBe(true);
   expect(h.documentExtract).toHaveBeenCalledTimes(1);
-  const reused = (await stateOf(h, 'src-copy')).extraction_result!;
+  const reused = (await stateOf(h, 'src-copy')).result!;
   expect(reused.reusedFrom).toBe('src-doc');
   expect(reused.text.assetId).toBe(result.text.assetId);
   expect(reused.text.imageRefs).toEqual(result.text.imageRefs);
@@ -1393,7 +1339,7 @@ export async function documentImageBudgetScenario(
   expect(await runNextOwnerExtraction(h.deps())).toBe(true);
   const state = await stateOf(h, 'budget-doc');
   expect(state.status).toBe('done');
-  const result = state.extraction_result!;
+  const result = state.result!;
   expect(result.text.imageRefs).toEqual([]);
   expect(result.stats.diagnostics).toContain(
     'Document image rewriting skipped: input exceeds parser budget',
@@ -1406,7 +1352,7 @@ export async function documentImageBudgetScenario(
   const location = { id: 'budget-doc', ownerId: ACCOUNT, extractionResult: result };
   expect(await readOwnerMaterialText(location)).toEqual({ text, revision: result.revision });
 
-  const listed = await runTool('budget-session', 'list_materials', { scope: 'library' });
+  const listed = await runTool('budget-session', 'list_materials', { source: 'course' });
   for (const derivative of result.derivatives) {
     expect(listed.details.materials).toContainEqual(
       expect.objectContaining({ materialId: derivative.id, derivedFrom: 'budget-doc' }),
@@ -1421,11 +1367,11 @@ export async function documentImageBudgetScenario(
   // Persist the old shape, without positions, so a fresh read really uses
   // legacy admission. Even a resolvable key must remain unchanged here.
   const { imageRefs: _refs, ...legacyText } = result.text;
-  await h.pool.query('UPDATE owner_material SET extraction_result = $2::jsonb WHERE id = $1', [
+  await h.pool.query('UPDATE owner_material SET result = $2::jsonb WHERE id = $1', [
     'budget-doc',
     JSON.stringify({ ...result, text: legacyText }),
   ]);
-  const legacy = (await stateOf(h, 'budget-doc')).extraction_result!;
+  const legacy = (await stateOf(h, 'budget-doc')).result!;
   expect(await readOwnerMaterialText({ ...location, extractionResult: legacy })).toEqual({
     text,
     revision: result.revision,
@@ -1443,7 +1389,7 @@ export async function documentImagesQuotaScenario(h: ExtractionHarness): Promise
   await ensure(h, 'src-big');
   expect(await runNextOwnerExtraction(h.deps())).toBe(true);
   const state = await stateOf(h, 'src-big');
-  expect(state).toMatchObject({ status: 'failed', extraction_result: null });
+  expect(state).toMatchObject({ status: 'failed', result: null });
   expect(state.extraction_error).toMatch(/no room/);
   expect(await entryIds(h)).toEqual([]);
   // The text did fit: the run got as far as the images.
@@ -1737,117 +1683,7 @@ export async function watcherNullExtractionScenario(h: ExtractionHarness): Promi
   ).toEqual(['watch-done', 'watch-failed', 'watch-deleted', 'missing']);
 }
 
-/** An old failed poll must not consume the watch registered by a new retry. */
-export async function watcherRetryScenario(h: ExtractionHarness): Promise<void> {
-  await seedSession(h, 'watch-session');
-  await seedSource(h, 'watch-source', { mime: 'video/mp4' });
-  await h.pool.query(`UPDATE owner_material SET extraction = '{"status":"failed"}'::jsonb
-    WHERE id = 'watch-source'`);
-  let release!: () => void;
-  let captured!: () => void;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queried = new Promise<void>((resolve) => {
-    captured = resolve;
-  });
-  const settled: string[][] = [];
-  let reads = 0;
-  const watcher = startExtractionWatcher({
-    intervalMs: 10,
-    onSettled: (ids) => settled.push(ids),
-    readSettled: async (ids) => {
-      const result = await readSettledSources(h.pool as never, ids);
-      reads += 1;
-      if (reads === 1) {
-        captured();
-        await held;
-      }
-      return result;
-    },
-  });
-  try {
-    watcher.watch(['watch-source']);
-    await queried;
-    const tool = buildMaterialTools({
-      sessionId: 'watch-session',
-      extractionWatcher: watcher,
-    }).find((tool) => tool.name === 'extract_material')!;
-    expect(
-      (await tool.execute('retry', { materialId: 'watch-source', scope: 'library' } as never))
-        .details,
-    ).toMatchObject({ started: true, status: 'pending' });
-    release();
-    await vi.waitFor(() => expect(reads).toBeGreaterThan(1));
-    expect(settled).toEqual([]);
-    expect(await runNextOwnerExtraction(h.deps())).toBe(true);
-    await vi.waitFor(() => expect(settled).toEqual([['watch-source']]));
-    expect((await stateOf(h, 'watch-source')).status).toBe('done');
-  } finally {
-    release();
-    watcher.stop();
-  }
-}
 
-/** A wait's late running snapshot must not re-watch a settlement already reported. */
-export async function watcherStaleWaitScenario(h: ExtractionHarness): Promise<void> {
-  await seedSession(h, 'watch-session');
-  await seedSource(h, 'watch-source');
-  await h.pool.query(`UPDATE owner_material SET extraction = '{"status":"running"}'::jsonb
-    WHERE id = 'watch-source'`);
-  let release!: () => void;
-  let captured!: () => void;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queried = new Promise<void>((resolve) => {
-    captured = resolve;
-  });
-  const settled: string[][] = [];
-  const watcher = startExtractionWatcher({
-    intervalMs: 10,
-    readSettled: (ids) => readSettledSources(h.pool as never, ids),
-    onSettled: (ids) => settled.push(ids),
-  });
-  let first = true;
-  const tool = buildMaterialTools({
-    sessionId: 'watch-session',
-    extractionWatcher: watcher,
-    waitPollIntervalMs: 1,
-    resolveMaterial: async (...args) => {
-      const result = await resolveMaterial(...args);
-      if (first) {
-        first = false;
-        captured();
-        await held;
-      }
-      return result;
-    },
-  }).find((tool) => tool.name === 'wait_for_materials')!;
-  watcher.watch(['watch-source']);
-  // The budget runs while the first read is held below, through the watcher's
-  // own report: it must outlast both however slow the database is, or the wait
-  // times out before it reads again. The wait returns as soon as it reads the
-  // settled source, so a long budget costs nothing.
-  const waiting = tool.execute('wait', {
-    materialIds: ['watch-source'],
-    scope: 'library',
-    timeoutSec: 30,
-  } as never);
-  try {
-    await queried;
-    await h.pool.query(`UPDATE owner_material SET extraction = '{"status":"done"}'::jsonb
-      WHERE id = 'watch-source'`);
-    await vi.waitFor(() => expect(settled).toEqual([['watch-source']]));
-    release();
-    expect((await waiting).details).toMatchObject({ complete: true });
-    expect(settled).toEqual([['watch-source']]);
-  } finally {
-    release();
-    watcher.stop();
-    await waiting;
-  }
-}
 
 /** Source deletion includes original, text and both published images, with exact quota accounting. */
 export async function deleteChainScenario(h: ExtractionHarness): Promise<void> {
@@ -1858,7 +1694,7 @@ export async function deleteChainScenario(h: ExtractionHarness): Promise<void> {
   await ensure(h, 'delete-chain');
   await runNextOwnerExtraction(h.deps());
   const before = await stateOf(h, 'delete-chain');
-  const result = before.extraction_result!;
+  const result = before.result!;
   expect(result.derivatives).toHaveLength(2);
   const ids = ['delete-chain', ...result.derivatives.map((d) => d.id)];
   const assets = (await rootsOf(h, 'delete-chain')).concat(
@@ -1913,13 +1749,13 @@ export async function deleteSharedScenario(h: ExtractionHarness): Promise<void> 
     await seedSource(h, recipient, { bytes: Buffer.from(first) });
     await ensure(h, recipient);
     await runNextOwnerExtraction(h.deps());
-    const donorResult = (await stateOf(h, donor)).extraction_result!;
-    const recipientResult = (await stateOf(h, recipient)).extraction_result!;
+    const donorResult = (await stateOf(h, donor)).result!;
+    const recipientResult = (await stateOf(h, recipient)).result!;
     expect(recipientResult.reusedFrom).toBe(donor);
     expect(recipientResult.text.assetId).toBe(donorResult.text.assetId);
     const removed = first === 'donor' ? donor : recipient;
     const retained = first === 'donor' ? recipient : donor;
-    const result = (await stateOf(h, retained)).extraction_result!;
+    const result = (await stateOf(h, retained)).result!;
     const roots = await rootsOf(h, retained);
     await deleteMaterial(h.provider, { ownerId: ACCOUNT, materialId: removed, fence: 'request' });
     expect(await rootsOf(h, removed)).toEqual([]);
@@ -2093,14 +1929,14 @@ export async function deleteReadsScenario(h: LibraryHarness): Promise<void> {
       ])
     ).rows,
   ).toEqual(copies);
-  const tools = buildMaterialTools({ sessionId: 'delete-session' });
+  const tools = buildMaterialTools({ sessionId: 'delete-session', ownerId: ACCOUNT });
   const run = (name: string, args: Record<string, unknown>) =>
     tools.find((tool) => tool.name === name)!.execute('call', args as never);
-  const read = await run('read_material', { materialId: 'delete-readable', scope: 'library' });
+  const read = await run('read_material', { materialId: 'delete-readable' });
   expect(read).toMatchObject({ isError: true });
   expect(
     (
-      (await run('search_material', { query: 'Lesson', scope: 'library' })) as {
+      (await run('search_materials', { query: 'Lesson' })) as {
         details: { hits: unknown[] };
       }
     ).details.hits,
@@ -2113,7 +1949,7 @@ export async function deleteReadsScenario(h: LibraryHarness): Promise<void> {
     ).rows,
   ).toEqual(messages);
   expect(
-    ((await run('list_materials', { scope: 'library' })) as { details: { materials: unknown[] } })
+    ((await run('list_materials', { source: 'course' })) as { details: { materials: unknown[] } })
       .details.materials,
   ).toEqual([]);
 }

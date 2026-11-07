@@ -137,9 +137,9 @@ async function seedOwnerMaterial(instance: PGlite, id: string, content = 'PDF') 
   await instance.query(
     `INSERT INTO owner_material
        (id, owner_id, kind, mime, bytes, original_name, oss_key, sha256, status, extraction,
-        created_at, retention)
+        created_at)
      VALUES ($1, 'owner-1', 'source', 'application/pdf', 3, 'textbook.pdf', $2, $3, 'ready', NULL,
-             $4, 'library')`,
+             $4)`,
     [id, `owner/${id}/raw`, createHash('sha256').update(content).digest('hex'), Date.now()],
   );
 }
@@ -364,9 +364,9 @@ describe('owner-material binding across sessions', () => {
     await instance.query(
       `INSERT INTO owner_material
          (id, owner_id, kind, mime, bytes, original_name, oss_key, asset_id, sha256, status,
-          extraction, created_at, retention)
+          extraction, created_at)
        VALUES ('mat_new', 'owner-1', 'source', 'application/pdf', 3, 'new.pdf', '', $1, $2,
-               'ready', NULL, $3, 'library')`,
+               'ready', NULL, $3)`,
       [assetId, createHash('sha256').update('NEW').digest('hex'), Date.now()],
     );
 

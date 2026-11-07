@@ -89,7 +89,7 @@ interface RawOwnerMaterialEntryRow extends RawOwnerMaterialRow {
   folder_id: string | null;
   display_name: string | null;
   extraction_error: string | null;
-  extraction_result: unknown;
+  result: unknown;
   derivative_lineage: { pageNumber?: unknown; timeMs?: unknown } | null;
 }
 
@@ -109,7 +109,7 @@ function entryColumns(alias: string): string {
                                          'timeMs', recorded->'timeMs')
        FROM owner_material AS lineage_source,
             jsonb_array_elements(
-              COALESCE(lineage_source.extraction_result->'derivatives', '[]'::jsonb)
+              COALESCE(lineage_source.result->'derivatives', '[]'::jsonb)
             ) AS recorded
       WHERE lineage_source.id = ${alias}.derived_from AND recorded->>'id' = ${alias}.id
       LIMIT 1) AS derivative_lineage`);
@@ -132,7 +132,7 @@ export function ownerMaterialEntryOf(row: RawOwnerMaterialEntryRow): OwnerMateri
     folderId: row.folder_id,
     displayName: row.display_name,
     extractionError: row.extraction_error,
-    extractionResult: (row.extraction_result ?? null) as OwnerExtractionResult | null,
+    extractionResult: (row.result ?? null) as OwnerExtractionResult | null,
     lineage: lineageOf(row.derivative_lineage),
   };
 }
@@ -301,7 +301,7 @@ async function listLibrary(
   }
   if (options.withTextOnly) {
     where.push(
-      `material.kind = 'source' AND (material.extraction_result IS NOT NULL OR (material.extraction->>'status' = 'ready' AND material.extraction->>'resultKey' IS NOT NULL))`,
+      `material.kind = 'source' AND (material.result IS NOT NULL OR (material.extraction->>'status' = 'ready' AND material.extraction->>'resultKey' IS NOT NULL))`,
     );
   }
   if (options.sourcesOnly) where.push(`material.kind = 'source'`);

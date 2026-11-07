@@ -48,11 +48,10 @@ import {
 } from './fetch-url';
 import { assembleRunnerTools, buildRunnerCoursePrompt } from './runner-contract';
 import type { CoursePromptBlocks } from './course-tools';
-import { buildMaterialTools } from './material-tools';
+import { buildMaterialTools, type MaterialLibraryChange } from './material-tools';
 import { expandMaterialQuery } from './material-query-expansion';
 import { defaultLocale, supportedLocaleOf, type Locale } from '@/lib/i18n/types';
 import { startExtractionWatcher, type ExtractionWatcher } from './extraction-watcher';
-import { buildMaterialLibraryTools, type MaterialLibraryChange } from './material-library-tools';
 import { buildRosterTools, ROSTER_TOOLS_PROMPT } from './roster-tools';
 import {
   buildVoiceCloneTools,
@@ -92,8 +91,6 @@ import { studyModePromptBlock } from './study-mode';
 import { assessmentModePromptBlock } from './assessment-mode';
 import { courseDesignPromptBlock } from './course-design';
 import {
-  buildReadMaterialsTool,
-  buildUpdateMaterialsTool,
   materialsIndexPromptBlock,
   listMaterialTopics,
   resolveMaterialsIndex,
@@ -1562,13 +1559,11 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     await refreshLearnerStateBestEffort(meta.ownerId);
     const learnerState = resolveLearnerState();
     // 材料库：agent **自己维护**的文件夹（索引层 + 主题文件）。
-    // 它不只是注入 —— 还配套两个写工具，因为清单是产出而不是输入。
+    // 材料面收敛成 5 个工具后它不再单独注册工具 —— 主题笔记走 read_material /
+    // add_materials；这里只解析一次注入用的恒定块（清单是产出而不是输入）。
     const materialsIndex = resolveMaterialsIndex();
     // promote 要对照**磁盘上真实存在的主题**校验，所以这里解析一次（部署配置，进程内不变）。
     const materialTopics = listMaterialTopics();
-    const materialsTools = materialsIndex
-      ? [buildReadMaterialsTool(), buildUpdateMaterialsTool()]
-      : [];
     // 外部 MCP 服务器（OPENMAIC_MCP_SERVERS）。这是外部依赖：连不上就只记
     // failed、不注册工具，绝不让它把整场会话拖死。
     const mcp = await buildMcpTools();
@@ -1752,8 +1747,9 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
     // refetch, and the course tree does not.
     const onMaterialLibraryChanged = (change: MaterialLibraryChange) =>
       emit(LIFECYCLE.libraryChanged, change);
-    // Sources whose extraction this run cares about are watched while it
-    // lasts, so a settlement reaches the client without another wait.
+    // A source's extraction is started by the upload, so nothing this run does
+    // waits on it; the watcher exists so a settlement still reaches the client
+    // as `extraction_settled` while the run lasts.
     extractionWatcher = startExtractionWatcher({
       onSettled: (materialIds) =>
         onMaterialLibraryChanged({
@@ -1762,21 +1758,16 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
           materialIds,
         }),
     });
+    // All five material tools, built together: the run's own session, the run's
+    // owner (never a parameter), and the one library-change sink.
     const materialTools = buildMaterialTools({
-      sessionId: id,
-      onLibraryChanged: onMaterialLibraryChanged,
-      extractionWatcher,
-      locale: () => runLocale,
-      // 查询扩展走回归模型（`web-search-query-rewrite` 槽位）；它永不抛，
-      // 没模型 / 超时 / 任何失败都只搜原词（§D3）。
-      expandQuery: (query, signal) => expandMaterialQuery(query, { ownerId: meta.ownerId, signal }),
-    });
-    // Organizing the knowledge base: the run's owner, never a parameter.
-    const materialLibraryTools = buildMaterialLibraryTools({
       sessionId: id,
       ownerId: meta.ownerId,
       onLibraryChanged: onMaterialLibraryChanged,
       locale: () => runLocale,
+      // 查询扩展走回归模型（`web-search-query-rewrite` 槽位）；它永不抛，
+      // 没模型 / 超时 / 任何失败都只搜原词（§D3）。
+      expandQuery: (query, signal) => expandMaterialQuery(query, { ownerId: meta.ownerId, signal }),
     });
     // Session-scoped registered voices: register_voice appends here, and
     // list_voices / set_roster (roster-tools) read the same array, so a cloned
@@ -1886,7 +1877,6 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         webSearchTools,
         courseSearchTools,
         browseTools,
-        materialsTools,
         mcp.tools,
         // ownerId is captured from the claimed durable session. It is deliberately
         // absent from the model-visible parameters, so the model cannot forge a
@@ -1922,7 +1912,6 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         curriculumTools,
         scenePreviewTools,
         materialTools,
-        materialLibraryTools,
         rosterTools,
         voiceCloneTools,
         personalHistoryTools,

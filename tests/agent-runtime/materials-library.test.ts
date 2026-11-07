@@ -8,6 +8,11 @@
  *      不补就会以为某个主题不存在而重复新建）；
  *   4. 读不到就整个不注入。
  *
+ * 材料面收敛成 5 个工具后，这一层不再注册自己的工具：主题笔记走
+ * `read_material` 的 `topic:<slug>` 与 `add_materials` 的 `target: 'note'`，
+ * 围栏、分页与错误形状统一由 `./material-tools.ts` 给出。这里测的是它下面的
+ * 两个函数 —— 它们是那两个工具唯一碰文件系统的地方。
+ *
  * 跟其它上下文文件一样：先设 env 再**动态导入**（路径是加载时求值的）。
  */
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -37,93 +42,119 @@ async function loadWith(dir: string | undefined): Promise<MaterialsModule> {
   return import('@/lib/server/agent-runtime/materials-library');
 }
 
-/** 工具 execute 的窄类型，够用即可。 */
-type AnyTool = {
-  execute: (
-    id: string,
-    params: never,
-    signal?: AbortSignal,
-  ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
-};
-
-describe('materials library tools', () => {
-  it('read_materials lists the index and the topics actually on disk', async () => {
+describe('readMaterialTopic', () => {
+  it('returns the index and the topics actually on disk', async () => {
     const dir = emptyDir();
-    writeFileSync(join(dir, 'INDEX.md'), '| 主题 | 说明 |\n|---|---|\n| dart | x |\n', 'utf8');
-    writeFileSync(join(dir, 'dart-flutter.md'), '## 骨架\n', 'utf8');
+    writeFileSync(join(dir, 'INDEX.md'), '| topic | note |\n|---|---|\n| dart | x |\n', 'utf8');
+    writeFileSync(join(dir, 'dart-flutter.md'), '## skeleton\n', 'utf8');
 
     const mod = await loadWith(dir);
-    const out = await (mod.buildReadMaterialsTool() as unknown as AnyTool).execute(
-      'c1',
-      {} as never,
-    );
+    const note = mod.readMaterialTopic('INDEX');
 
-    expect(out.content[0].text).toContain('| dart | x |');
-    expect(out.content[0].text).toContain('dart-flutter');
-    // ★ 索引正文只从这里出去，所以它必须在围栏里（反向保护：
-    // 提示词侧已不放它，若这里也不围，就没人守了）。
-    expect(out.content[0].text).toMatch(/^<untrusted-material-content-[0-9a-f]{16}>/);
+    expect(note.status).toBe('ok');
+    if (note.status !== 'ok') return;
+    expect(note.content).toContain('| dart | x |');
+    expect(note.topics).toEqual(['dart-flutter']);
+    // Opaque to the model, but in the same `sha256:` shape the owner-material
+    // branch uses, and stable for the same bytes.
+    expect(note.revision).toMatch(/^sha256:[0-9a-f]{16}$/);
+    expect(mod.readMaterialTopic('INDEX')).toMatchObject({ revision: note.revision });
   });
 
-  it('read_materials refuses a topic that escapes the folder', async () => {
+  it('refuses a topic that escapes the folder', async () => {
     const mod = await loadWith(emptyDir());
-    const tool = mod.buildReadMaterialsTool() as unknown as AnyTool;
 
     for (const bad of ['../secret', 'a/b', '..', 'A-B', 'x.md']) {
-      const out = await tool.execute('c1', { topic: bad } as never);
-      expect(out.isError, `topic ${bad} 应当被拒`).toBe(true);
-      expect(out.content[0].text).toContain('Invalid topic');
+      expect(mod.readMaterialTopic(bad).status, `topic ${bad} should be refused`).toBe(
+        'invalid_topic',
+      );
     }
   });
 
-  it('update_materials append keeps what was already there', async () => {
+  it('names the topics that do exist when asked for one that does not', async () => {
     const dir = emptyDir();
-    writeFileSync(join(dir, 'dart-flutter.md'), '# 原有内容\n', 'utf8');
+    writeFileSync(join(dir, 'rust.md'), '# Rust\n', 'utf8');
+    const mod = await loadWith(dir);
+
+    const note = mod.readMaterialTopic('dart-flutter');
+    expect(note.status).toBe('not_found');
+    if (note.status !== 'not_found') return;
+    expect(note.topics).toEqual(['rust']);
+  });
+
+  it('says so when no folder is configured', async () => {
+    const mod = await loadWith(undefined);
+    expect(mod.readMaterialTopic('INDEX').status).toBe('not_configured');
+  });
+});
+
+describe('writeMaterialTopic', () => {
+  it('append keeps what was already there', async () => {
+    const dir = emptyDir();
+    writeFileSync(join(dir, 'dart-flutter.md'), '# old body\n', 'utf8');
 
     const mod = await loadWith(dir);
-    await (mod.buildUpdateMaterialsTool() as unknown as AnyTool).execute('c1', {
+    const written = mod.writeMaterialTopic({
       topic: 'dart-flutter',
-      content: '新增一行',
+      content: 'a new line',
       mode: 'append',
-    } as never);
+    });
+    expect(written.status).toBe('ok');
+    if (written.status !== 'ok') return;
+    expect(written.created).toBe(false);
+    expect(written.appendedChars).toBe('a new line'.length);
 
     const after = readFileSync(join(dir, 'dart-flutter.md'), 'utf8');
-    expect(after).toContain('原有内容');
-    expect(after).toContain('新增一行');
+    expect(after).toContain('old body');
+    expect(after).toContain('a new line');
+    // The revision a write returns names the bytes it wrote, so a follow-up
+    // replace can prove it is writing on top of what it read.
+    expect(mod.readMaterialTopic('dart-flutter')).toMatchObject({ revision: written.revision });
   });
 
-  it('update_materials replace overwrites, and creates a missing topic file', async () => {
+  it('replace overwrites, and creates a missing topic file', async () => {
     const dir = emptyDir();
     const mod = await loadWith(dir);
-    const tool = mod.buildUpdateMaterialsTool() as unknown as AnyTool;
 
-    const created = await tool.execute('c1', {
+    const created = mod.writeMaterialTopic({
       topic: 'java-backend',
-      content: '# Java 后端\n',
+      content: '# Java backend\n',
       mode: 'replace',
-    } as never);
-    expect(created.isError).toBeFalsy();
+    });
+    expect(created.status).toBe('ok');
+    if (created.status !== 'ok') return;
+    expect(created.created).toBe(true);
     expect(existsSync(join(dir, 'java-backend.md'))).toBe(true);
 
-    await tool.execute('c2', {
-      topic: 'java-backend',
-      content: '# 重写\n',
-      mode: 'replace',
-    } as never);
-    expect(readFileSync(join(dir, 'java-backend.md'), 'utf8')).toBe('# 重写\n');
+    mod.writeMaterialTopic({ topic: 'java-backend', content: '# rewritten\n', mode: 'replace' });
+    expect(readFileSync(join(dir, 'java-backend.md'), 'utf8')).toBe('# rewritten\n');
   });
 
-  it('update_materials accepts INDEX as the topic', async () => {
+  it('accepts INDEX as the topic', async () => {
     const dir = emptyDir();
     const mod = await loadWith(dir);
-    const out = await (mod.buildUpdateMaterialsTool() as unknown as AnyTool).execute('c1', {
-      topic: 'INDEX',
-      content: '# 索引\n',
-      mode: 'replace',
-    } as never);
+    const written = mod.writeMaterialTopic({ topic: 'INDEX', content: '# index\n', mode: 'replace' });
 
-    expect(out.isError).toBeFalsy();
-    expect(readFileSync(join(dir, 'INDEX.md'), 'utf8')).toBe('# 索引\n');
+    expect(written.status).toBe('ok');
+    expect(readFileSync(join(dir, 'INDEX.md'), 'utf8')).toBe('# index\n');
+  });
+
+  it('refuses an oversized body instead of throwing', async () => {
+    const mod = await loadWith(emptyDir());
+    const written = mod.writeMaterialTopic({
+      topic: 'dart-flutter',
+      content: 'x'.repeat(200_001),
+      mode: 'replace',
+    });
+
+    expect(written).toEqual({ status: 'too_large', limit: 200_000 });
+  });
+
+  it('says so when no folder is configured', async () => {
+    const mod = await loadWith(undefined);
+    expect(
+      mod.writeMaterialTopic({ topic: 'INDEX', content: '# index\n', mode: 'replace' }).status,
+    ).toBe('not_configured');
   });
 });
 
@@ -163,8 +194,32 @@ describe('materialsIndexPromptBlock', () => {
     // 别凭书名猜内容（最容易犯的错）。
     expect(block).toContain('Do not reconstruct a material');
     // ★ 索引正文**不在**系统提示词里：围栏 nonce 每轮变，进了就把它后面几块推出前缀缓存。
-    // 索引由 read_materials 不带 topic 时从工具结果给出（见工具侧围栏测试）。
-    expect(block).not.toContain('# 索引');
+    // 索引由 read_material 以 topic:INDEX 从工具结果给出（围栏在 ./material-tools.ts）。
+    expect(block).not.toContain('# index');
     expect(block).toContain('The index itself is not in this prompt');
+  });
+
+  it('names only tools the runtime actually registers', async () => {
+    const mod = await loadWith(undefined);
+    const block = mod.materialsIndexPromptBlock();
+
+    // The three names this block may say, and none of the retired ones.
+    expect(block).toContain('`read_material`');
+    expect(block).toContain('`add_materials`');
+    expect(block).toContain('`list_materials`');
+    for (const retired of [
+      'read_materials',
+      'update_materials',
+      'extract_material',
+      'wait_for_materials',
+      'search_material',
+      'list_material_folders',
+      'create_material_folder',
+      'rename_material_folder',
+      'move_materials',
+      'rename_material',
+    ]) {
+      expect(block, `${retired} is retired`).not.toContain(retired);
+    }
   });
 });

@@ -69,12 +69,8 @@ import { claimOwner } from '@/lib/persistence/owner-claims';
 import { attachOwnerMaterialsToSession } from '@/lib/persistence/session-material-links';
 import { ensureOwnerMaterialExtraction } from '@/lib/persistence/owner-material-extraction';
 import { buildMaterialTools } from '@/lib/server/agent-runtime/material-tools';
-import {
-  readSettledSources,
-  startExtractionWatcher,
-} from '@/lib/server/agent-runtime/extraction-watcher';
+import { readSettledSources } from '@/lib/server/agent-runtime/extraction-watcher';
 import { runNextOwnerExtraction } from '@/lib/server/material-extraction/owner-extraction';
-import { buildMaterialLibraryTools } from '@/lib/server/agent-runtime/material-library-tools';
 import { contentDisposition } from '@/lib/server/materials/original-response';
 import { presentTool } from '@/components/workbench/chat/tool-presentation';
 import { createWorkbenchTranslator } from '@/lib/i18n/workbench';
@@ -230,35 +226,31 @@ describe('material library routes and tools (PGlite)', () => {
         sessionId: 'legacy-session',
         materialIds: ['classic'],
       });
-      const tools = buildMaterialTools({ sessionId: 'legacy-session' });
+      const tools = buildMaterialTools({ sessionId: 'legacy-session', ownerId: ACCOUNT });
       const call = async (name: string, args: Record<string, unknown>) =>
         tools.find((t) => t.name === name)!.execute('call', args as never);
-      const read = await call('read_material', { materialId: 'classic', scope: 'library' });
+      const read = await call('read_material', { materialId: 'classic' });
       expect(JSON.stringify(read)).toContain('legacy searchable lesson');
       expect(JSON.stringify(read)).not.toContain('classic-result');
       expect(await readSettledSources(h.pool, ['classic'])).toEqual(['classic']);
-      const search = await call('search_material', { query: 'searchable', scope: 'library' });
+      const search = await call('search_materials', { query: 'searchable' });
       expect(JSON.stringify(search)).toContain('classic');
-      expect(
-        JSON.stringify(
-          await call('wait_for_materials', { materialIds: ['classic'], timeoutSec: 0 }),
-        ),
-      ).toContain('"complete":true');
-      // Both page and agent retries preserve the existing classic result contract.
-      for (const entry of ['page', 'agent']) {
+      // Retries preserve the existing classic result contract. The five-tool
+      // surface has no retry tool of its own (parsing starts at upload), so the
+      // page route is the one retry path; running it twice also covers the
+      // second pass, where the unrelated pool upload is already claimed.
+      for (const entry of ['first pass', 'second pass']) {
         await h.pool.query(
           `UPDATE owner_material SET extraction = '{"status":"failed"}' WHERE id = 'classic'`,
         );
-        if (entry === 'page') {
-          expect(
-            (
-              await extractionRoute(
-                request('POST', '/api/materials/classic/extraction'),
-                params('classic'),
-              )
-            ).status,
-          ).toBe(200);
-        } else await call('extract_material', { materialId: 'classic', scope: 'library' });
+        expect(
+          (
+            await extractionRoute(
+              request('POST', '/api/materials/classic/extraction'),
+              params('classic'),
+            )
+          ).status,
+        ).toBe(200);
         expect((await getOwnerMaterial(h.pool, ACCOUNT, 'classic'))!.extraction?.status).toBe(
           'extracting',
         );
@@ -268,7 +260,7 @@ describe('material library routes and tools (PGlite)', () => {
           leaseTtlMs: 60000,
           createToken: randomUUID,
         });
-        expect(poolClaim?.materialId ?? null).toBe(entry === 'page' ? 'pool-source' : null);
+        expect(poolClaim?.materialId ?? null).toBe(entry === 'first pass' ? 'pool-source' : null);
         const claimed = await claimOwnerMaterialExtraction(h.pool as never, 'classic-worker', {
           leaseTtlMs: 60000,
           perOwnerLimit: 2,
@@ -484,26 +476,27 @@ describe('material library routes and tools (PGlite)', () => {
     'localizes genuine organization failures in %s without changing statuses',
     async (locale, folderMissing, materialMissing, moveRefused) => {
       await boot();
-      const tools = buildMaterialLibraryTools({
-        ownerId: ACCOUNT,
+      const tools = buildMaterialTools({
         sessionId: 'ses-run',
+        ownerId: ACCOUNT,
         locale: () => locale,
       });
-      const run = (name: string, args: Record<string, unknown>) =>
-        tools.find((tool) => tool.name === name)!.execute('call', args as never);
-      const folder = await run('rename_material_folder', { folderId: 'missing', name: 'Updated' });
+      const run = (args: Record<string, unknown>) =>
+        tools.find((tool) => tool.name === 'organize_materials')!.execute('call', args as never);
+      const folder = await run({ action: 'rename_folder', folderId: 'missing', name: 'Updated' });
       expect(folder).toMatchObject({
         isError: true,
-        details: { status: 'not_found' },
+        details: { status: 'folder_not_found' },
         content: [{ type: 'text', text: folderMissing }],
       });
-      const source = await run('rename_material', { materialId: 'missing', name: 'Updated' });
+      const source = await run({ action: 'rename', materialId: 'missing', name: 'Updated' });
       expect(source).toMatchObject({
         isError: true,
         details: { status: 'not_found' },
         content: [{ type: 'text', text: materialMissing }],
       });
-      const move = await run('move_materials', {
+      const move = await run({
+        action: 'move',
         materialIds: ['private-internal-id'],
         folderId: 'top-level',
       });
@@ -529,46 +522,58 @@ describe('material library routes and tools (PGlite)', () => {
     );
     expect(late.status).toBe(403);
 
-    const tools = buildMaterialLibraryTools({ ownerId: ANON, sessionId: 'ses-run' });
-    const run = (name: string, args: Record<string, unknown>) =>
-      tools.find((tool) => tool.name === name)!.execute('call', args as never) as Promise<{
+    const tools = buildMaterialTools({ sessionId: 'ses-run', ownerId: ANON });
+    const run = (args: Record<string, unknown>) =>
+      tools
+        .find((tool) => tool.name === 'organize_materials')!
+        .execute('call', args as never) as Promise<{
         details: Record<string, unknown>;
         isError?: boolean;
       }>;
-    const folder = await run('create_material_folder', { name: 'From the run' });
-    expect(folder.details).toMatchObject({ status: 'created', created: true });
+    const folder = await run({ action: 'create_folder', name: 'From the run' });
+    expect(folder.details).toMatchObject({ action: 'create_folder', changed: true });
     expect(
       (
-        await run('move_materials', {
+        await run({
+          action: 'move',
           materialIds: ['src-anon'],
           folderId: folder.details.folderId,
         })
       ).details,
-    ).toMatchObject({ status: 'moved' });
+    ).toMatchObject({ action: 'move', changed: true });
     expect(
-      (await run('rename_material', { materialId: 'src-anon', name: 'Renamed' })).details,
+      (await run({ action: 'rename', materialId: 'src-anon', name: 'Renamed' })).details,
     ).toMatchObject({
-      status: 'renamed',
+      action: 'rename',
+      changed: true,
     });
-    const listed = await run('list_material_folders', {});
+    const listed = (await tools
+      .find((tool) => tool.name === 'list_materials')!
+      .execute('call', {} as never)) as { details: Record<string, unknown> };
     expect(listed.details.folders).toEqual([
-      { folderId: folder.details.folderId, name: 'From the run', materialCount: 1 },
+      { folderId: folder.details.folderId, name: 'From the run', count: 1 },
     ]);
     // Back to the top level: named in the page's word for the run's language (#1880).
-    const englishTools = buildMaterialLibraryTools({
-      ownerId: ANON,
+    const englishTools = buildMaterialTools({
       sessionId: 'ses-run',
+      ownerId: ANON,
       locale: () => 'en-US',
     });
     const outOfFolder = await englishTools
-      .find((tool) => tool.name === 'move_materials')!
-      .execute('call', { materialIds: ['src-anon'], folderId: 'top-level' } as never);
+      .find((tool) => tool.name === 'organize_materials')!
+      .execute('call', {
+        action: 'move',
+        materialIds: ['src-anon'],
+        folderId: 'top-level',
+      } as never);
     expect(outOfFolder.details).toMatchObject({
-      status: 'moved',
+      action: 'move',
+      changed: true,
       folderId: null,
       folderLabel: 'Top level',
     });
-    const refused = await run('move_materials', {
+    const refused = await run({
+      action: 'move',
       materialIds: ['missing'],
       folderId: 'top-level',
     });
@@ -604,20 +609,26 @@ describe('material library routes and tools (PGlite)', () => {
       const before = await h.pool.query(
         'SELECT * FROM agent_session_materials ORDER BY session_id, id',
       );
-      const tools = buildMaterialLibraryTools({ ownerId: ACCOUNT, sessionId: 'ses-run' });
-      const run = (name: string, args: Record<string, unknown>) =>
-        tools.find((tool) => tool.name === name)!.execute('call', args as never);
+      const tools = buildMaterialTools({ sessionId: 'ses-run', ownerId: ACCOUNT });
+      const run = (args: Record<string, unknown>) =>
+        tools.find((tool) => tool.name === 'organize_materials')!.execute('call', args as never);
       const folder = await createFolderRoute(
         request('POST', '/api/materials/folders', { name: 'Copy target' }),
       );
       const { folder: target } = (await folder.json()) as { folder: { id: string } };
       const expectedResults = [
-        { status: 'renamed', materialId: 'shadow-source', name: 'Library name' },
-        { status: 'moved', materialIds: ['shadow-source'], folderId: target.id, movedCount: 1 },
+        { action: 'rename', changed: true, materialId: 'shadow-source', name: 'Library name' },
+        {
+          action: 'move',
+          changed: true,
+          moved: ['shadow-source'],
+          folderId: target.id,
+          movedCount: 1,
+        },
       ];
       const actual = [
-        await run('rename_material', { materialId: 'shadow-source', name: 'Library name' }),
-        await run('move_materials', { materialIds: ['shadow-source'], folderId: target.id }),
+        await run({ action: 'rename', materialId: 'shadow-source', name: 'Library name' }),
+        await run({ action: 'move', materialIds: ['shadow-source'], folderId: target.id }),
       ];
       const hasCopy = copy === 'same id' || copy === 'legacy id' || copy === 'different id';
       actual.forEach((value, index) => {
@@ -651,9 +662,9 @@ describe('material library routes and tools (PGlite)', () => {
     },
   );
 
-  it.each(['rename_material', 'move_materials'] as const)(
-    'keeps committed %s successful when the session-copy notice query fails',
-    async (name) => {
+  it.each(['rename', 'move'] as const)(
+    'keeps a committed %s successful when the session-copy notice query fails',
+    async (action) => {
       const h = await boot();
       await seedSource(h, 'notice-failure');
       await seedSession(h, 'ses-run');
@@ -662,7 +673,7 @@ describe('material library routes and tools (PGlite)', () => {
         request('POST', '/api/materials/folders', { name: 'Failure target' }),
       );
       const { folder: target } = (await folder.json()) as { folder: { id: string } };
-      const tools = buildMaterialLibraryTools({ ownerId: ACCOUNT, sessionId: 'ses-run' });
+      const tools = buildMaterialTools({ sessionId: 'ses-run', ownerId: ACCOUNT });
       const originalQuery = h.pool.query.bind(h.pool);
       const query = vi.spyOn(h.pool, 'query').mockImplementation(async (sql, params) => {
         if (sql.startsWith('SELECT COALESCE(owner_material_id, id) AS id')) {
@@ -673,28 +684,32 @@ describe('material library routes and tools (PGlite)', () => {
       const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
       try {
         const args =
-          name === 'rename_material'
-            ? { materialId: 'notice-failure', name: 'Committed' }
-            : { materialIds: ['notice-failure'], folderId: target.id };
+          action === 'rename'
+            ? { action, materialId: 'notice-failure', name: 'Committed' }
+            : { action, materialIds: ['notice-failure'], folderId: target.id };
         const expected =
-          name === 'rename_material'
-            ? { status: 'renamed', materialId: 'notice-failure', name: 'Committed' }
+          action === 'rename'
+            ? {
+                action: 'rename',
+                changed: true,
+                materialId: 'notice-failure',
+                name: 'Committed',
+              }
             : {
-                status: 'moved',
-                materialIds: ['notice-failure'],
+                action: 'move',
+                changed: true,
+                moved: ['notice-failure'],
                 folderId: target.id,
                 movedCount: 1,
               };
         const value = await tools
-          .find((tool) => tool.name === name)!
+          .find((tool) => tool.name === 'organize_materials')!
           .execute('call', args as never);
         expect(value).toEqual({
           details: expected,
           content: [{ type: 'text', text: JSON.stringify(expected, null, 2) }],
         });
-        expect(warning).toHaveBeenCalledWith(
-          '[MaterialLibraryTools] Session-copy notice unavailable',
-        );
+        expect(warning).toHaveBeenCalledWith('[MaterialTools] Session-copy notice unavailable');
         expect(
           (
             await originalQuery(
@@ -703,7 +718,7 @@ describe('material library routes and tools (PGlite)', () => {
             )
           ).rows[0],
         ).toMatchObject(
-          name === 'rename_material' ? { display_name: 'Committed' } : { folder_id: target.id },
+          action === 'rename' ? { display_name: 'Committed' } : { folder_id: target.id },
         );
         expect(
           (
@@ -724,23 +739,25 @@ describe('material library routes and tools (PGlite)', () => {
     const h = await boot();
     await seedSource(h, 'src-a');
     const changes: unknown[] = [];
-    const tools = buildMaterialLibraryTools({
+    const tools = buildMaterialTools({
       sessionId: 'ses-run',
       ownerId: ACCOUNT,
       onLibraryChanged: (change) => changes.push(change),
     });
-    const run = (name: string, args: Record<string, unknown>) =>
-      tools.find((tool) => tool.name === name)!.execute('call', args as never) as Promise<{
+    const run = (args: Record<string, unknown>) =>
+      tools
+        .find((tool) => tool.name === 'organize_materials')!
+        .execute('call', args as never) as Promise<{
         details: Record<string, unknown>;
       }>;
-    const folder = await run('create_material_folder', { name: 'Unit 1' });
-    await run('create_material_folder', { name: 'unit 1' });
-    await run('rename_material_folder', { folderId: folder.details.folderId, name: 'Unit 1' });
-    await run('move_materials', { materialIds: ['src-a'], folderId: folder.details.folderId });
-    await run('move_materials', { materialIds: ['src-a'], folderId: folder.details.folderId });
-    await run('move_materials', { materialIds: ['missing'], folderId: 'top-level' });
-    await run('rename_material', { materialId: 'src-a', name: 'src-a.pdf' });
-    await run('rename_material', { materialId: 'src-a', name: 'Lesson' });
+    const folder = await run({ action: 'create_folder', name: 'Unit 1' });
+    await run({ action: 'create_folder', name: 'unit 1' });
+    await run({ action: 'rename_folder', folderId: folder.details.folderId, name: 'Unit 1' });
+    await run({ action: 'move', materialIds: ['src-a'], folderId: folder.details.folderId });
+    await run({ action: 'move', materialIds: ['src-a'], folderId: folder.details.folderId });
+    await run({ action: 'move', materialIds: ['missing'], folderId: 'top-level' });
+    await run({ action: 'rename', materialId: 'src-a', name: 'src-a.pdf' });
+    await run({ action: 'rename', materialId: 'src-a', name: 'Lesson' });
     expect(changes).toEqual([
       { library: 'materials', change: 'folder_created', folderId: folder.details.folderId },
       {
@@ -751,143 +768,6 @@ describe('material library routes and tools (PGlite)', () => {
       },
       { library: 'materials', change: 'material_renamed', materialId: 'src-a' },
     ]);
-  });
-
-  it('reports an extraction that settles after a wait timed out, without another wait', async () => {
-    const h = await boot();
-    await seedSource(h, 'src-a');
-    await seedSession(h, 'ses-1');
-    const changes: unknown[] = [];
-    const watcher = startExtractionWatcher({
-      intervalMs: 20,
-      onSettled: (materialIds) =>
-        changes.push({ library: 'materials', change: 'extraction_settled', materialIds }),
-    });
-    let clock = 0;
-    const materialTools = buildMaterialTools({
-      sessionId: 'ses-1',
-      now: () => clock,
-      waitForDelay: async (milliseconds) => {
-        clock += milliseconds;
-      },
-      onLibraryChanged: (change) => changes.push(change),
-      extractionWatcher: watcher,
-    });
-    const tool = (name: string) => materialTools.find((candidate) => candidate.name === name)!;
-    try {
-      await tool('extract_material').execute('call', {
-        materialId: 'src-a',
-        scope: 'library',
-      } as never);
-      // Started again: already pending, not started a second time, no second event.
-      await tool('extract_material').execute('call', {
-        materialId: 'src-a',
-        scope: 'library',
-      } as never);
-      const waited = (await tool('wait_for_materials').execute('call', {
-        materialIds: ['src-a'],
-        scope: 'library',
-        timeoutSec: 1,
-      } as never)) as { details: { timedOut: boolean } };
-      expect(waited.details.timedOut).toBe(true);
-      expect(changes).toEqual([
-        { library: 'materials', change: 'extraction_started', materialIds: ['src-a'] },
-      ]);
-
-      // The worker finishes later; the agent does not wait again.
-      expect(await runNextOwnerExtraction(h.deps())).toBe(true);
-      for (let attempt = 0; attempt < 200 && changes.length < 2; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      expect(changes).toEqual([
-        { library: 'materials', change: 'extraction_started', materialIds: ['src-a'] },
-        { library: 'materials', change: 'extraction_settled', materialIds: ['src-a'] },
-      ]);
-
-      // A later wait that sees it done reports nothing more.
-      await tool('wait_for_materials').execute('call', {
-        materialIds: ['src-a'],
-        scope: 'library',
-        timeoutSec: 1,
-      } as never);
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      expect(changes).toHaveLength(2);
-    } finally {
-      watcher.stop();
-    }
-  });
-
-  it('reports a settlement a wait sees once, and nothing for a source the run never watched', async () => {
-    const h = await boot();
-    await seedSource(h, 'src-a');
-    await seedSource(h, 'src-done');
-    await h.pool.query(
-      `UPDATE owner_material SET extraction = '{"status":"done"}'::jsonb WHERE id = 'src-done'`,
-    );
-    await seedSession(h, 'ses-1');
-    const settled: string[][] = [];
-    const watcher = startExtractionWatcher({
-      intervalMs: 60_000,
-      onSettled: (materialIds) => settled.push(materialIds),
-    });
-    const materialTools = buildMaterialTools({
-      sessionId: 'ses-1',
-      waitForDelay: async () => undefined,
-      extractionWatcher: watcher,
-    });
-    const tool = (name: string) => materialTools.find((candidate) => candidate.name === name)!;
-    try {
-      await tool('extract_material').execute('call', {
-        materialId: 'src-a',
-        scope: 'library',
-      } as never);
-      await h.pool.query(
-        `UPDATE owner_material SET extraction = '{"status":"failed"}'::jsonb,
-                extraction_error = 'unreadable' WHERE id = 'src-a'`,
-      );
-      for (let round = 0; round < 2; round += 1) {
-        await tool('wait_for_materials').execute('call', {
-          materialIds: ['src-a', 'src-done'],
-          scope: 'library',
-          timeoutSec: 1,
-        } as never);
-      }
-      expect(settled).toEqual([['src-a']]);
-    } finally {
-      watcher.stop();
-    }
-  });
-
-  it('reports a settlement during a wait that first saw the source in progress', async () => {
-    const h = await boot();
-    await seedSource(h, 'src-a');
-    await seedSession(h, 'ses-1');
-    // Started by an earlier run: this run never extracted it, it only waits.
-    await ensureOwnerMaterialExtraction(h.provider.withTransaction, ACCOUNT, 'src-a');
-    const settled: string[][] = [];
-    const watcher = startExtractionWatcher({
-      intervalMs: 60_000,
-      onSettled: (materialIds) => settled.push(materialIds),
-    });
-    const wait = buildMaterialTools({
-      sessionId: 'ses-1',
-      // The worker finishes while the wait is between two looks.
-      waitForDelay: async () => {
-        await runNextOwnerExtraction(h.deps());
-      },
-      extractionWatcher: watcher,
-    }).find((candidate) => candidate.name === 'wait_for_materials')!;
-    try {
-      const waited = (await wait.execute('call', {
-        materialIds: ['src-a'],
-        scope: 'library',
-        timeoutSec: 1,
-      } as never)) as { details: { complete: boolean } };
-      expect(waited.details.complete).toBe(true);
-      expect(settled).toEqual([['src-a']]);
-    } finally {
-      watcher.stop();
-    }
   });
 
   /** ses-1 holds a pre-link copy and links src-a (with img-a1); src-loose is not attached. */
@@ -1173,27 +1053,30 @@ describe('material library routes and tools (PGlite)', () => {
     await seedSource(h, 'src-in');
     await seedSource(h, 'src-out');
     await seedDerivative(h, 'img-out', 'src-out');
-    const tools = buildMaterialLibraryTools({ ownerId: ACCOUNT, sessionId: 'ses-run' });
-    const run = (name: string, args: Record<string, unknown>) =>
-      tools.find((tool) => tool.name === name)!.execute('call', args as never) as Promise<{
+    const tools = buildMaterialTools({ sessionId: 'ses-run', ownerId: ACCOUNT });
+    const run = (args: Record<string, unknown>) =>
+      tools
+        .find((tool) => tool.name === 'organize_materials')!
+        .execute('call', args as never) as Promise<{
         details: Record<string, unknown>;
       }>;
-    const folder = await run('create_material_folder', { name: 'Unit 1' });
-    await run('move_materials', { materialIds: ['src-in'], folderId: folder.details.folderId });
+    const folder = await run({ action: 'create_folder', name: 'Unit 1' });
+    await run({ action: 'move', materialIds: ['src-in'], folderId: folder.details.folderId });
 
-    const moved = await run('move_materials', {
+    const moved = await run({
+      action: 'move',
       materialIds: ['src-in', 'src-out'],
       folderId: folder.details.folderId,
     });
     // One source moved (its derivative with it, not counted); one was there already.
-    expect(moved.details).toMatchObject({ status: 'moved', movedCount: 1 });
+    expect(moved.details).toMatchObject({ action: 'move', changed: true, movedCount: 1 });
     const row = presentTool(
       {
         key: 'k',
         kind: 'tool',
         text: '',
         toolCallId: 'c',
-        toolName: 'move_materials',
+        toolName: 'organize_materials',
         toolArgs: {},
         toolState: 'done',
         toolDetails: moved.details,
@@ -1697,10 +1580,7 @@ describe('material library routes and tools (PGlite)', () => {
     const h = await boot();
     await seedSession(h, 'ses-validation');
     await seedSource(h, 'validated-source');
-    const tools = [
-      ...buildMaterialLibraryTools({ ownerId: ACCOUNT, sessionId: 'ses-validation' }),
-      ...buildMaterialTools({ sessionId: 'ses-validation' }),
-    ];
+    const tools = buildMaterialTools({ sessionId: 'ses-validation', ownerId: ACCOUNT });
     const run = async (name: string, args: Record<string, unknown>) => {
       const tool = tools.find((tool) => tool.name === name)!;
       const validated = validateToolArguments(tool, {
@@ -1713,37 +1593,36 @@ describe('material library routes and tools (PGlite)', () => {
         details: Record<string, unknown>;
       }>;
     };
-    const folder = await run('create_material_folder', { name: 'Validation' });
-    await run('move_materials', {
+    const folder = await run('organize_materials', { action: 'create_folder', name: 'Validation' });
+    await run('organize_materials', {
+      action: 'move',
       materialIds: ['validated-source'],
       folderId: folder.details.folderId,
     });
-    expect(
-      (await run('list_materials', { scope: 'library', folderId: 'top-level' })).details.materials,
-    ).toEqual([]);
-    const moved = await run('move_materials', {
+    expect((await run('list_materials', { folderId: 'top-level' })).details.materials).toEqual([]);
+    const moved = await run('organize_materials', {
+      action: 'move',
       materialIds: ['validated-source'],
       folderId: 'top-level',
     });
-    expect(moved.details).toMatchObject({ status: 'moved', folderId: null });
+    expect(moved.details).toMatchObject({ action: 'move', changed: true, folderId: null });
+    expect((await run('list_materials', { folderId: 'top-level' })).details.materials).toEqual([
+      expect.objectContaining({ materialId: 'validated-source', folder: null }),
+    ]);
     expect(
-      (await run('list_materials', { scope: 'library', folderId: 'top-level' })).details.materials,
-    ).toEqual([expect.objectContaining({ materialId: 'validated-source', folderId: null })]);
-    expect(
-      (await run('list_materials', { scope: 'library', folderId: folder.details.folderId })).details
-        .materials,
+      (await run('list_materials', { folderId: folder.details.folderId })).details.materials,
     ).toEqual([]);
-    expect((await run('list_materials', { scope: 'library' })).details.materials).toHaveLength(1);
+    expect((await run('list_materials', {})).details.materials).toHaveLength(1);
   });
 
   it('measures a folder name by display width, not by its character count', async () => {
     await boot();
-    const tools = buildMaterialLibraryTools({
-      ownerId: ACCOUNT,
+    const tools = buildMaterialTools({
       sessionId: 'ses-width',
+      ownerId: ACCOUNT,
       locale: () => 'en-US',
     });
-    const createFolder = tools.find((tool) => tool.name === 'create_material_folder')!;
+    const createFolder = tools.find((tool) => tool.name === 'organize_materials')!;
     // Through the real pi-ai argument validation: the schema must not bind the
     // name by code-point count, or 21 full-width characters never reach the
     // display-width rule (40 half-width / 20 full-width) that decides.
@@ -1752,7 +1631,7 @@ describe('material library routes and tools (PGlite)', () => {
         type: 'toolCall',
         id: 'call',
         name: createFolder.name,
-        arguments: { name },
+        arguments: { action: 'create_folder', name },
       });
       return createFolder.execute('call', validated as never) as Promise<{
         details: Record<string, unknown>;
@@ -1763,11 +1642,19 @@ describe('material library routes and tools (PGlite)', () => {
 
     const halfWidth = await run('a'.repeat(40));
     expect(halfWidth.isError).toBeUndefined();
-    expect(halfWidth.details).toMatchObject({ status: 'created', name: 'a'.repeat(40) });
+    expect(halfWidth.details).toMatchObject({
+      action: 'create_folder',
+      changed: true,
+      name: 'a'.repeat(40),
+    });
 
     const fullWidth = await run('第'.repeat(20));
     expect(fullWidth.isError).toBeUndefined();
-    expect(fullWidth.details).toMatchObject({ status: 'created', name: '第'.repeat(20) });
+    expect(fullWidth.details).toMatchObject({
+      action: 'create_folder',
+      changed: true,
+      name: '第'.repeat(20),
+    });
 
     const tooManyHalfWidth = await run('a'.repeat(41));
     expect(tooManyHalfWidth.isError).toBe(true);
@@ -1787,16 +1674,20 @@ describe('material library routes and tools (PGlite)', () => {
   it('bounds a material name at 255 characters at the write, not only in the schema', async () => {
     const h = await boot();
     await seedSource(h, 'src-name');
-    const tools = buildMaterialLibraryTools({
-      ownerId: ACCOUNT,
+    const tools = buildMaterialTools({
       sessionId: 'ses-name',
+      ownerId: ACCOUNT,
       locale: () => 'en-US',
     });
-    const rename = tools.find((tool) => tool.name === 'rename_material')!;
+    const rename = tools.find((tool) => tool.name === 'organize_materials')!;
     // Straight to execute: the schema also caps at 255, but the write is the
     // last line of defence and must refuse on its own.
     const run = (name: string) =>
-      rename.execute('call', { materialId: 'src-name', name } as never) as Promise<{
+      rename.execute('call', {
+        action: 'rename',
+        materialId: 'src-name',
+        name,
+      } as never) as Promise<{
         details: Record<string, unknown>;
         isError?: boolean;
         content: Array<{ text: string }>;
@@ -1804,7 +1695,11 @@ describe('material library routes and tools (PGlite)', () => {
 
     const atLimit = await run('n'.repeat(255));
     expect(atLimit.isError).toBeUndefined();
-    expect(atLimit.details).toMatchObject({ status: 'renamed', name: 'n'.repeat(255) });
+    expect(atLimit.details).toMatchObject({
+      action: 'rename',
+      changed: true,
+      name: 'n'.repeat(255),
+    });
 
     const overLimit = await run('n'.repeat(256));
     expect(overLimit.isError).toBe(true);

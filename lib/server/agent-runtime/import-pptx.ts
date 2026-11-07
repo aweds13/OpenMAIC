@@ -382,7 +382,7 @@ export function buildImportPptxTool(
     name: IMPORT_PPTX_TOOL_NAME,
     label: 'Import PowerPoint',
     description:
-      'Import slides from an uploaded .pptx INTO the given stage as appended pages, keeping layout. The stage keeps its own title and existing pages. Call once with the source mat_ id from list_materials, after create_stage. Do NOT extract_material or generate_scene for a layout-preserving import. Safe to retry for the same material: a retry reports the pages it already imported instead of appending again.',
+      'Import slides from an uploaded .pptx INTO the given stage as appended pages, keeping layout. The stage keeps its own title and existing pages. Call once with the source mat_ id from list_materials, after create_stage. Do NOT read the source as text or generate_scene for a layout-preserving import. Safe to retry for the same material: a retry reports the pages it already imported instead of appending again.',
     parameters: ImportParams,
     async execute(_id, params: Static<typeof ImportParams>, signal) {
       throwIfAborted(signal ?? deps.abortSignal);

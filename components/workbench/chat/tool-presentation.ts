@@ -203,24 +203,15 @@ function stageTitle(
   return str(details.title) ?? str(args.title);
 }
 
+/** Names that get this table's line instead of the generic fallback. */
 const MATERIAL_TOOLS = new Set([
+  'add_materials',
   'list_materials',
-  'extract_material',
+  'organize_materials',
   'read_material',
+  'search_materials',
   'use_material_media',
-  'wait_for_materials',
-  'search_material',
 ]);
-
-function materialStatusFailed(value: unknown): boolean {
-  const details = asRecord(value);
-  if (details.status === 'failed') return true;
-  if (!Array.isArray(details.materials)) return false;
-  return details.materials.some((item) => {
-    const material = asRecord(item);
-    return material.status === 'failed' || asRecord(material.extraction).status === 'failed';
-  });
-}
 
 /**
  * Only the call itself failing is an error (#1880): a call that succeeded and
@@ -279,7 +270,6 @@ export function presentTool(
   const args = node.toolArgs ?? {};
   const d = asRecord(node.toolDetails);
   const failed = isWorkbenchToolFailed(node);
-  const extractionFailed = MATERIAL_TOOLS.has(name) && materialStatusFailed(d);
   const chips: ToolChip[] = [];
   const localizedResult = node.toolResultCopyKey ? t(node.toolResultCopyKey) : node.toolResultText;
   const errorLine = (subject: string, _raw?: string) =>
@@ -289,7 +279,13 @@ export function presentTool(
     // Material operations are intentionally one quiet, non-expandable row.
     // Their wire payload is full of internal mat_* ids and model-facing
     // guidance; the user only needs the operation and its state.
-    case 'list_materials':
+    case 'list_materials': {
+      // What the knowledge base holds, in one line: the listing's own folder
+      // count. A paged listing names its page, never the whole library.
+      const folders = Array.isArray(d.folders) ? d.folders.length : undefined;
+      if (folders !== undefined && folders > 0 && !failed) {
+        chips.push({ label: t('workbench.tool.chip.materialFolders', { count: folders }) });
+      }
       return {
         icon: FileSearch,
         label: t('workbench.tool.label.listMaterials'),
@@ -297,135 +293,67 @@ export function presentTool(
         hidePayload: true,
         ...(failed ? { errorText: t('workbench.tool.error.listMaterials') } : {}),
       };
-
-    case 'extract_material': {
-      // Whether THIS call started it, from the tool's own `started`: a source
-      // already extracting or already extracted is not started again.
-      if (!failed) {
-        const status = str(d.status);
-        if (status === 'failed') {
-          chips.push({ label: t('workbench.tool.chip.parseFailed'), tone: 'neutral' });
-        } else if (d.started === true) {
-          chips.push({ label: t('workbench.tool.chip.extractionStarted'), tone: 'accent' });
-        } else if (status === 'pending' || status === 'running') {
-          chips.push({ label: t('workbench.tool.chip.extractionInProgress'), tone: 'neutral' });
-        } else if (status === 'done') {
-          chips.push({ label: t('workbench.tool.chip.extractionDone'), tone: 'neutral' });
-        }
-      }
-      return {
-        icon: FileSearch,
-        label: t('workbench.tool.label.extractMaterial'),
-        chips,
-        hidePayload: true,
-        ...(failed ? { errorText: t('workbench.tool.error.materialExtraction') } : {}),
-      };
     }
 
-    case 'wait_for_materials':
-      if (!failed && extractionFailed) {
-        chips.push({ label: t('workbench.tool.chip.parseFailed'), tone: 'neutral' });
-      } else if (!failed) {
-        if (d.complete === true) {
-          chips.push({ label: t('workbench.tool.chip.extractionComplete'), tone: 'accent' });
-        } else if (d.timedOut === true) {
-          chips.push({ label: t('workbench.tool.chip.extractionStillRunning'), tone: 'neutral' });
-        }
-      }
-      return {
-        icon: FileSearch,
-        label: t('workbench.tool.label.waitMaterials'),
-        chips,
-        hidePayload: true,
-        ...(failed ? { errorText: t('workbench.tool.error.materialExtraction') } : {}),
-      };
-
-    // Organizing the knowledge base: one quiet row each, from the tool's own
-    // `status`. No result card, no undo, no link to a folder (RFC #1716 §6).
-    case 'list_material_folders': {
-      const folders = Array.isArray(d.folders) ? d.folders.length : undefined;
-      if (folders !== undefined && !failed) {
-        chips.push({ label: t('workbench.tool.chip.materialFolders', { count: folders }) });
-      }
-      return {
-        icon: FolderTree,
-        label: t('workbench.tool.label.listMaterialFolders'),
-        chips,
-        hidePayload: true,
-        ...(failed ? { errorText: t('workbench.tool.error.listMaterialFolders') } : {}),
-      };
-    }
-
-    case 'create_material_folder':
-      if (!failed && d.created === false) {
-        chips.push({ label: t('workbench.tool.chip.folderExisted'), tone: 'neutral' });
-      }
-      return {
-        icon: FolderPlus,
-        label: t('workbench.tool.label.createMaterialFolder'),
-        subject: str(d.name) ?? str(args.name),
-        chips,
-        hidePayload: true,
-        ...(failed ? { errorText: t('workbench.tool.error.createMaterialFolder') } : {}),
-      };
-
-    case 'rename_material_folder':
-      if (!failed && d.status === 'unchanged') {
+    // Organizing the knowledge base: one quiet row per action, built from the
+    // tool's own `action`/`changed`/counts. No result card, no undo, no link to
+    // a folder (RFC #1716 §6).
+    case 'organize_materials': {
+      if (!failed && d.changed === false) {
         chips.push({ label: t('workbench.tool.chip.unchanged'), tone: 'neutral' });
       }
-      return {
-        icon: Pencil,
-        label: t('workbench.tool.label.renameMaterialFolder'),
-        subject: str(d.name) ?? str(args.name),
-        chips,
-        hidePayload: true,
-        ...(failed ? { errorText: t('workbench.tool.error.renameMaterialFolder') } : {}),
-      };
-
-    case 'move_materials': {
-      if (!failed) {
-        // What actually moved, not what was asked for: a source already in
-        // the folder is named but not moved.
+      if (!failed && d.action === 'create_folder' && d.created === false) {
+        chips.push({ label: t('workbench.tool.chip.folderExisted'), tone: 'neutral' });
+      }
+      if (!failed && d.action === 'move' && d.changed !== false) {
         const moved =
-          num(d.movedCount) ?? (Array.isArray(d.materialIds) ? d.materialIds.length : undefined);
-        if (d.status === 'unchanged') {
-          chips.push({ label: t('workbench.tool.chip.unchanged'), tone: 'neutral' });
-        } else {
-          if (moved !== undefined) {
-            chips.push({
-              label: t(
-                moved === 1 ? 'workbench.tool.chip.material' : 'workbench.tool.chip.materials',
-                { count: moved },
-              ),
-            });
-          }
-          // The action, not a state; the result names no source folder.
-          if (d.folderId === null) {
-            chips.push({ label: t('workbench.tool.chip.movedOutOfFolder'), tone: 'neutral' });
-          }
+          num(d.movedCount) ??
+          (Array.isArray(d.materialIds)
+            ? d.materialIds.length
+            : Array.isArray(d.moved)
+              ? d.moved.length
+              : undefined);
+        if (moved !== undefined && moved > 0) {
+          chips.push({
+            label: t(
+              moved === 1 ? 'workbench.tool.chip.material' : 'workbench.tool.chip.materials',
+              { count: moved },
+            ),
+          });
+        }
+        // The action, not a state; the result names no source folder.
+        if (d.folderId === null) {
+          chips.push({ label: t('workbench.tool.chip.movedOutOfFolder'), tone: 'neutral' });
         }
       }
       return {
         icon: FolderInput,
-        label: t('workbench.tool.label.moveMaterials'),
-        chips,
-        hidePayload: true,
-        ...(failed ? { errorText: t('workbench.tool.error.moveMaterials') } : {}),
-      };
-    }
-
-    case 'rename_material':
-      if (!failed && d.status === 'unchanged') {
-        chips.push({ label: t('workbench.tool.chip.unchanged'), tone: 'neutral' });
-      }
-      return {
-        icon: Pencil,
-        label: t('workbench.tool.label.renameMaterial'),
+        label: t('workbench.tool.label.organizeMaterials'),
         subject: str(d.name) ?? str(args.name),
         chips,
         hidePayload: true,
-        ...(failed ? { errorText: t('workbench.tool.error.renameMaterial') } : {}),
+        ...(failed ? { errorText: t('workbench.tool.error.organizeMaterials') } : {}),
       };
+    }
+
+    // Writing the notes the agent keeps: `mode: append` grows one, `replace`
+    // rewrites it. The topic is the unit, so the row names the topic.
+    case 'add_materials': {
+      if (!failed && d.changed === false) {
+        chips.push({ label: t('workbench.tool.chip.unchanged'), tone: 'neutral' });
+      }
+      if (!failed && d.created === true) {
+        chips.push({ label: t('workbench.tool.chip.noteCreated'), tone: 'accent' });
+      }
+      return {
+        icon: Pencil,
+        label: t('workbench.tool.label.addMaterials'),
+        subject: str(d.topic) ?? str(args.topic),
+        chips,
+        hidePayload: true,
+        ...(failed ? { errorText: t('workbench.tool.error.addMaterials') } : {}),
+      };
+    }
 
     case 'read_material':
       return {
@@ -433,15 +361,16 @@ export function presentTool(
         label: t('workbench.tool.label.readMaterial'),
         chips,
         hidePayload: true,
-        ...(failed
-          ? {
-              errorText: t(
-                extractionFailed
-                  ? 'workbench.tool.error.materialExtraction'
-                  : 'workbench.tool.error.readMaterial',
-              ),
-            }
-          : {}),
+        ...(failed ? { errorText: t('workbench.tool.error.readMaterial') } : {}),
+      };
+
+    case 'search_materials':
+      return {
+        icon: FileSearch,
+        label: t('workbench.tool.label.searchMaterials'),
+        chips,
+        hidePayload: true,
+        ...(failed ? { errorText: t('workbench.tool.error.searchMaterials') } : {}),
       };
 
     case 'use_material_media':
@@ -451,15 +380,6 @@ export function presentTool(
         chips,
         hidePayload: true,
         ...(failed ? { errorText: t('workbench.tool.error.readMaterial') } : {}),
-      };
-
-    case 'search_material':
-      return {
-        icon: FileSearch,
-        label: t('workbench.tool.label.searchMaterial'),
-        chips,
-        hidePayload: true,
-        ...(failed ? { errorText: t('workbench.tool.error.searchMaterial') } : {}),
       };
 
     case 'clip_audio': {

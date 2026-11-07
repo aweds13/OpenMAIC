@@ -17,7 +17,7 @@
  * Where the fence may appear is part of the contract: only in a tool result.
  * A per-call nonce inside the system prompt would change every run and push
  * everything below it out of the prefix cache, so the knowledge base's index
- * travels as `read_materials` output instead of as a prompt block (05 spec
+ * travels as `read_material` output (id `topic:INDEX`) instead of as a prompt block (05 spec
  * §3.5, SR-F7.2).
  */
 import { randomBytes } from 'node:crypto';

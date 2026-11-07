@@ -16,7 +16,7 @@ import { fenceOwnerWrite } from '@/lib/persistence/owner-merges';
  * `derivative` (it is named after its source); a missing or another owner's
  * material 404. A thin adapter over the material service
  * (`lib/server/materials/material-service.ts`), which the agent's
- * `rename_material` calls too.
+ * `organize_materials` (action `rename`) calls too.
  *
  * DELETE /api/materials/[id] deletes the request owner's ready source and
  * its derivatives atomically (204, no body). Missing, foreign, uploading

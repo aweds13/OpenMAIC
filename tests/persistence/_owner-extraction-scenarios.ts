@@ -250,7 +250,7 @@ interface StateRow {
   extraction_token: string | null;
   extraction_claims: number;
   extraction_error: string | null;
-  extraction_result: OwnerExtractionResult | null;
+  result: OwnerExtractionResult | null;
   extraction_cache_key: string | null;
   folder_id: string | null;
 }
@@ -258,7 +258,7 @@ interface StateRow {
 export async function stateOf(h: ExtractionHarness, id: string): Promise<StateRow> {
   const result = await h.pool.query<StateRow>(
     `SELECT owner_id, (extraction->>'status') AS status, (extraction->>'reasonCode') AS reason_code, extraction_token,
-            extraction_claims::int AS extraction_claims, extraction_error, extraction_result,
+            extraction_claims::int AS extraction_claims, extraction_error, result,
             extraction_cache_key, folder_id
        FROM owner_material WHERE id = $1`,
     [id],
@@ -355,7 +355,7 @@ export async function ensureStartedScenario(h: ExtractionHarness): Promise<void>
   expect(done.status).toBe('done');
   expect(await ensure(h, 'src-a')).toEqual({ status: 'done', queued: false });
   expect(await drain(h)).toBe(0);
-  expect((await stateOf(h, 'src-a')).extraction_result).toEqual(done.extraction_result);
+  expect((await stateOf(h, 'src-a')).result).toEqual(done.result);
 }
 
 /**
@@ -428,7 +428,7 @@ export async function uploadQueuesExtractionScenario(h: ExtractionHarness): Prom
   expect(await drain(h)).toBe(1);
   const again = await stateOf(h, 'src-up-again');
   expect(again.status).toBe('done');
-  expect(again.extraction_result).toMatchObject({ reusedFrom: 'src-up' });
+  expect(again.result).toMatchObject({ reusedFrom: 'src-up' });
   expect(h.documentExtract).toHaveBeenCalledTimes(1);
 }
 
@@ -448,7 +448,7 @@ export async function twoConversationsOneExtractionScenario(h: ExtractionHarness
 
   const state = await stateOf(h, 'src-shared');
   expect(state).toMatchObject({ status: 'done', extraction_token: null });
-  const result = state.extraction_result!;
+  const result = state.result!;
   expect(result.revision).toEqual(expect.any(String));
   expect(result.extractor).toEqual({ id: 'test-doc', version: '1', options: {} });
   // The fake provider's image is not a readable image, so it is not kept,
@@ -568,7 +568,7 @@ export async function supersededClaimScenario(h: ExtractionHarness): Promise<voi
       a,
       {
         cacheKey: null,
-        text: won.extraction_result!.text,
+        text: won.result!.text,
         extractor: { id: 'late', version: '1', options: {} },
         stats: {},
         derivatives: [],
@@ -651,7 +651,7 @@ export async function deletedSourceScenario(h: ExtractionHarness): Promise<void>
   );
   expect(await entryCount(h)).toBe(before);
   expect(await extractionRootsOf(h, 'src-gone-running')).toEqual([]);
-  expect((await stateOf(h, 'src-gone-running')).extraction_result).toBeNull();
+  expect((await stateOf(h, 'src-gone-running')).result).toBeNull();
 }
 
 /**
@@ -681,7 +681,7 @@ export async function ownerClaimMidRunScenario(h: ExtractionHarness): Promise<vo
   ).toBe('published');
   const state = await stateOf(h, 'src-anon');
   expect(state).toMatchObject({ owner_id: ACCOUNT, status: 'done' });
-  const textAssetId = state.extraction_result!.text.assetId;
+  const textAssetId = state.result!.text.assetId;
   const entry = await h.pool.query<{ principal: string; committed: boolean }>(
     'SELECT principal, committed_at IS NOT NULL AS committed FROM asset_entries WHERE id = $1',
     [textAssetId],
@@ -696,7 +696,7 @@ export async function ownerClaimMidRunScenario(h: ExtractionHarness): Promise<vo
       stale,
       {
         cacheKey: null,
-        text: state.extraction_result!.text,
+        text: state.result!.text,
         extractor: { id: 'late', version: '1', options: {} },
         stats: {},
         derivatives: [],
@@ -704,7 +704,7 @@ export async function ownerClaimMidRunScenario(h: ExtractionHarness): Promise<vo
       h.clock.now,
     ),
   ).toBe('not-authorized');
-  expect((await stateOf(h, 'src-anon')).extraction_result).toEqual(state.extraction_result);
+  expect((await stateOf(h, 'src-anon')).result).toEqual(state.result);
 }
 
 /** A publication that fails part-way leaves nothing: no roots, no rows, no result. */
@@ -770,7 +770,7 @@ export async function publishRollbackScenario(h: ExtractionHarness): Promise<voi
   expect(await stateOf(h, 'src-rollback')).toMatchObject({
     status: 'running',
     extraction_token: current.token,
-    extraction_result: null,
+    result: null,
     extraction_cache_key: null,
   });
   expect(await rootCount(h)).toBe(0);
@@ -810,16 +810,16 @@ export async function ownerCacheScenario(h: ExtractionHarness): Promise<void> {
   }
   expect(await drain(h)).toBe(2);
   expect(h.mediaExtract).toHaveBeenCalledTimes(1);
-  const donor = (await stateOf(h, 'vid-1')).extraction_result!;
+  const donor = (await stateOf(h, 'vid-1')).result!;
   const reused = await stateOf(h, 'vid-2');
-  expect(reused.extraction_result).toMatchObject({
+  expect(reused.result).toMatchObject({
     reusedFrom: 'vid-1',
     text: donor.text,
     extractor: donor.extractor,
   });
-  expect(reused.extraction_result!.revision).not.toBe(donor.revision);
+  expect(reused.result!.revision).not.toBe(donor.revision);
   const [donorFrame] = donor.derivatives;
-  const [reusedFrame] = reused.extraction_result!.derivatives;
+  const [reusedFrame] = reused.result!.derivatives;
   expect(reusedFrame.id).not.toBe(donorFrame.id);
   expect(reusedFrame.assetId).toBe(donorFrame.assetId);
   // Named after the source that reuses it, not the donor.
@@ -853,7 +853,7 @@ export async function ownerCacheScenario(h: ExtractionHarness): Promise<void> {
   await drain(h);
   expect(h.mediaExtract).toHaveBeenCalledTimes(3);
   const keyed = await stateOf(h, 'vid-3');
-  expect(keyed.extraction_result!.extractor.options).toEqual({ asrModel: 'whisper-large' });
+  expect(keyed.result!.extractor.options).toEqual({ asrModel: 'whisper-large' });
   expect(keyed.extraction_cache_key).not.toBe((await stateOf(h, 'vid-1')).extraction_cache_key);
   h.options.clear();
 
@@ -891,7 +891,7 @@ export async function ownerCacheScenario(h: ExtractionHarness): Promise<void> {
   ).toBe('donor-changed');
   expect(await stateOf(h, 'vid-late-hit')).toMatchObject({
     status: 'running',
-    extraction_result: null,
+    result: null,
   });
   expect(await extractionRootsOf(h, 'vid-late-hit')).toEqual([]);
   await settleOwnerMaterialExtractionFailure(h.pool as never, lateHit, {
@@ -902,17 +902,17 @@ export async function ownerCacheScenario(h: ExtractionHarness): Promise<void> {
   await ensure(h, 'vid-4');
   await drain(h);
   expect(h.mediaExtract).toHaveBeenCalledTimes(5);
-  expect((await stateOf(h, 'vid-4')).extraction_result!.reusedFrom).toBeUndefined();
+  expect((await stateOf(h, 'vid-4')).result!.reusedFrom).toBeUndefined();
 
   // A donor whose entry is gone (reclaimed) is a miss under lock, not a hit.
-  const lost = (await stateOf(h, 'vid-4')).extraction_result!;
+  const lost = (await stateOf(h, 'vid-4')).result!;
   await h.pool.query('DELETE FROM asset_root_refs WHERE asset_id = $1', [lost.text.assetId]);
   await h.pool.query('DELETE FROM asset_entries WHERE id = $1', [lost.text.assetId]);
   await seedSource(h, 'vid-5', { mime: 'video/mp4', bytes: video });
   await ensure(h, 'vid-5');
   await drain(h);
   expect(h.mediaExtract).toHaveBeenCalledTimes(6);
-  const fresh = (await stateOf(h, 'vid-5')).extraction_result!;
+  const fresh = (await stateOf(h, 'vid-5')).result!;
   expect(fresh.reusedFrom).toBeUndefined();
   expect(await extractionRootsOf(h, 'vid-5')).toEqual([fresh.text.assetId]);
 }
@@ -926,7 +926,7 @@ export async function mediaDerivativeScenario(h: ExtractionHarness): Promise<voi
   });
   await ensure(h, 'vid-filed');
   await drain(h);
-  const result = (await stateOf(h, 'vid-filed')).extraction_result!;
+  const result = (await stateOf(h, 'vid-filed')).result!;
   expect(result.derivatives).toEqual([
     expect.objectContaining({
       kind: 'image',
@@ -971,7 +971,7 @@ export async function quotaFailureScenario(h: ExtractionHarness): Promise<void> 
   const state = await stateOf(h, 'vid-big');
   expect(state).toMatchObject({
     status: 'failed',
-    extraction_result: null,
+    result: null,
     reason_code: 'storage_full',
   });
   expect(state.extraction_error).toMatch(/no room/);
@@ -1012,7 +1012,7 @@ export async function resultLimitScenario(h: ExtractionHarness): Promise<void> {
   withKeyframe(cap - Buffer.byteLength(text) + 1);
   await drain(h);
   const over = await stateOf(h, 'vid-over');
-  expect(over).toMatchObject({ status: 'failed', extraction_result: null, reason_code: null });
+  expect(over).toMatchObject({ status: 'failed', result: null, reason_code: null });
   expect(over.extraction_error).toMatch(/more than the 1 MB a material may keep/);
   expect(await entryCount(h)).toBe(entries);
   expect(await rootCount(h)).toBe(0);
@@ -1023,7 +1023,7 @@ export async function resultLimitScenario(h: ExtractionHarness): Promise<void> {
   await drain(h);
   const fit = await stateOf(h, 'vid-fit');
   expect(fit.status).toBe('done');
-  expect(fit.extraction_result!.derivatives).toEqual([
+  expect(fit.result!.derivatives).toEqual([
     expect.objectContaining({ kind: 'image', bytes: cap - Buffer.byteLength(text) }),
   ]);
 }
@@ -1034,13 +1034,13 @@ export async function schemaCompatibilityScenario(h: ExtractionHarness): Promise
   await ensureOwnerMaterialSchema(h.pool as never);
   await seedSource(h, 'src-view');
   const row = await h.pool.query<Record<string, unknown>>(
-    `SELECT extraction_claims, extraction_token, extraction_result FROM owner_material WHERE id = $1`,
+    `SELECT extraction_claims, extraction_token, result FROM owner_material WHERE id = $1`,
     ['src-view'],
   );
   expect(row.rows[0]).toEqual({
     extraction_claims: 0,
     extraction_token: null,
-    extraction_result: null,
+    result: null,
   });
   await ensure(h, 'src-view');
   await drain(h);
@@ -1192,7 +1192,7 @@ export async function entryExists(h: ExtractionHarness, assetId: string): Promis
 
 /** What deleting a material does to its roots (Phase 2): withdraw every one, mark it deleted. */
 async function deleteWithRoots(h: ExtractionHarness, materialId: string): Promise<void> {
-  const result = (await stateOf(h, materialId)).extraction_result!;
+  const result = (await stateOf(h, materialId)).result!;
   await h.provider.withTransaction(async (tx) => {
     await changeAssetRoots(tx, {
       principals: [`owner:${ACCOUNT}`],
@@ -1225,7 +1225,7 @@ export async function cacheCollectorOrderScenario(h: ExtractionHarness): Promise
   await ensure(h, 'vid-reuser');
   await drain(h);
   expect(h.mediaExtract).toHaveBeenCalledTimes(1);
-  const shared = (await stateOf(h, 'vid-reuser')).extraction_result!;
+  const shared = (await stateOf(h, 'vid-reuser')).result!;
   expect(shared.reusedFrom).toBe('vid-donor');
 
   await deleteWithRoots(h, 'vid-donor');
@@ -1240,7 +1240,7 @@ export async function cacheCollectorOrderScenario(h: ExtractionHarness): Promise
   await seedSource(h, 'vid-donor-2', { mime: 'video/mp4', bytes: lecture });
   await ensure(h, 'vid-donor-2');
   await drain(h);
-  const doomed = (await stateOf(h, 'vid-donor-2')).extraction_result!;
+  const doomed = (await stateOf(h, 'vid-donor-2')).result!;
   await seedSource(h, 'vid-late', { mime: 'video/mp4', bytes: lecture });
   await ensure(h, 'vid-late');
   const late = (await claim(h))!;
@@ -1262,7 +1262,7 @@ export async function cacheCollectorOrderScenario(h: ExtractionHarness): Promise
   );
   expect(await entryExists(h, doomed.text.assetId)).toBe(false);
   expect(h.mediaExtract).toHaveBeenCalledTimes(3);
-  const fresh = (await stateOf(h, 'vid-late')).extraction_result!;
+  const fresh = (await stateOf(h, 'vid-late')).result!;
   expect(fresh.reusedFrom).toBeUndefined();
   expect(fresh.text.assetId).not.toBe(doomed.text.assetId);
   expect(await extractionRootsOf(h, 'vid-late')).toEqual([fresh.text.assetId]);
@@ -1304,7 +1304,7 @@ export async function sameKeyConcurrentSourcesScenario(h: ExtractionHarness): Pr
     ['vid-twin-a', a],
     ['vid-twin-b', b],
   ] as const) {
-    const result = state.extraction_result!;
+    const result = state.result!;
     expect(result.reusedFrom).toBeUndefined();
     expect(await extractionRootsOf(h, id)).toEqual([result.text.assetId]);
     const frames = await h.pool.query<{ id: string }>(
@@ -1313,8 +1313,8 @@ export async function sameKeyConcurrentSourcesScenario(h: ExtractionHarness): Pr
     );
     expect(frames.rows.map((row) => row.id)).toEqual(result.derivatives.map((d) => d.id));
   }
-  expect(a.extraction_result!.text.assetId).not.toBe(b.extraction_result!.text.assetId);
-  expect(a.extraction_result!.derivatives[0].id).not.toBe(b.extraction_result!.derivatives[0].id);
+  expect(a.result!.text.assetId).not.toBe(b.result!.text.assetId);
+  expect(a.result!.derivatives[0].id).not.toBe(b.result!.derivatives[0].id);
 }
 
 /**
@@ -1331,8 +1331,8 @@ export async function claimIntoSameContentScenario(h: ExtractionHarness): Promis
   await drain(h);
   expect(h.mediaExtract).toHaveBeenCalledTimes(2);
   const before = {
-    anon: (await stateOf(h, 'vid-anon')).extraction_result!,
-    account: (await stateOf(h, 'vid-account')).extraction_result!,
+    anon: (await stateOf(h, 'vid-anon')).result!,
+    account: (await stateOf(h, 'vid-account')).result!,
   };
 
   await claimOwner(ANON, ACCOUNT, { provider: h.provider });
@@ -1343,7 +1343,7 @@ export async function claimIntoSameContentScenario(h: ExtractionHarness): Promis
   ] as const) {
     const state = await stateOf(h, id);
     expect(state).toMatchObject({ owner_id: ACCOUNT, status: 'done' });
-    expect(state.extraction_result).toEqual(result);
+    expect(state.result).toEqual(result);
     expect(await extractionRootsOf(h, id)).toEqual([result.text.assetId]);
     const entries = await h.pool.query<{ principal: string }>(
       'SELECT DISTINCT principal FROM asset_entries WHERE id = ANY($1::text[])',
@@ -1360,7 +1360,7 @@ export async function claimIntoSameContentScenario(h: ExtractionHarness): Promis
   await ensure(h, 'vid-next');
   await drain(h);
   expect(h.mediaExtract).toHaveBeenCalledTimes(2);
-  const reused = (await stateOf(h, 'vid-next')).extraction_result!;
+  const reused = (await stateOf(h, 'vid-next')).result!;
   expect(['vid-anon', 'vid-account']).toContain(reused.reusedFrom);
   expect(await extractionRootsOf(h, 'vid-next')).toEqual([reused.text.assetId]);
 }
@@ -1390,8 +1390,8 @@ export async function fallbackReuseScenario(h: ExtractionHarness): Promise<void>
   await drain(h, deps);
   expect(flaky).toHaveBeenCalledTimes(2);
   expect(fallback).toHaveBeenCalledTimes(1);
-  const first = (await stateOf(h, 'doc-first')).extraction_result!;
-  const second = (await stateOf(h, 'doc-second')).extraction_result!;
+  const first = (await stateOf(h, 'doc-first')).result!;
+  const second = (await stateOf(h, 'doc-second')).result!;
   expect(first.extractor).toMatchObject({ id: 'test-doc' });
   expect(second).toMatchObject({ reusedFrom: 'doc-first', text: first.text });
   expect(await extractionRootsOf(h, 'doc-second')).toEqual([first.text.assetId]);
@@ -1435,12 +1435,12 @@ export async function failedImageDownloadScenario(h: ExtractionHarness): Promise
       await drain(h, deps);
     }
     const failed = await stateOf(h, 'doc-failed');
-    expect(failed.extraction_result!.derivatives).toEqual([]);
+    expect(failed.result!.derivatives).toEqual([]);
     expect(failed.extraction_cache_key).toBeNull();
-    const retried = (await stateOf(h, 'doc-retried')).extraction_result!;
+    const retried = (await stateOf(h, 'doc-retried')).result!;
     expect(retried.reusedFrom).toBeUndefined();
     expect(retried.derivatives).toHaveLength(1);
-    expect((await stateOf(h, 'doc-reused')).extraction_result).toMatchObject({
+    expect((await stateOf(h, 'doc-reused')).result).toMatchObject({
       reusedFrom: 'doc-retried',
     });
     expect(extract).toHaveBeenCalledTimes(2);
@@ -1497,7 +1497,7 @@ export async function cancelledImageDownloadScenario(h: ExtractionHarness): Prom
     const state = await stateOf(h, id);
     expect(state.status).toBe('running');
     expect(state.extraction_error).toBeNull();
-    expect(state.extraction_result).toBeNull();
+    expect(state.result).toBeNull();
   };
   try {
     const deps = h.deps({
@@ -1546,7 +1546,7 @@ export async function withdrawnDonorScenario(h: ExtractionHarness): Promise<void
   await seedSource(h, 'doc-donor', { bytes });
   await ensure(h, 'doc-donor');
   await drain(h);
-  const donor = (await stateOf(h, 'doc-donor')).extraction_result!;
+  const donor = (await stateOf(h, 'doc-donor')).result!;
   await h.provider.withTransaction((tx) =>
     changeAssetRoots(tx, {
       principals: [`owner:${ACCOUNT}`],
@@ -1558,7 +1558,7 @@ export async function withdrawnDonorScenario(h: ExtractionHarness): Promise<void
   await ensure(h, 'doc-after');
   await drain(h);
   expect(h.documentExtract).toHaveBeenCalledTimes(2);
-  const fresh = (await stateOf(h, 'doc-after')).extraction_result!;
+  const fresh = (await stateOf(h, 'doc-after')).result!;
   expect(fresh.reusedFrom).toBeUndefined();
   expect(fresh.text.assetId).not.toBe(donor.text.assetId);
   const stamped = await h.pool.query<{ unreferenced: boolean }>(
@@ -1594,7 +1594,7 @@ export async function sameBytesOtherMimeScenario(h: ExtractionHarness): Promise<
     await seedSource(h, id, { mime, bytes });
     await ensure(h, id);
     await drain(h, deps);
-    return (await stateOf(h, id)).extraction_result!;
+    return (await stateOf(h, id)).result!;
   };
 
   const first = Buffer.from('webm-first');
@@ -1651,7 +1651,7 @@ export async function lostClaimStopsProvidersScenario(h: ExtractionHarness): Pro
   );
   expect(h.mediaExtract).not.toHaveBeenCalled();
   for (const id of ['doc-lost', 'vid-lost']) {
-    expect(await stateOf(h, id)).toMatchObject({ status: 'running', extraction_result: null });
+    expect(await stateOf(h, id)).toMatchObject({ status: 'running', result: null });
   }
 }
 
@@ -1688,7 +1688,7 @@ export async function lostDuringLookupScenario(h: ExtractionHarness): Promise<vo
   expect(await runLosingInLookup((await claim(h))!)).toBe('not-authorized');
   expect(h.mediaExtract).not.toHaveBeenCalled();
   for (const id of ['doc-lookup', 'vid-lookup']) {
-    expect(await stateOf(h, id)).toMatchObject({ status: 'running', extraction_result: null });
+    expect(await stateOf(h, id)).toMatchObject({ status: 'running', result: null });
   }
 }
 
@@ -1712,7 +1712,7 @@ export async function parserFailureScenario(h: ExtractionHarness): Promise<void>
       expect(await runNextOwnerExtraction(h.deps({ providers }))).toBe(true);
       const state = await stateOf(h, 'parser-timeout');
       expect(state.status).toBe(n < MAX_OWNER_EXTRACTION_CLAIMS ? 'pending' : 'failed');
-      expect(state.extraction_result).toBeNull();
+      expect(state.result).toBeNull();
       expect(
         (
           await h.pool.query<{ extraction_error: string }>(
@@ -1844,7 +1844,7 @@ export async function tooManyPagesScenario(h: ExtractionHarness): Promise<void> 
     status: 'failed',
     reason_code: 'too_many_pages',
     extraction_claims: 1,
-    extraction_result: null,
+    result: null,
   });
   expect(refusal).toHaveBeenCalledTimes(1);
   expect(h.documentExtract).not.toHaveBeenCalled();

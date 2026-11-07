@@ -350,7 +350,7 @@ describe.skipIf(!contractUrl)('owner-level material extraction on PostgreSQL', (
       expect(state).toMatchObject({ owner_id: ACCOUNT, status: 'done' });
       const entry = await h.pool.query<{ principal: string }>(
         'SELECT principal FROM asset_entries WHERE id = $1',
-        [state.extraction_result!.text.assetId],
+        [state.result!.text.assetId],
       );
       expect(entry.rows[0]).toEqual({ principal: `owner:${ACCOUNT}` });
     });
@@ -403,7 +403,7 @@ describe.skipIf(!contractUrl)('owner-level material extraction on PostgreSQL', (
         'published',
       ]);
       const state = await stateOf(h, 'src-race');
-      expect(state.extraction_result).toMatchObject({
+      expect(state.result).toMatchObject({
         revision: current.token,
         extractor: { id: 'current' },
       });

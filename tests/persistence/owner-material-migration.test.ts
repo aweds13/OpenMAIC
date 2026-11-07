@@ -241,7 +241,7 @@ describe('backfilling pre-pool material uploads into the asset pool', { timeout:
     expect(await readOwnerMaterialBytes(before)).toEqual(a);
   });
 
-  it('does not backfill classic originals or results, regardless of obsolete retention values', async () => {
+  it('does not backfill classic originals or results', async () => {
     await boot();
     for (const status of ['idle', 'failed', 'extracting', 'ready']) {
       const id = `classic-${status}`;
@@ -250,10 +250,10 @@ describe('backfilling pre-pool material uploads into the asset pool', { timeout:
         status === 'ready'
           ? { status, resultKey: `objects/${id}.extraction/result.json` }
           : { status };
-      await h.pool.query(
-        `UPDATE owner_material SET extraction = $2::jsonb, retention = 'library' WHERE id = $1`,
-        [id, JSON.stringify(extraction)],
-      );
+      await h.pool.query(`UPDATE owner_material SET extraction = $2::jsonb WHERE id = $1`, [
+        id,
+        JSON.stringify(extraction),
+      ]);
       if (status === 'ready') objects.set(extraction.resultKey!, Buffer.from('preserved result'));
     }
     expect(await run()).toEqual(zero);

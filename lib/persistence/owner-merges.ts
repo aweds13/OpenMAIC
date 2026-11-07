@@ -368,3 +368,13 @@ export async function ownerRetiredResponseIfRetired(
 export async function isRetiredStoredOwner(ownerId: string): Promise<boolean> {
   return mayBeRetired(ownerId) && (await canonicalizeStoredOwner(ownerId)) !== ownerId;
 }
+
+/**
+ * The owner a read belongs to now: the account a claim forwarded `ownerId` to,
+ * or `ownerId` itself. Background work that a claim can overtake reads through
+ * this, so a run that keeps writing for the account also lists that account's
+ * library. No database work for an owner that cannot be retired.
+ */
+export async function readableStoredOwner(ownerId: string): Promise<string> {
+  return mayBeRetired(ownerId) ? canonicalizeStoredOwner(ownerId) : ownerId;
+}

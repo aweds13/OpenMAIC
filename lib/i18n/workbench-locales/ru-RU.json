@@ -159,11 +159,11 @@
     },
     "label": {
       "listMaterials": "Проверить материалы",
-      "extractMaterial": "Разобрать материал",
-      "waitMaterials": "Дождаться разбора материалов",
+      "organizeMaterials": "Упорядочить базу знаний",
+      "addMaterials": "Записать заметку о материале",
       "readMaterial": "Прочитать материал",
+      "searchMaterials": "Искать в материалах",
       "useMaterialMedia": "Использовать медиа из материала",
-      "searchMaterial": "Искать в материалах",
       "clipAudio": "Вырезать эталонное аудио",
       "registerVoice": "Зарегистрировать клон голоса",
       "listVoices": "Список доступных голосов",
@@ -205,12 +205,7 @@
       "listFolderCourses": "Посмотреть библиотеку классов",
       "createStage": "Создать класс",
       "renameStage": "Переименовать класс",
-      "readStageOutline": "Прочитать план класса",
-      "listMaterialFolders": "Проверить папки базы знаний",
-      "createMaterialFolder": "Создать папку в базе знаний",
-      "renameMaterialFolder": "Переименовать папку базы знаний",
-      "moveMaterials": "Переместить материалы",
-      "renameMaterial": "Переименовать материал"
+      "readStageOutline": "Прочитать план класса"
     },
     "chip": {
       "seconds": "{{count}} с",
@@ -247,22 +242,18 @@
       "movedToFolder": "Перемещено в папку",
       "materialFolders": "Папок: {{count}}",
       "materials": "Материалов: {{count}}",
-      "extractionStarted": "Разбор начат",
-      "extractionInProgress": "Уже идёт разбор",
-      "extractionDone": "Уже разобран",
-      "extractionComplete": "Разбор завершён",
-      "extractionStillRunning": "Разбор ещё идёт",
-      "parseFailed": "Ошибка обработки",
       "folderExisted": "Папка уже была",
+      "noteCreated": "Новая заметка",
       "unchanged": "Без изменений",
       "movedOutOfFolder": "Перемещено из папки",
       "material": "{{count}} материал"
     },
     "error": {
-      "materialExtraction": "Не удалось разобрать материал",
       "listMaterials": "Не удалось проверить материалы",
+      "organizeMaterials": "Не удалось упорядочить базу знаний",
+      "addMaterials": "Не удалось записать заметку о материале",
       "readMaterial": "Не удалось прочитать материал",
-      "searchMaterial": "Не удалось выполнить поиск в материалах",
+      "searchMaterials": "Не удалось выполнить поиск в материалах",
       "clipAudio": "Не удалось вырезать эталонное аудио",
       "registerVoice": "Не удалось зарегистрировать клон голоса",
       "listVoices": "Не удалось получить список доступных голосов",
@@ -297,12 +288,7 @@
       "createStage": "Не удалось создать класс",
       "renameStage": "Не удалось переименовать класс",
       "readStageOutline": "Не удалось прочитать план класса",
-      "generic": "Вызов инструмента не удался",
-      "listMaterialFolders": "Не удалось проверить папки базы знаний",
-      "createMaterialFolder": "Не удалось создать папку базы знаний",
-      "renameMaterialFolder": "Не удалось переименовать папку базы знаний",
-      "moveMaterials": "Не удалось переместить материалы",
-      "renameMaterial": "Не удалось переименовать материал"
+      "generic": "Вызов инструмента не удался"
     },
     "progress": {
       "scene": {

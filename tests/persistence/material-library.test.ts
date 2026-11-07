@@ -16,9 +16,7 @@ import {
   deleteRollbackScenario,
   deleteExtractionScenario,
   deleteReadsScenario,
-  watcherRetryScenario,
   watcherNullExtractionScenario,
-  watcherStaleWaitScenario,
   attachByIdScenario,
   attachRefusalScenario,
   bootLibraryHarness,
@@ -37,7 +35,6 @@ import {
   libraryListingScenario,
   listingDerivedFieldsScenario,
   libraryReachScenario,
-  libraryToolFlowScenario,
   legacyCopyLibraryToolsScenario,
   sessionListingPaginationScenario,
   ownerListingWithSessionCopyScenario,
@@ -90,14 +87,8 @@ describe('material library (PGlite)', { timeout: 20_000 }, () => {
     db = undefined;
   });
 
-  it('keeps watching a retry when an older failed poll returns', async () => {
-    await watcherRetryScenario(await boot());
-  });
   it('does not settle a NULL extraction, but settles tombstones and missing sources', async () => {
     await watcherNullExtractionScenario(await boot());
-  });
-  it('reports once when a wait returns a stale running snapshot', async () => {
-    await watcherStaleWaitScenario(await boot());
   });
 
   describe('links', () => {
@@ -222,9 +213,6 @@ describe('material library (PGlite)', { timeout: 20_000 }, () => {
     });
     it('keeps library search, listing and follow-up reads consistent with legacy-copy precedence', async () => {
       await legacyCopyLibraryToolsScenario(await boot());
-    });
-    it('extracts, waits for, reads and searches a library source by its own id', async () => {
-      await libraryToolFlowScenario(await boot());
     });
   });
   describe('source deletion', () => {

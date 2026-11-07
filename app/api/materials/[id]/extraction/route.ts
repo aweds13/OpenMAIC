@@ -62,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         id,
         { fence: 'request' },
       );
-      // As with extract_material, queueing is enough: instrumentation starts the scanner.
+      // As with the upload path, queueing is enough: instrumentation starts the scanner.
       if (!outcome) return libraryNotFound(headers);
       return ownerJson(outcome, 200, headers);
     } catch (error) {

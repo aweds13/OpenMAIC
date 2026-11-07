@@ -159,11 +159,11 @@
     },
     "label": {
       "listMaterials": "فحص المواد",
-      "extractMaterial": "تحليل المادة",
-      "waitMaterials": "انتظار تحليل المواد",
+      "organizeMaterials": "تنظيم قاعدة المعرفة",
+      "addMaterials": "كتابة ملاحظة مادة",
       "readMaterial": "قراءة المادة",
+      "searchMaterials": "البحث في المواد",
       "useMaterialMedia": "استخدام وسائط المادة",
-      "searchMaterial": "البحث في المواد",
       "clipAudio": "اقتطاع الصوت المرجعي",
       "registerVoice": "تسجيل الصوت المستنسخ",
       "listVoices": "قائمة الأصوات المتاحة",
@@ -205,12 +205,7 @@
       "listFolderCourses": "عرض مكتبة الدروس",
       "createStage": "إنشاء درس",
       "renameStage": "إعادة تسمية الدرس",
-      "readStageOutline": "قراءة مخطط الدرس",
-      "listMaterialFolders": "فحص مجلدات قاعدة المعرفة",
-      "createMaterialFolder": "إنشاء مجلد في قاعدة المعرفة",
-      "renameMaterialFolder": "إعادة تسمية مجلد في قاعدة المعرفة",
-      "moveMaterials": "نقل المواد",
-      "renameMaterial": "إعادة تسمية المادة"
+      "readStageOutline": "قراءة مخطط الدرس"
     },
     "chip": {
       "seconds": "{{count}} ثانية",
@@ -247,22 +242,18 @@
       "movedToFolder": "نُقل إلى المجلد",
       "materialFolders": "{{count}} مجلدات",
       "materials": "{{count}} مواد",
-      "extractionStarted": "بدأ التحليل",
-      "extractionInProgress": "التحليل جارٍ بالفعل",
-      "extractionDone": "حُلّلت من قبل",
-      "extractionComplete": "اكتمل التحليل",
-      "extractionStillRunning": "لا يزال التحليل جاريًا",
-      "parseFailed": "فشل التحليل",
       "folderExisted": "المجلد موجود بالفعل",
+      "noteCreated": "ملاحظة جديدة",
       "unchanged": "لا تغيير",
       "movedOutOfFolder": "نُقل خارج المجلد",
       "material": "{{count}} مادة"
     },
     "error": {
-      "materialExtraction": "فشل تحليل المادة",
       "listMaterials": "تعذّر فحص المواد",
+      "organizeMaterials": "تعذّر تنظيم قاعدة المعرفة",
+      "addMaterials": "تعذّرت كتابة ملاحظة المادة",
       "readMaterial": "تعذّرت قراءة المادة",
-      "searchMaterial": "تعذّر البحث في المواد",
+      "searchMaterials": "تعذّر البحث في المواد",
       "clipAudio": "تعذّر اقتطاع الصوت المرجعي",
       "registerVoice": "تعذّر تسجيل الصوت المستنسخ",
       "listVoices": "تعذّر سرد الأصوات المتاحة",
@@ -297,12 +288,7 @@
       "createStage": "تعذّر إنشاء الدرس",
       "renameStage": "تعذّرت إعادة تسمية الدرس",
       "readStageOutline": "تعذّرت قراءة مخطط الدرس",
-      "generic": "فشل نداء الأداة",
-      "listMaterialFolders": "تعذّر فحص مجلدات قاعدة المعرفة",
-      "createMaterialFolder": "تعذّر إنشاء مجلد قاعدة المعرفة",
-      "renameMaterialFolder": "تعذّرت إعادة تسمية مجلد قاعدة المعرفة",
-      "moveMaterials": "تعذّر نقل المواد",
-      "renameMaterial": "تعذّرت إعادة تسمية المادة"
+      "generic": "فشل نداء الأداة"
     },
     "progress": {
       "scene": {

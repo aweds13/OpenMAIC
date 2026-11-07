@@ -6,7 +6,7 @@ import { readMaterialExtractionResult } from './extraction';
  * revision it was published at.
  *
  * The text is not an owner material of its own. It is a pool entry the
- * source's `extraction_result` names (`text.assetId`), under the owner's
+ * source's `result` names (`text.assetId`), under the owner's
  * partition and rooted by the source. So `readOwnerMaterialBytes`, which
  * reads a row's own `asset_id`, cannot read it, and a claim re-keys the entry
  * to the account just as it does a source's original.
@@ -16,7 +16,7 @@ import { readMaterialExtractionResult } from './extraction';
  * The text, its revision and the derivatives its image references resolve to
  * (`openmaic-derivative:<key>` becomes `material:<derivative id>`, see
  * `lib/server/material-extraction/document-images.ts`) always come from the
- * same `extraction_result`:
+ * same `result`:
  * a caller never pairs a revision read earlier with text read later, or a
  * page boundary checked against one revision could hand out text of another.
  *
@@ -137,14 +137,13 @@ async function rereadUnderFence(
       const found = await tx.query<{
         owner_id: string;
         deleted_at: number | string | null;
-        extraction_result: OwnerExtractionResult | null;
+        result: OwnerExtractionResult | null;
         extraction: OwnerMaterialExtraction | null;
-      }>(
-        'SELECT owner_id, deleted_at, extraction_result, extraction FROM owner_material WHERE id = $1',
-        [location.id],
-      );
+      }>('SELECT owner_id, deleted_at, result, extraction FROM owner_material WHERE id = $1', [
+        location.id,
+      ]);
       const row = found.rows[0];
-      const result = row?.extraction_result;
+      const result = row?.result;
       if (!row || row.deleted_at !== null) return null;
       if (!result) return readClassicText({ id: location.id, extraction: row.extraction });
       try {
