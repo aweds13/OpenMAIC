@@ -1,6 +1,6 @@
 # traceability.md — 需求 → 规格追踪（specification 层）
 
-> 这张表是 `intention/needs.md`（N1–N30）与 `domains/**`（SR-*）之间**唯一**的关联点。
+> 这张表是 `intention/needs.md`（N1–N32）与 `domains/**`（SR-*）之间**唯一**的关联点。
 > 正文里不写「这条需求来自 N 几」——**跨层关联只走这张表**。
 > 追踪到实现：`../implementation/traceability.md`。
 
@@ -56,6 +56,8 @@
 | N28 | 练习结果真回流 | SR-F11.5 |
 | N29 | 笔记层可当痕迹（未落地） | SR-F11.6 |
 | N30 | 人写机写分开 | SR-F11.7 |
+| N31 | 外来课程重合部分要接上 | SR-F11.8 |
+| N32 | 未命中只能是提案 | SR-F11.9 |
 | （全层） | 质量与可维护 | SR-NF1~NF8 |
 
 ## 三、SR 目录（一行一条，正文在域文件里展开）

@@ -137,6 +137,8 @@
 | SR-F11.5 | M14 | `lib/practice/results.ts` 的 `readPracticeResults`（`lib/practice/results.ts:117`，**永不抛**：坏 JSON/读不动/不是目录一律跳过，退化成「没有练习记录」）+ 同名目录上限 200；`tests/agent-runtime/practice-results.test.ts` 含 `★ skips broken files instead of failing the whole refresh`、`★ writes the state file when there are NO quiz records but there ARE practice results` |
 | SR-F11.6 | 无（**未落地**） | 无模块。OpenMAIC 与 Obsidian 至今零集成 |
 | SR-F11.7 | M14 / M15 | 两份文件实测分家：`D:/文档/jelly_ware/个人数据/学习状态.md` **1868 B 全部由 `refreshLearnerStateBestEffort` 生成**（`lib/server/agent-runtime/learner-state.ts:290`），`D:/文档/jelly_ware/个人数据/学习画像.md` **1851 B 由人写**。**两份文件的「不要手改」标注尚不存在** |
+| SR-F11.8 | 无（**未落地**） | 无模块。图谱与「概念身份」都不存在：全库无概念表、无来源映射表，`document_scenes` 里只有 `outlineId` 一个可挂点（234 页 100% 有值，138 页能对上计划条目）。设计见 `D:/文档/jelly_ware/_tools/kg/xq/J-外来课程接入设计.md` |
+| SR-F11.9 | 无（**未落地**） | 无模块。提案态不存在，导入路径目前是「人写内容 → agent 生成页面」，没有任何自动收编概念的入口 |
 
 **横切（NF）**
 

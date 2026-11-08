@@ -9,7 +9,7 @@
 
 | 层 | 目录 | 读者想知道的 | 一句话 |
 |---|---|---|---|
-| 意图 | `intention/` | **为什么要有这东西** | 需求 N1–N30，一条一句，不写实现 |
+| 意图 | `intention/` | **为什么要有这东西** | 需求 N1–N32，一条一句，不写实现 |
 | 规格 | `specification/` | **什么算做对了** | 十一域 F1–F11，每条 SR 能判真假 |
 | 契约 | `contracts/` | **两边怎么对上** | 操作 OP-1~6、流程 FLOW-1~4、逐域验收 |
 | 实现 | `implementation/` | **代码长什么样、怎么跑** | 模块地图、覆盖矩阵、架构图、运维、自检 |
@@ -18,7 +18,7 @@
 > 表外还有一个 `research/`：**它不是第六层**，是证据留存区（动手之前的勘察读数），只写实测不写应该怎样，判据见 [`research/README.md`](research/README.md)。一条勘察结论的出路只有两条 —— 被推翻就删掉，成立就升格进上面五层。
 
 **编号规则**（跨层唯一，别自造）：
-- `N1–N30` 需求，只在 `intention/needs.md` 定义
+- `N1–N32` 需求，只在 `intention/needs.md` 定义
 - `SR-F{n}.{m}` 规格条款，`n` 是域号、`m` 是序号，在 `specification/domains/` 定义
 - `OP-n` 操作、`FLOW-n` 流程，在 `contracts/` 定义
 - `M1–M15` 模块，在 `implementation/modules.md` 定义
