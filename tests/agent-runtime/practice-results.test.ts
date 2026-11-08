@@ -155,7 +155,8 @@ describe('渲染成学习状态的一节', () => {
 
 describe('★ 接线：练习结果真的进 学习状态.md', () => {
   const optionsFor = (): RefreshLearnerStateOptions => ({
-    ownerId: 'anon:test-owner',
+    // ★ 新签名不收 ownerId：xq_cell_state / xq_review_schedule 这两张表**没有 owner 列**
+    //   （本部署单人）。等加列之后这里才是接线点，见 learner-state.ts 模块头边界 1。
     path: join(root, '学习状态.md'),
     practiceRoot: root,
     // 没有自检页记录：所有查询返回空。这正是新打开的那条路径。
@@ -177,10 +178,21 @@ describe('★ 接线：练习结果真的进 学习状态.md', () => {
     expect(written).toContain('练习');
   });
 
-  it('★ still returns null when there is neither (no empty state file)', async () => {
+  it('★ writes nothing when there is neither — and says so instead of returning null', async () => {
     const options = optionsFor();
     const result = await refreshLearnerStateFromRuntime(options);
-    expect(result).toBeNull();
+
+    // ★ `null` 在这里的含义是**「这条链没启用」**（`learnerStatePath()` 没有值）。
+    //   跑过但三样数据全空是另一件事：返回一个 `text: ''` 的结果，调用方才能把
+    //   「功能关着」和「开着但今天没什么可说的」分开。混成一个 `null` 之后，
+    //   前者要改配置、后者什么都不用做，却被读成同一件事。
+    expect(result).not.toBeNull();
+    expect(result?.text).toBe('');
+    expect(result?.cells).toBe(0);
+    expect(result?.reviews).toBe(0);
+
+    // 空状态**不落盘**：写一份空文件只会让提示词多一段噪声，而且
+    // `readPromptContextFile` 本来就会把空文件当成没配。
     expect(() => readFileSync(options.path!, 'utf8')).toThrow();
   });
 });

@@ -35,7 +35,8 @@
 | M11 工具注册 | `lib/server/agent-runtime/runner-contract.ts`、`app/api/chat/pi/route.ts`、`lib/chat/pi/tools/call-agent.ts` | 三处注册点、允许表 | 高 —— 三处必须同口径 |
 | M12 MCP | `lib/server/agent-runtime/mcp-client.ts`、`mcp-tools.ts` | 外部 MCP 连接与工具 | 低 |
 | M13 DSH 宿主 | `_tools/dsh-plugins/openmaic-course/lib/{index,client.src,db,db-write}.js`、`openmaic-local-capabilities/lib/index.js` | 30 + 5 个工具 + seam 路由 + 三栏面板 | 中 —— 改完必须重装到 profile |
-| M14 学习状态与回流 | `lib/quiz/learner-state.ts`、`lib/quiz/attempt-fold.ts`、`lib/server/agent-runtime/learner-state.ts`、`lib/practice/results.ts` | 折叠答题记录、渲染状态文件、读练习结果 | 中 —— 状态文件进系统提示词末块 |
+| M14 学习状态与回流 | `lib/server/agent-runtime/learner-state.ts`、`lib/server/agent-runtime/learner-state-render.ts`、`lib/quiz/xq-mastery.ts`、`lib/persistence/xq-learner.ts`、`lib/practice/results.ts` | 三样来源（三态格子 / 到期复习 / 练习结果）渲染成状态块并落盘 | 中 —— 状态块进系统提示词末块，且是**唯一会随答题变化**的一段 |
+| M14b 概念图谱 | `lib/concepts/{ids,seed,occurrence,index}.ts` | 概念 id 形状、种子图、页级挂载推导 | 中 —— 先修边会被用来判「该不该现在学」 |
 | M15 学习者画像 | `lib/server/agent-runtime/learner-profile.ts`、`D:/文档/jelly_ware/个人数据/学习画像.md` | 人写的目标与偏好，每次运行重读 | 低 —— 内容是人的，结构固定 |
 
 > 这张表只给**模块归属与改动风险**；同一个文件的实测依据、坑与数字在**第四节全表**里 ——
@@ -89,7 +90,14 @@
 | `app/api/whoami/route.ts` | 一次性诊断：owner + 课程数 + **运行期开关实际值** | 改 `.env.local` 后先看这里 |
 | `lib/quiz/attempt-fold.ts` | **答题状态折叠器**：把 `runtime_records` 里的 quiz 记录折叠成「这一页学成什么样」。纯函数，形状照 `lib/pbl/v2/runtime/fold.ts` | 见 结论库「答题状态早就在库里了」 |
 | `lib/quiz/learner-state.ts` | **状态渲染器**：折叠结果 + 页面内容 → 一段能注入提示词的文本（把题号还原成题干） | 同上 |
-| `lib/server/agent-runtime/learner-state.ts` | 状态文件的**读 / 写 / 刷新**：`refreshLearnerStateFromRuntime()` 离线查库写文件；`resolveLearnerState()` 热路径只读文件 | 见 结论库「学习状态文件」 |
+| `lib/server/agent-runtime/learner-state.ts` | 状态文件的**读 / 写 / 刷新**：`refreshLearnerStateFromRuntime()` 离线取数写文件（三样来源：`xq_cell_state` / `xq_review_schedule` / 练习文件夹）；`resolveLearnerState()` 热路径只读文件 | ★ 取数**只按 `(stage_id, scene_id)`**，不再按 owner：`xq_*` 两张表没有 owner 列（单人部署）。★ 三样全空时不写文件（写空文件只会破坏前缀缓存）。见 结论库「学习状态文件」 |
+| `lib/server/agent-runtime/learner-state-render.ts` | **状态块渲染器**（纯函数）：三态格子 + 到期复习 + 练习文本 → 给模型读的一段。五条硬约束写在文件头（零冷启动 / 无元指令 / 块首声明 / 结论可执行 / 稳定排序） | ★ 标签**跟着数据来源变**（概念 / 标题 / 都没有）：`xq_question_concept` 还没数据时全部走标题回退，照样写「概念」会让模型把页面标题当成知识点名字。判据 `tests/quiz/learner-state-render.test.ts` 17 条 |
+| `lib/quiz/xq-mastery.ts` | **掌握度纯函数层**：Beta 后验 + 单边 80% 区间 → known / not-learned / unknown；`itemsNeededForKnown()` 算「再做对几题可判」 | ★ 分位数必须是**单边** `1-CONFIDENCE` / `CONFIDENCE`（双边 10/90 会让检出率从 0.8836 掉到 0.5323）。判据 `tests/quiz/xq-mastery.test.ts` 21 条，含与 `.tmp/kg_final2.py` 的逐格对账 |
+| `lib/persistence/xq-learner-store.ts` | **xq 写入层**：探针入库（同源去重）/ 三态重算 / 错题四关排期（1/3/7/15 天） | ★ **做错回第 1 关**不是顺延到下一关：fail 时对同一 `(stage_id, scene_id, question_id, concept)` 的**全部四行**重置 `due_at`；用「顺延」写法会在第 1 关失败时把四关压成 1/3/7 ⇒ **第 15 天那关永远不会到期**，而界面完全正常。判据 `tests/persistence/xq-learner-store.test.ts` 19 条 |
+| `lib/persistence/xq-learner.ts` | **12 张 `xq_*` 表**（探针证据 / 三态缓存 / 错题四关 / 概念图 / 外来课程三段判定），走 `APP_SCHEMA_STORES` 启动期建表 | ★ 主键必须带 `stage_id`（234 页里 35 个 scene id 跨 stage 复用）；★ `xq_concept` 主键是 `c_`+12hex 的**不透明串**（名字是证据不是身份）；★ 别名表主键含 `concept_id` + `ambiguous` 列（同形异义是实测风险） |
+| `lib/concepts/ids.ts` | 概念 id 形状（`c_` + 12 hex）+ 名字归一（全角/空白/大小写） | ★ **不做同义归并**：归并是判断，判断要有出处；自动同义词表会把两个概念永久合并而留不下拆分痕迹 |
+| `lib/concepts/seed.ts` | 概念图谱**种子**（104 概念 / 105 边，全部内联、纯函数、不联网） | ★ 每条边带出处与理由（`reason` 表上有非空约束）；`prereq` 边构成 DAG；预算 100–250 条（依据 os-taxonomy 2.15 边/节点 vs MOOCCubeX 22 条被判「比稀疏更差」） |
+| `lib/concepts/occurrence.ts` | 从一页的大纲条目推出**页级挂载**（概念 × 页 × 权重） | ★ API 是**每页一次**（`deriveOccurrencesFromOutlines(input, graph)`），传数组会静默返回 0 —— 实测踩过。★ 不做子串匹配：实测按名字做子串，「构造」一次把 8 页错挂到一个概念上。真实数据 234 页命中 116 页 / 104 概念命中 59 个 |
 | `lib/quiz/coverage-gap.ts` | **覆盖缺口检查**（查）：这一页题干/选项/解析里的内容块，在它之前所有页里出现过吗。纯函数、可算、不花模型 | 见 结论库「覆盖缺口检查」 |
 | `lib/quiz/quiz-grounding.ts` | **出题前注入**（拦）：把「前面已讲过的词表 + 页码表 + 五条硬规矩」追加到 quiz 生成器的 system prompt 末尾 | 同上；与 `coverage-gap` **共用同一个单位** |
 | `lib/server/agent-runtime/assessment-mode.ts` | **评估方式**轴：「讲课 / 作业 / 考试」。与 `study-mode.ts` 的「听课 / 自学」（**输入方式**轴）**正交，别合并** | 见 结论库「评估方式这条轴」 |
