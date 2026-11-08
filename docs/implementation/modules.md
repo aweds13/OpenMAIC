@@ -1,7 +1,7 @@
 # 实现层 · 模块地图
 
 > 这份文件回答：**代码放在哪、改哪一层、别碰哪。**
-> 上游：`implementation/traceability.md`（M1–M13 的 SR 归属）、`specification/conventions.md`（约定）。
+> 上游：`implementation/traceability.md`（M1–M15 的 SR 归属）、`specification/conventions.md`（约定）。
 > 与 `AGENTS.md` 的分工：`AGENTS.md` 是**动手前必读的维护手册**（坑、证据命令、封版结论）；本文件是**结构地图**，跟着代码走、不写历史。
 
 ---
@@ -18,7 +18,7 @@
 
 ---
 
-## 二、模块表（M1–M13）
+## 二、模块表（M1–M15）
 
 | 模块 | 关键文件 | 职责 | 改动风险 |
 |---|---|---|---|
@@ -34,7 +34,9 @@
 | M10 上下文与压缩 | `lib/server/agent-runtime/runner.ts`、`compaction.ts` | 系统提示词、材料注入、压缩预算 | 高 |
 | M11 工具注册 | `lib/server/agent-runtime/runner-contract.ts`、`app/api/chat/pi/route.ts`、`lib/chat/pi/tools/call-agent.ts` | 三处注册点、允许表 | 高 —— 三处必须同口径 |
 | M12 MCP | `lib/server/agent-runtime/mcp-client.ts`、`mcp-tools.ts` | 外部 MCP 连接与工具 | 低 |
-| M13 DSH 宿主 | `_tools/dsh-plugins/openmaic-course/lib/{index,client.src,db,db-write}.js`、`openmaic-local-capabilities/lib/index.js` | 12 个工具 + seam 路由 + 三栏面板 | 中 —— 改完必须重装到 profile |
+| M13 DSH 宿主 | `_tools/dsh-plugins/openmaic-course/lib/{index,client.src,db,db-write}.js`、`openmaic-local-capabilities/lib/index.js` | 30 + 5 个工具 + seam 路由 + 三栏面板 | 中 —— 改完必须重装到 profile |
+| M14 学习状态与回流 | `lib/quiz/learner-state.ts`、`lib/quiz/attempt-fold.ts`、`lib/server/agent-runtime/learner-state.ts`、`lib/practice/results.ts` | 折叠答题记录、渲染状态文件、读练习结果 | 中 —— 状态文件进系统提示词末块 |
+| M15 学习者画像 | `lib/server/agent-runtime/learner-profile.ts`、`D:/文档/jelly_ware/个人数据/学习画像.md` | 人写的目标与偏好，每次运行重读 | 低 —— 内容是人的，结构固定 |
 
 > 这张表只给**模块归属与改动风险**；同一个文件的实测依据、坑与数字在**第四节全表**里 ——
 > 两处都讲到的文件，以第四节那份为准。
@@ -60,8 +62,8 @@
 ## 四、本 fork 独有的文件（全表，按文件排）
 
 > 这一节就是原 `AGENTS.md` §2 那张全表，**原样搬来、一个数字没删**。
-> 与第二节的分工：第二节按**模块**排（M1–M13，给归属与风险），本节按**文件**排（给实测依据、坑、判据）；
-> 同一个文件两处都出现时，**细节以本节为准**，模块归属仍看 M1–M13。
+> 与第二节的分工：第二节按**模块**排（M1–M15，给归属与风险），本节按**文件**排（给实测依据、坑、判据）；
+> 同一个文件两处都出现时，**细节以本节为准**，模块归属仍看 M1–M15。
 
 改之前先看这里，**你要改的东西大概率已经有主了**。
 
@@ -75,6 +77,7 @@
 | `lib/server/agent-runtime/browse-url.ts` | `browse_url` 接进工作台（真浏览器） | 见 AGENTS.md §5 |
 | `lib/server/agent-runtime/learner-profile.ts` | 注入 学习画像.md（**每次运行重读**） | 改画像不用重启 |
 | `lib/server/agent-runtime/materials-library.ts` | `read_materials` / `update_materials` + **`listMaterialText()`** | agent 自己维护的材料库；**它的 URL 会喂进会话的 URL 信任闸**（`store.ts` 的建会话钩子）—— 见 AGENTS.md §3.1 那条假红与结论库 |
+| `lib/persistence/asset-byte-split-store.ts` | 材料字节**按大小分流**（D1）：≤ `ASSET_INLINE_BYTE_LIMIT` 写 `asset_blobs.bytes`，超过写本地内容寻址目录并留 `bytes` 为 NULL（NULL 是「在盘上」的标记，不是缺块） | `asset_blobs.bytes` 本来就 nullable（`PgAssetByteStore.deleteWith` 会清它）⇒ 读侧先列后盘、一次回退就够，**不需要路由列**。三个 `*With` 方法必须加入 registry 事务（不加入会与自己的 blob 行锁**自死锁**）；文件写不是事务性的 |
 | `lib/server/agent-runtime/mcp-tools.ts` + `mcp-client.ts` | 外部 MCP（GitHub）接进工作台 | 连不上只记 failed，不拖死会话 |
 | `lib/server/agent-runtime/compaction.ts` | 原生上下文压缩 + ★ `usageAnchorIsStale()`：**用量锚点比最新一条 compaction 还旧就不采信**（`estimateAgentContextTokens(…, { trustUsageAnchor })`） | **默认关**，本部署开着。不检查它 ⇒ 提示恒为 `N -> N`，且**每次压缩后必然白压一次**（见结论库 §压缩锚点） |
 | `lib/server/agent-runtime/session-commands.ts` | `/compact` 之类的会话命令 | 手动挡**不需要** ENABLED —— 它绕过阈值也绕过开关 |

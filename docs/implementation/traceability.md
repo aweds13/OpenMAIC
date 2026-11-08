@@ -21,6 +21,8 @@
 | M11 工具注册 | `lib/server/agent-runtime/runner-contract.ts`、`app/api/chat/pi/route.ts`、`lib/chat/pi/tools/call-agent.ts` | 三处注册点、允许表 |
 | M12 MCP | `lib/server/agent-runtime/mcp-client.ts`、`lib/server/agent-runtime/mcp-tools.ts` | 外部 MCP 连接与工具 |
 | M13 DSH 宿主 | `D:/文档/jelly_ware/_tools/dsh-plugins/openmaic-course/lib/index.js`（宿主半）、`lib/client.src.js`（浏览器半）、`lib/db.mjs`（只读取数）、`lib/db-write.mjs`（CAS 写入） | 七工具 + seam 路由 + 三栏面板 |
+| M14 学习状态与回流 | `lib/quiz/learner-state.ts`、`lib/quiz/attempt-fold.ts`、`lib/server/agent-runtime/learner-state.ts`、`lib/practice/results.ts` | 折叠答题记录、渲染状态文件、读练习结果 |
+| M15 学习者画像 | `lib/server/agent-runtime/learner-profile.ts`、`D:/文档/jelly_ware/个人数据/学习画像.md` | 人写的目标与偏好，每次运行重读 |
 
 ## SR → 模块
 
@@ -123,6 +125,18 @@
 | SR-F10.5 | M13 | `POST /dsh-openmaic/active` + `openmaic_active` |
 | SR-F10.6 | M13 | `ACTIVE = null` 初值；返回 `{active: null}` |
 | SR-F10.7 | M13 | `db-write.mjs` 写回同一张表 |
+
+**F11 学习状态与回流**
+
+| SR | 模块 | 落点 |
+|---|---|---|
+| SR-F11.1 | M4 / M14 | `lib/quiz/attempt-fold.ts` 的 `foldQuizAttempts` 从 `runtime_records` 折叠逐题判定；`tests/quiz/attempt-fold.test.ts`（12 例，含 `orders records by seq, never by timestamp`、`keeps a corrected mistake in everIncorrect but clears incorrectNow`）；`tests/quiz/attempt-fold-live.test.ts` 连真库。**逐题判定目前由读取方即时重算，不落库** —— 这条规格要求落库，尚未做到 |
+| SR-F11.2 | M14 | `lib/quiz/learner-state.ts` 的 `renderLearnerState` 按页级汇总（`tests/quiz/learner-state.test.ts` 12 例，含 `does not borrow another course's question text for the same scene id` 钉住跨课不许借题面）。**页/题/知识点三级分开记录尚未实现**，今天只有页级 |
+| SR-F11.3 | 无 | 无模块。先修关系在代码里不存在（全库无概念表、无先修表） |
+| SR-F11.4 | 无（**未落地**） | 无模块。图谱形态未定，规格只写约束 |
+| SR-F11.5 | M14 | `lib/practice/results.ts` 的 `readPracticeResults`（`lib/practice/results.ts:117`，**永不抛**：坏 JSON/读不动/不是目录一律跳过，退化成「没有练习记录」）+ 同名目录上限 200；`tests/agent-runtime/practice-results.test.ts` 含 `★ skips broken files instead of failing the whole refresh`、`★ writes the state file when there are NO quiz records but there ARE practice results` |
+| SR-F11.6 | 无（**未落地**） | 无模块。OpenMAIC 与 Obsidian 至今零集成 |
+| SR-F11.7 | M14 / M15 | 两份文件实测分家：`D:/文档/jelly_ware/个人数据/学习状态.md` **1868 B 全部由 `refreshLearnerStateBestEffort` 生成**（`lib/server/agent-runtime/learner-state.ts:290`），`D:/文档/jelly_ware/个人数据/学习画像.md` **1851 B 由人写**。**两份文件的「不要手改」标注尚不存在** |
 
 **横切（NF）**
 

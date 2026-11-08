@@ -17,7 +17,7 @@
 5. 引用完整性：文档中引用的 docs 内相对路径必须真实存在；
    被 git 忽略的产物路径（如 gates/diag/ 下的过程文件，不随树分发）跳过存在性检查，
    只打印一行说明 —— 判据问 git（check-ignore），不硬编码目录名（T-G127）。
-6. 覆盖矩阵：coverage.md 存在、含 SR-F1~F10，且每域详细规格/契约文件存在。
+6. 覆盖矩阵：coverage.md 存在、含每域 SR，且每域详细规格/契约文件存在（域号从 spec 追踪派生）。
 
 用法：python scripts/check_layers.py [--root <路径>]
       `--root` 换一棵树来查（默认 = 本脚本所在仓库根）—— 自检拿它在临时目录里喂
@@ -306,7 +306,10 @@ def main(root: Path | str | None = None) -> int:
         print("[FAIL] 覆盖矩阵缺失: docs/implementation/coverage.md")
         ok = False
     else:
-        for i in range(1, 11):
+        # 域号从「spec 追踪里真的声明了 SR 的域」派生，不写死上限。
+        # 新增一个 F 域时：写进 traceability.md 就自动进检查；忘了写就查不出来 —— 那是确定行为。
+        declared = sorted({int(m.group(1)) for m in re.finditer(r"SR-F(\d+)\.\d+", read(p.spec_trace))})
+        for i in declared:
             sr = f"SR-F{i}"
             if sr not in cov_text:
                 print(f"[FAIL] 覆盖矩阵缺 {sr}")

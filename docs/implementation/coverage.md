@@ -106,15 +106,27 @@
 | SR-F10.6 | M13 | 有 | 空时返回「还没有用户在面板里选过页（或 DSH 刚重启过）」；实测重启后为 `null` |
 | SR-F10.7 | M13 | 无 | **未验过**：DSH 侧写入后刷新旧 Web UI 是否可见，尚未实测 |
 
+## F11 学完之后留下什么
+
+| SR | 模块 | 判据 | 落点 |
+|---|---|---|---|
+| SR-F11.1 | M4 / M14 | 松 | `tests/quiz/attempt-fold.test.ts` 12 例钉住三阶段折叠、曾错仍记、按 seq 不按时间戳、题面丢失有解释；`tests/quiz/attempt-fold-live.test.ts` 连真库。**「判分落库」这一半没有判据** —— 今天的逐题对错是读取时按题面重算的 |
+| SR-F11.2 | M14 | 松 | `tests/quiz/learner-state.test.ts` 的 `separates "answered but never submitted" from "never studied"`（第三态存在）与 `does not borrow another course's question text for the same scene id`（跨课不借）。**三级分开只有页级**，题级与知识点级未实现 |
+| SR-F11.3 | 无 | 无 | 先修关系在代码里完全不存在（无概念表、无先修表），无判据 |
+| SR-F11.4 | 无 | 无 | **未落地**：图谱形态未定，规格只写约束 |
+| SR-F11.5 | M14 | 有 | `tests/agent-runtime/practice-results.test.ts` 六例：坏文件跳过不中断、目录不存在不抛、标明来源、文件上限、只有练习结果也写状态、两者都无则不写空文件；实现 `lib/practice/results.ts:117` 注释原文「永不抛」 |
+| SR-F11.6 | 无 | 无 | **未落地**：OpenMAIC 与 Obsidian 零集成 |
+| SR-F11.7 | M14 / M15 | 松 | 机器文件自带使用规则有断言（`always carries its own usage rules and the do-not-recite warning`）；**「不要手改」标注不存在**，人写/机写两份文件今天互相矛盾 |
+
 ## 累计
 
-- 有判据：**27** 条
-- 松（部分覆盖）：**14** 条
+- 有判据：**28** 条
+- 松（部分覆盖）：**17** 条
 - 只能人工：**8** 条
-- 无判据：**1** 条（SR-F10.7）
-- 合计 **50** 条逐域 SR（另有 8 条跨域 SR-NF，判据在 `conventions.md` 各节，随 `scripts/check-layers.py` 与测试套一起跑）
+- 无判据：**4** 条（SR-F10.7、SR-F11.3、SR-F11.4、SR-F11.6）
+- 合计 **57** 条逐域 SR（另有 8 条跨域 SR-NF，判据在 `conventions.md` 各节，随 `scripts/check-layers.py` 与测试套一起跑）
 
-（本表 2026-10-30 重数过一遍：`python` 逐行统计 + 与 `specification/traceability.md` 的 SR 集合逐个比对，50 对 50、无重复、无缺漏。旧版写的「59 条 / 26-17-6-3」是错的。）
+（本表 2026-11-08 增补 F11 七条后重数：F1–F10 仍是 50 条、判据分布 27/14/8/1 不变；F11 七条为 1 有 / 3 松 / 3 无。合计 57 条逐域 SR。）
 
 ## 两个必须记住的「当前断点」
 
