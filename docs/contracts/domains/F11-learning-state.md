@@ -32,7 +32,7 @@
 
 - **失败长什么样**：某页 8 道题全对，状态文件里写成「已掌握 OOP」；或者知识点空缺按 0 分显示，读者以为「考了但没会」；或者把 `outlineId` 当知识点 id 用（它是计划条目 id，一个条目可以覆盖多页，且实测同一门课内还有 10 个 id 重复出现 2 次）。
 
-- **判据落点**：`tests/quiz/learner-state.test.ts` —— `separates "answered but never submitted" from "never studied"`（**第三态必须存在**，这是「不知道」的最接近实现）、`does not borrow another course's question text for the same scene id`（**跨课不许借**，直接对上 35 个 scene id 跨课复用、34 个连类型都不同的实测）。命令：`npx vitest run tests/quiz/learner-state.test.ts`。**「三级分开」今天只有页级** —— 落地时要求：给同一页造一份页级全对、知识点级零观测的输入，断言知识点级返回「不知道」而不是「已掌握」。
+- **判据落点**：`tests/quiz/learner-state-render.test.ts` —— `known 带置信下界，not-learned 带上界，unknown 带 reason 的人话`（**第三态必须存在**：`unknown` 不是 0 也不是 null）、`★ stageId 与 sceneId 都在行里 —— 35 个 scene id 跨课复用`（**跨课不许借**，直接对上 112 个 scene id 里 35 个跨课复用、34 个连类型都不同的实测）、`★ too-few-items 时算出「再做对 N 题可判」，且与判会用同一套下界`（证据不足时给的是「还差多少」，不是猜一个数）。命令：`npx vitest run tests/quiz/learner-state-render.test.ts`。**「三级分开」今天只有页级** —— 落地时要求：给同一页造一份页级全对、知识点级零观测的输入，断言知识点级返回「不知道」而不是「已掌握」。
 
 - **两边各自要满足**：
   - 计算侧：三级不许互相读对方的结果；共用的只有最底层的逐题判定。
@@ -102,7 +102,7 @@
 
 - **失败长什么样**：人手工在机器产物里补了一条笔记，下一轮消失且无任何提示；或者「我不会这台机器」与「这两门课你错了 4 道」同时出现在同一轮上下文里，模型随机相信一边。
 
-- **判据落点**：`tests/quiz/learner-state.test.ts` —— `always carries its own usage rules and the do-not-recite warning`（**文件自带使用规则**，这是「自证身份」的现有形态）。生成端：`lib/server/agent-runtime/learner-state.ts:290` 的 `refreshLearnerStateBestEffort`。命令：`npx vitest run tests/quiz/learner-state.test.ts`。**「人改会被覆盖」这句标注今天不存在** —— 落地时要求：机器文件头两行必须含「由 … 生成」与「不要手改」，且有断言钉住。
+- **判据落点**：`tests/quiz/learner-state-render.test.ts` —— `块首第一行就是那句声明，且只出现一次`（**块自带身份声明**，这是「自证身份」的现有形态）、`★ 不写「不要念给学习者听」这类元指令`（身份声明只能标「这段是什么」，不能扩成「你该怎么用」）。生成端：`lib/server/agent-runtime/learner-state.ts:353` 的 `refreshLearnerStateBestEffort`。命令：`npx vitest run tests/quiz/learner-state-render.test.ts`。**「人改会被覆盖」这句标注今天不存在** —— 落地时要求：机器文件头两行必须含「由 … 生成」与「不要手改」，且有断言钉住。
 
 - **两边各自要满足**：
   - 生成侧：文件头必须机器可读地标注身份，不能只写在一句自然语言里。

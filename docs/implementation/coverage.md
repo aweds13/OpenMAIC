@@ -111,7 +111,7 @@
 | SR | 模块 | 判据 | 落点 |
 |---|---|---|---|
 | SR-F11.1 | M4 / M14 | 松 | `tests/quiz/attempt-fold.test.ts` 12 例钉住三阶段折叠、曾错仍记、按 seq 不按时间戳、题面丢失有解释；`tests/quiz/attempt-fold-live.test.ts` 连真库。**「判分落库」这一半没有判据** —— 今天的逐题对错是读取时按题面重算的 |
-| SR-F11.2 | M14 | 松 | `tests/quiz/learner-state.test.ts` 的 `separates "answered but never submitted" from "never studied"`（第三态存在）与 `does not borrow another course's question text for the same scene id`（跨课不借）。**三级分开只有页级**，题级与知识点级未实现 |
+| SR-F11.2 | M14 | 松 | `tests/quiz/learner-state-render.test.ts` 的 `known 带置信下界，not-learned 带上界，unknown 带 reason 的人话`（第三态存在）与 `★ stageId 与 sceneId 都在行里 —— 35 个 scene id 跨课复用`（跨课不借）。**三级分开只有页级**，题级与知识点级未实现 |
 | SR-F11.3 | 无 | 无 | 先修关系在代码里完全不存在（无概念表、无先修表），无判据 |
 | SR-F11.4 | 无 | 无 | **未落地**：图谱形态未定，规格只写约束 |
 | SR-F11.5 | M14 | 有 | `tests/agent-runtime/practice-results.test.ts` 六例：坏文件跳过不中断、目录不存在不抛、标明来源、文件上限、只有练习结果也写状态、两者都无则不写空文件；实现 `lib/practice/results.ts:117` 注释原文「永不抛」 |
