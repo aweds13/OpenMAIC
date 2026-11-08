@@ -216,7 +216,25 @@ export async function renderPageHtml(
         }, 50);
       });
     });
-    const text = (dom.window.document.body?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    // ★ 先删 script/style/noscript 再取 textContent。`textContent` 会把**元素的文本
+    //   子节点**一并算进去，`<script>` 的源码就是它自己的文本子节点 —— 于是判题器的
+    //   JS 源码会冒充“学生看到的字”。实测（234 页、72 个 interactive 页）：72 页的
+    //   `<script>` **全部**在 `<body>` 里，污染字符 2,003,569 个；单页极端如
+    //   `stage-GYvpbYB_aN/scene-p100` 渲染出 47,690 字，词频 top 是
+    //   `if×243 return×231 const×228 case×68` —— 全是判题器源码。
+    //   删的是**节点**不是 innerHTML 重解析：脚本已经跑完、它建出来的 DOM 留着。
+    // ★ 先删 script/style/noscript 再取 textContent。`textContent` 会把**元素的文本
+    //   子节点**一并算进去，`<script>` 的源码就是它自己的文本子节点 —— 于是判题器的
+    //   JS 源码会冒充“学生看到的字”。实测（234 页、72 个 interactive 页）：72 页的
+    //   `<script>` **全部**在 `<body>` 里，污染字符 2,003,569 个；单页极端如
+    //   `stage-GYvpbYB_aN/scene-p100` 渲染出 47,690 字，词频 top 是
+    //   `if×243 return×231 const×228 case×68` —— 全是判题器源码。
+    //   删的是**节点**不是 innerHTML 重解析：脚本已经跑完、它建出来的 DOM 留着。
+    const body = dom.window.document.body;
+    if (body) {
+      for (const node of body.querySelectorAll('script, style, noscript')) node.remove();
+    }
+    const text = (body?.textContent ?? '').replace(/\s+/g, ' ').trim();
     return { text, errors };
   } finally {
     dom.window.close();

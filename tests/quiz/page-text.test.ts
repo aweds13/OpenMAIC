@@ -229,4 +229,18 @@ describe('CDN 全局桩（实测第 17 页就是靠它跑完 init()）', () => {
     expect(text).toContain('闰年判断');
     expect(errors.join(' ')).not.toMatch(/renderMathInElement/);
   });
+  it('★ <script> 的源码不算学生看到的字（删节点，不重解析）', async () => {
+    // 实测：234 页里 72 个 interactive 页的 `<script>` **全部**在 `<body>` 里，
+    // `body.textContent` 会把 JS 源码当正文，污染字符 2,003,569 个。
+    const html = `<!DOCTYPE html><html><body><div id="root"></div>
+      <script>
+        var judgeHelper = 'SOURCE_MARKER_SHOULD_NOT_LEAK';
+        document.getElementById('root').innerHTML = '<p>只这句是学生看到的字</p>';
+      </script></body></html>`;
+    const { text } = await renderPageHtml(html);
+    expect(text).toContain('只这句是学生看到的字');
+    // 脚本已经跑完、DOM 建好了 —— 证明删的是节点而不是把脚本挡在外面
+    expect(text).not.toContain('SOURCE_MARKER_SHOULD_NOT_LEAK');
+    expect(text).not.toContain('judgeHelper');
+  });
 });

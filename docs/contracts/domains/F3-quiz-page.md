@@ -33,7 +33,17 @@
 - **输入**：`learnerVisibleText(page)` / `staticPageText(page)`（`lib/quiz/page-text.ts`），`page.content` 形如 `{ type: 'quiz', questions: [{ question, options: [{ label, value }], analysis }] }`。
 - **期望**：三类文字全部收得到 —— 题干（`question`）、选项文字（`options[].label`）、解析（`analysis`），各自过一遍 `stripMarkup` 后拼成一段。**选项字母 `value`（A/B/C）不算内容**，不进文本。对 `interactive` 页：先静态读结构文字，再渲染 HTML 取学生看到的 DOM 文本（`renderPageHtml`，jsdom，默认 1500ms 超时 + load 后 50ms）；渲染拿不到文字或渲染抛错，必须退回 `mode: 'source'` 并在 `note` 里**说出来**，绝不把「没渲染出来」表达成「这一页是空的」。`mode` 三态固定为 `'static' | 'rendered' | 'source'`。
 - **失败长什么样**：自检页抽出来是空串（题干在但选项 label 没抽，或解析漏了）；或 interactive 页渲染失败后静默返回空文本，审查于是报「这页是空的」—— 实测由此产生过**五页**假阳性，其中一页渲染后三万多字、未渲染零字。
-- **判据落点**：`tests/quiz/page-text.test.ts`，`describe('staticPageText')` 下的 `quiz: 收题干、选项文字与解析，不收选项字母`（`:88`）；`describe('learnerVisibleText')` 下的 `interactive: 渲染后拿到的才是学生看到的东西（JS 建出来的正文）`（`:138`）、`interactive: 脚本在 DOMContentLoaded 里抛错 ⇒ 退回源码并**说出来**，绝不假装是空页`（`:152`）、`interactive: 渲染拿不到任何文字 ⇒ mode=source 且有 note（不许静默成空页）`（`:166`）、`interactive: 渲染抛错（而不是渲染出空）也退回源码`（`:180`）、`interactive: 没有 html 时只读结构里的文字并标注`（`:197`）、`slide 不必渲染（走静态）—— 渲染只对 interactive 花钱`（`:206`）；`describe('CDN 全局桩（实测第 17 页就是靠它跑完 init()）')` 下的 `renderMathInElement 缺失会让 init() 走不到，桩上之后正文就出来了`（`:220`）。命令：`npx vitest run tests/quiz/page-text.test.ts`。
+- **判据落点**：`tests/quiz/page-text.test.ts`，`describe('staticPageText')` 下的 `quiz: 收题干、选项文字与解析，不收选项字母`（`:88`）；`describe('learnerVisibleText')` 下的 `interactive: 渲染后拿到的才是学生看到的东西（JS 建出来的正文）`（`:138`）、`interactive: 脚本在 DOMContentLoaded 里抛错 ⇒ 退回源码并**说出来**，绝不假装是空页`（`:152`）、`interactive: 渲染拿不到任何文字 ⇒ mode=source 且有 note（不许静默成空页）`（`:166`）、`interactive: 渲染抛错（而不是渲染出空）也退回源码`（`:180`）、`interactive: 没有 html 时只读结构里的文字并标注`（`:197`）、`slide 不必渲染（走静态）—— 渲染只对 interactive 花钱`（`:206`）；`describe('CDN 全局桩（实测第 17 页就是靠它跑完 init()）')` 下的 `renderMathInElement` 缺失会让 init() 走不到，桩上之后正文就出来了`（`:220`）、`★ <script> 的源码不算学生看到的字（删节点，不重解析）`（`:232`）。命令：`npx vitest run tests/quiz/page-text.test.ts`。
 - **两边各自要满足**：
   - 抽取侧（`lib/quiz/page-text.ts:110-125`）：`quizText` 只收 `question` / `analysis` / `options[].label` 三处，**故意不收 `options[].value`** —— 那是字母，不是内容；收进来会让覆盖率统计虚高。`interactiveSourceText` 收 `widgetConfig` 的 `description`/`starterCode`/`solution` 与 `hints[]`、`testCases[].description`/`.expected`；同理，`pbl` 分支**故意不收 `roles[].systemPrompt`**（那是给 agent 的提示词，学生看不到）。
+  - 渲染侧（`lib/quiz/page-text.ts` 的 `renderPageHtml`）：取正文前**必须先删 `<script>` / `<style>` / `<noscript>` 节点**。
+    `body.textContent` 会把**元素的文本子节点**一并算进去，`<script>` 的源码就是它自己的文本子节点 ——
+    于是判题器的 JS 会冒充“学生看到的字”。实测（234 页里 72 个 interactive 页）：72 页的
+    `<script>` **全部**在 `<body>` 里，污染字符 **2,003,569** 个；单页极端 `stage-GYvpbYB_aN/scene-p100`
+    渲染出 47,690 字，词频 top 是 `if×243 return×231 const×228 case×68` —— 全是判题器源码。
+    删的是**节点**不是重解析 HTML：脚本已经跑完，它建出来的 DOM 必须留着。
+    不删的代价：`learnerVisibleText` 四个审查调用点（`page-review.ts:109`/`:120`、
+    `review-tools.ts:373`/`:423`）拿到的页文本里混着 JS，审查者会拿判题器源码里的词
+    当“这页讲过 X”（实测会多出 4 个假命中：`math.logic`、`cpp.includes`、`prog.seq`、`cpp.headers`、
+    `java.generics` 里的四个）。
   - 渲染侧（`lib/quiz/page-text.ts` 的 `renderPageHtml`）：只许**动态** import jsdom（静态引会把解析器拖进主 bundle）；必须桩掉 `renderMathInElement`/`katex`/`MathJax`/`hljs`/`mermaid`/`CodeMirror`/`Prism`，让页面在**不依赖外部网络**的条件下跑完自己的初始化。渲染成功但文本为空，与渲染抛错，是两种不同的失败，但都必须落到 `mode: 'source'` + `note`。
