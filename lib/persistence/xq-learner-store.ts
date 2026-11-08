@@ -21,8 +21,8 @@
  * ## 三条实现上的硬约束
  *
  * 1. **任何按页的读写都带 `stage_id`**。`document_scenes` 的主键是
- *    `(stage_id, id)`，全库 235 个 scene id 里 35 个跨 stage 复用、34 个连类型
- *    都不同 —— 只按 `scene_id` 读写会把两门课的题算成一题。
+ *    `(stage_id, id)`；实测全库 234 行 / 112 个不同 scene id，其中 35 个 id 跨
+ *    stage 复用、34 个连类型都不同 —— 只按 `scene_id` 读写会把两门课的题算成一题。
  * 2. **`numeric` 从 pg 里读出来是 string**，必须 `Number()` 之后才能进
  *    `classifyEvidence()`。忘了这一步，加法会变成字符串拼接（`"1.0" + "0.5"`
  *    得到 `"1.00.5"`），`n < MIN_ITEMS_FOR_VERDICT` 的判定会静默失效。
