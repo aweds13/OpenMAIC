@@ -1,0 +1,243 @@
+import { PGlite } from '@electric-sql/pglite';
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { XQ_LEARNER_SCHEMA } from '@/lib/persistence/xq-learner';
+import { XqLearnerStore, XqReviewRoundNotFoundError } from '@/lib/persistence/xq-learner-store';
+
+/**
+ * 写入层的判据。
+ *
+ * 三件事必须被钉住，因为它们都会**静默出错**：
+ *
+ * 1. `ingestProbeItems` 的幂等。同一条证据（同 task/stage/scene/question/asked_at）
+ *    重复写入必须是 skipped 而不是插第二行 —— 否则重放一次就多算一次题量，
+ *    掌握度会被自己的重试推高。
+ * 2. `recomputeCellState` 用的是 `xq-mastery` 的判定，不是自己另算一套。
+ *    这里只钉一个锚点（7/8 → known、lb≈0.603），细节在 xq-mastery 的测试里。
+ * 3. ★ 做错要回第 1 关。这是站点行为（`/course/:courseId/wrong-book`
+ *    「四关 1/3/7/15 天、做错回第 1 关」），而第一版实现把它写成了
+ *    「标记当前关 + 顺延后面」，导致第 15 天那一关永远不会到期。
+ */
+describe('XqLearnerStore', () => {
+  let db: PGlite;
+  let store: XqLearnerStore;
+
+  beforeEach(async () => {
+    db = new PGlite();
+    await db.waitReady;
+    await db.exec(XQ_LEARNER_SCHEMA);
+    store = new XqLearnerStore({ queryable: db });
+  });
+
+  const probe = (questionId: string, correct: boolean, minute = 0) => ({
+    taskId: 'task-1',
+    stageId: 'stage-A',
+    sceneId: 'scene-p1',
+    questionId,
+    askedAt: new Date(Date.UTC(2026, 10, 8, 10, minute)),
+    correct,
+    source: 'manual' as const,
+  });
+
+  describe('ingestProbeItems', () => {
+    it('写入一批，返回真插进去的条数', async () => {
+      const result = await store.ingestProbeItems([
+        probe('q1', true, 1),
+        probe('q2', false, 2),
+      ]);
+      expect(result).toEqual({ inserted: 2, skipped: 0 });
+    });
+
+    it('同一条证据重复写入是 skipped 不是第二行', async () => {
+      await store.ingestProbeItems([probe('q1', true, 1)]);
+      const second = await store.ingestProbeItems([probe('q1', true, 1)]);
+      expect(second).toEqual({ inserted: 0, skipped: 1 });
+      const { rows } = await db.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM xq_probe_item`,
+      );
+      expect(rows[0]!.count).toBe('1');
+    });
+
+    it('同题不同天是两条独立证据', async () => {
+      await store.ingestProbeItems([probe('q1', true, 1)]);
+      const later = await store.ingestProbeItems([probe('q1', false, 2)]);
+      expect(later.inserted).toBe(1);
+    });
+
+    it('空数组不炸', async () => {
+      expect(await store.ingestProbeItems([])).toEqual({ inserted: 0, skipped: 0 });
+    });
+  });
+
+  describe('recomputeCellState', () => {
+    it('7/8 判 known，且置信区间与标定一致', async () => {
+      await store.ingestProbeItems(
+        Array.from({ length: 8 }, (_, i) => probe(`q${i + 1}`, i < 7, i)),
+      );
+      const verdict = await store.recomputeCellState('stage-A', 'scene-p1');
+      expect(verdict.tri).toBe('known');
+      expect(verdict.n).toBe(8);
+      expect(verdict.k).toBe(7);
+      expect(verdict.lb5).toBeCloseTo(0.603, 2);
+      expect(verdict.ub95).toBeCloseTo(0.876, 2);
+    });
+
+    it('6/8 判 unknown/mixed', async () => {
+      await store.ingestProbeItems(
+        Array.from({ length: 8 }, (_, i) => probe(`q${i + 1}`, i < 6, i)),
+      );
+      const verdict = await store.recomputeCellState('stage-A', 'scene-p1');
+      expect(verdict.tri).toBe('unknown');
+      expect(verdict.reason).toBe('mixed');
+    });
+
+    it('没有证据的格子是 no-quiz', async () => {
+      const verdict = await store.recomputeCellState('stage-A', 'scene-p9');
+      expect(verdict.tri).toBe('unknown');
+      expect(verdict.reason).toBe('no-quiz');
+    });
+
+    it('重算两次结果一致（缓存可整表重算）', async () => {
+      await store.ingestProbeItems(
+        Array.from({ length: 8 }, (_, i) => probe(`q${i + 1}`, i < 7, i)),
+      );
+      const first = await store.recomputeCellState('stage-A', 'scene-p1');
+      const second = await store.recomputeCellState('stage-A', 'scene-p1');
+      expect(second).toEqual(first);
+    });
+
+    it('同一 scene 在两门课里互不影响（主键带 stage_id）', async () => {
+      await store.ingestProbeItems([
+        probe('q1', true, 1),
+        probe('q2', true, 2),
+        probe('q3', true, 3),
+        { ...probe('q1', false, 4), stageId: 'stage-B' },
+      ]);
+      const a = await store.recomputeCellState('stage-A', 'scene-p1');
+      const b = await store.recomputeCellState('stage-B', 'scene-p1');
+      expect(a.tri).toBe('known');
+      expect(b.tri).toBe('unknown');
+      expect(b.reason).toBe('too-few-items');
+    });
+  });
+
+  describe('错题四关', () => {
+    it('排四关，间隔是 1/3/7/15 天', async () => {
+      const result = await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      expect(result.rounds).toBe(4);
+
+      // ★ 不能用 EXTRACT(DAY FROM (due_at - now()))：那是 interval 的「日分量」，
+      // +1 天减掉几毫秒会变成 0 天 23:59:59.99，日分量读出来是 0。
+      // 要总天数就取 epoch 再除，然后四舍五入。
+      const { rows } = await db.query<{ round: number; days: number }>(
+        `SELECT round, round(EXTRACT(EPOCH FROM (due_at - now())) / 86400)::int AS days
+           FROM xq_review_schedule ORDER BY round`,
+      );
+      expect(rows.map((r) => Number(r.round))).toEqual([1, 2, 3, 4]);
+      expect(rows.map((r) => Number(r.days))).toEqual([1, 3, 7, 15]);
+    });
+
+    it('重复排期是幂等的', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      const again = await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      expect(again.rounds).toBe(0);
+    });
+
+    it('★ 做错第 1 关要回到第 1 关（四关全部重置，不是顺延到第 2 关）', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      await store.recordReviewOutcome('stage-A', 'scene-p1', 'q1', 'concept-x', 1, 'fail');
+
+      // 30 天后看：四关应该全都到期（都重新排过），而且第 1 关是最近的。
+      const due = await store.dueReviews(new Date(Date.UTC(2026, 11, 31)), 50);
+      const rounds = due.map((d) => d.round).sort((a, b) => a - b);
+      expect(rounds).toEqual([1, 2, 3, 4]);
+      // 第 1 关的到期时间一定是四关里最早的
+      const first = due.find((d) => d.round === 1)!;
+      for (const other of due.filter((d) => d.round !== 1)) {
+        expect(first.dueAt.getTime()).toBeLessThanOrEqual(other.dueAt.getTime());
+      }
+    });
+
+    it('★ 做错之后间隔仍然是 1/3/7/15（不是被压成 1/3/7）', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      const before = await db.query<{ round: number; due_at: Date }>(
+        `SELECT round, due_at FROM xq_review_schedule ORDER BY round`,
+      );
+      const firstDue = before.rows[0]!.due_at.getTime();
+
+      await store.recordReviewOutcome('stage-A', 'scene-p1', 'q1', 'concept-x', 1, 'fail');
+      const after = await db.query<{ round: number; due_at: Date }>(
+        `SELECT round, due_at FROM xq_review_schedule ORDER BY round`,
+      );
+
+      // 从第 1 关的新到期日算起，后面三关相对它应该是 +2 / +6 / +14 天
+      const base = after.rows.find((r) => Number(r.round) === 1)!.due_at.getTime();
+      const days = after.rows.map((r) => Math.round((r.due_at.getTime() - base) / 86_400_000));
+      expect(days).toEqual([0, 2, 6, 14]);
+      // 而且第 1 关的到期日确实往后推了（不是留在原地）
+      expect(base).toBeGreaterThan(firstDue);
+    });
+
+    it('做对只标记那一关，不影响后面', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      await store.recordReviewOutcome('stage-A', 'scene-p1', 'q1', 'concept-x', 1, 'pass');
+
+      const { rows } = await db.query<{ round: number; done: boolean }>(
+        `SELECT round, (done_at IS NOT NULL) AS done FROM xq_review_schedule ORDER BY round`,
+      );
+      expect(rows.filter((r) => r.done).map((r) => Number(r.round))).toEqual([1]);
+    });
+
+    it('跳过也只标记那一关', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      await store.recordReviewOutcome('stage-A', 'scene-p1', 'q1', 'concept-x', 2, 'skip');
+      const { rows } = await db.query<{ round: number; done: boolean; outcome: string | null }>(
+        `SELECT round, (done_at IS NOT NULL) AS done, outcome
+           FROM xq_review_schedule ORDER BY round`,
+      );
+      const done = rows.filter((r) => r.done);
+      expect(done.map((r) => Number(r.round))).toEqual([2]);
+      expect(done[0]!.outcome).toBe('skip');
+    });
+
+    it('记录一个不存在的关会抛，不是静默成功', async () => {
+      await expect(
+        store.recordReviewOutcome('stage-A', 'scene-p1', 'q1', 'concept-x', 3, 'pass'),
+      ).rejects.toThrow(XqReviewRoundNotFoundError);
+    });
+
+    it('dueReviews 只回未完成的', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      const all = await store.dueReviews(new Date(Date.UTC(2026, 11, 31)), 50);
+      expect(all).toHaveLength(4);
+      await store.recordReviewOutcome('stage-A', 'scene-p1', 'q1', 'concept-x', 1, 'pass');
+      const rest = await store.dueReviews(new Date(Date.UTC(2026, 11, 31)), 50);
+      expect(rest).toHaveLength(3);
+      expect(rest.map((d) => d.round)).not.toContain(1);
+    });
+
+    it('dueReviews 的 now 是注入的，不改系统时钟', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      // 「今天」四关都没到（第 1 关也要 +1 天）
+      const today = await store.dueReviews(new Date(Date.UTC(2026, 10, 8)), 50);
+      expect(today).toHaveLength(0);
+      // 第 12 天：1 天 / 3 天 / 7 天那三关都到期了，15 天那关还没
+      const day12 = await store.dueReviews(new Date(Date.UTC(2026, 10, 20)), 50);
+      expect(day12.map((d) => d.round)).toEqual([1, 2, 3]);
+      // 第 31 天：四关全到期
+      const day31 = await store.dueReviews(new Date(Date.UTC(2026, 11, 9)), 50);
+      expect(day31.map((d) => d.round)).toEqual([1, 2, 3, 4]);
+    });
+  });
+
+  describe('recomputeAllCellStates', () => {
+    it('按 stage 过滤', async () => {
+      await store.ingestProbeItems([probe('q1', true, 1)]);
+      await store.ingestProbeItems([{ ...probe('q1', true, 2), stageId: 'stage-B' }]);
+      const scoped = await store.recomputeAllCellStates({ stageId: 'stage-A' });
+      expect(scoped.cells).toBe(1);
+      const all = await store.recomputeAllCellStates();
+      expect(all.cells).toBe(2);
+    });
+  });
+});
