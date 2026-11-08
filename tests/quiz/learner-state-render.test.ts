@@ -54,6 +54,25 @@ describe('约束 2 + 3：块首声明，且不含元指令', () => {
     expect(text).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
     expect(text).not.toContain('|---');
   });
+
+  it('★ 练习结果里那条行动指令不进块（`formatPracticeResultsForState` 自带它）', () => {
+    // 那一份有失败时会追加「**没过的那几条就是该回去讲的东西** —— …」。
+    // 它对**人**是建议，对**模型**是命令 —— 进块就违反约束 2。
+    const practiceText = [
+      '## 练习（真的跑过代码的那些）',
+      '',
+      '- **01-两数之和**（2026-10-07T10:00:00Z）：1/2 通过',
+      '  - ✗ 处理负数 —— 输出里没有：-1',
+      '',
+      '**没过的那几条就是该回去讲的东西** —— 回到对应的讲解页补讲或拆页，不要只是把同一条练习再发一遍。',
+    ].join('\n');
+    const block = renderLearnerStateBlock({ practiceText });
+    expect(block).toContain('01-两数之和');
+    expect(block).toContain('✗ 处理负数');
+    expect(block).not.toContain('该回去讲的东西');
+    // 其余段落一个字都不许少（只切尾段，别顺手删事实）。
+    expect(block).toContain('## 练习（真的跑过代码的那些）');
+  });
 });
 
 describe('三态渲染', () => {
@@ -123,8 +142,20 @@ describe('到期复习', () => {
     const text = renderLearnerStateBlock({
       now,
       reviews: [
-        { stageId: 'stage-a', sceneId: 'scene-p1', concept: '数组', round: 1, dueAt: '2026-11-07T03:22:47Z' },
-        { stageId: 'stage-a', sceneId: 'scene-p2', concept: '指针', round: 2, dueAt: '2026-12-01T03:22:47Z' },
+        {
+          stageId: 'stage-a',
+          sceneId: 'scene-p1',
+          concept: '数组',
+          round: 1,
+          dueAt: '2026-11-07T03:22:47Z',
+        },
+        {
+          stageId: 'stage-a',
+          sceneId: 'scene-p2',
+          concept: '指针',
+          round: 2,
+          dueAt: '2026-12-01T03:22:47Z',
+        },
       ],
     });
     expect(text).toContain('## 今天到期的复习');

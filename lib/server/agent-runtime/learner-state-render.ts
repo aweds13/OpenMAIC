@@ -212,12 +212,40 @@ function singleLine(text: string): string {
 }
 
 /**
+ * 切掉 `formatPracticeResultsForState()` 末尾那条**行动指令**。
+ *
+ * 那一份有失败时会追加一段：
+ *
+ *   **没过的那几条就是该回去讲的东西** —— 回到对应的讲解页补讲或拆页，…
+ *
+ * 它是**写给模型的命令**。放在人看的那份 `学习状态.md` 里没问题，可一旦进提示词块
+ * 就违反本模块的约束 2（块里只许有事实）—— 而这里正是它进块的唯一入口。
+ *
+ * 为什么在这儿切、而不去改 `lib/practice/results.ts`：那个文件不在这轮的改动范围里，
+ * 且它的输出**同时**被人看的那份文件复用 —— 在那一层删掉，人看的那份也就没有这句了
+ * （人看的那份留着它是合适的：它是对人的建议，不是对模型的命令）。
+ *
+ * 判据刻意写得**窄**：只删「整段以 `**没过的那几条就是该回去讲的东西**` 开头」的尾段。
+ * 换成「删最后一段」更省事，但那份格式一改（比如以后在末尾加一句图例）就会误删事实。
+ */
+function stripTrailingInstruction(practiceText: string): string {
+  const paragraphs = practiceText.split('\n\n');
+  while (paragraphs.length > 0) {
+    const last = paragraphs[paragraphs.length - 1]!.trim();
+    if (!last.startsWith('**没过的那几条就是该回去讲的东西**')) break;
+    paragraphs.pop();
+  }
+  return paragraphs.join('\n\n').trim();
+}
+
+/**
  * 渲染成给模型读的一段。**三样全空时返回 `''`**（见硬约束 1）。
  */
 export function renderLearnerStateBlock(input: RenderLearnerStateBlockInput = {}): string {
   const cells = input.cells ?? [];
   const reviews = input.reviews ?? [];
-  const practiceText = (input.practiceText ?? '').trim();
+  // 先切掉那句行动指令再判空：只剩指令的话（理论上不会）就不该算「有内容」。
+  const practiceText = stripTrailingInstruction((input.practiceText ?? '').trim());
 
   // ★ 零冷启动：先判空再拼任何字。空块占 token 且破坏前缀缓存，而「没数据」从
   //   「没有这一段」就能推出来 —— 所以这里连一行占位都不留。
@@ -254,7 +282,8 @@ export function renderLearnerStateBlock(input: RenderLearnerStateBlockInput = {}
   // 到期的顺序取决于 PG 的返回顺序，两次渲染可能不同。
   const dueReviews = [...reviews]
     .filter((review) => {
-      const time = review.dueAt instanceof Date ? review.dueAt.getTime() : new Date(review.dueAt).getTime();
+      const time =
+        review.dueAt instanceof Date ? review.dueAt.getTime() : new Date(review.dueAt).getTime();
       return Number.isFinite(time) && time <= nowMs;
     })
     .sort(

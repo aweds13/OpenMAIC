@@ -103,7 +103,13 @@ export interface RefreshLearnerStateResult {
   text: string;
   /** 参与渲染的页数（三态格子数）。 */
   scenes: number;
-  /** 折进来的**答题记录**条数（来自 `runtime_records`）。 */
+  /**
+   * **恒为 0**，只为兼容旧调用点保留。
+   *
+   * 这份状态已经不再折 `runtime_records` 了（三态来自 `xq_cell_state`，练习来自磁盘），
+   * 所以「折进来几条答题记录」这个读数没有来源。留着字段而不是删掉，是因为
+   * `tests/agent-runtime/practice-results.test.ts` 仍在断言它 —— 那是**下一个**要清的债。
+   */
   records: number;
   /** 参与渲染的格子数 —— 与 `records` 不是一回事（一格 = 一页）。 */
   cells: number;
@@ -129,9 +135,7 @@ export interface RefreshLearnerStateOptions {
 }
 
 /** 三态格子 + 页面标题 + 概念名（`concept` 来自 `xq_question_concept` 的 keypoint）。 */
-async function loadCells(
-  db: Queryable,
-): Promise<{ cells: LearnerStateCell[]; complete: boolean }> {
+async function loadCells(db: Queryable): Promise<{ cells: LearnerStateCell[]; complete: boolean }> {
   let rows: {
     stage_id: string;
     scene_id: string;
@@ -293,7 +297,10 @@ export async function buildLearnerStatePromptBlock(
     reviews = await loadDueReviews(db, now);
   } catch (error) {
     // 库连不上：练习结果仍然是真事实，照常渲染；三态与复习退化成「没有」。
-    log.warn({ error: String(error) }, 'learner-state sources unavailable; rendering practice only');
+    log.warn(
+      { error: String(error) },
+      'learner-state sources unavailable; rendering practice only',
+    );
   }
 
   return renderLearnerStateBlock({ cells, reviews, practiceText, now });
@@ -319,7 +326,9 @@ export async function refreshLearnerStateFromRuntime(
 
   let db: Queryable | null = null;
   try {
-    db = options.queryable ?? (await getServerPersistenceProvider(process.env.DATABASE_URL ?? '')).pool;
+    db =
+      options.queryable ??
+      (await getServerPersistenceProvider(process.env.DATABASE_URL ?? '')).pool;
   } catch (error) {
     log.warn({ error: String(error) }, 'learner-state refresh: no database connection');
   }

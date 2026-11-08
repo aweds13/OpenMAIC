@@ -422,10 +422,16 @@ export interface CoursePromptBlocks {
   /** 练习脚手架／结果读回（`practice_scaffold` / `practice_result`；无条件注册）。 */
   practice?: string;
   /**
-   * ★ **学习者状态**（`learners/学习状态.md`）：学过哪些页、错在哪几题。
+   * ★ **学习者状态**（`learners/学习状态.md`，由 `learner-state.ts` 渲染）：
+   * 已会 / 不会 / 说不准三档（每行带 `stage_id` + `scene_id`，因为页 id 跨课复用）、
+   * 今天到期的复习、练习结果。
    *
    * 它是**唯一会随答题变化**的一块 —— 所以渲染顺序上放**最后**：
    * 前面全是不变量，只有末尾会重读（§1.2 前缀缓存）。
+   *
+   * ★ 三样数据都空时渲染器返回**空字符串**（零冷启动规则），于是
+   *   `courseSystemPrompt()` 的 `if (value)` 会整块跳过 —— 「没数据」表现为
+   *   **这一段不存在**，而不是一句占位话。
    */
   learnerState?: string;
 }
