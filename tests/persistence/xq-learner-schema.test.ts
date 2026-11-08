@@ -16,9 +16,23 @@ import { ensureXqLearnerSchema, XQ_LEARNER_SCHEMA } from '@/lib/persistence/xq-l
  * ⇒ 只按 `scene_id` 建唯一约束会让两门课的同一个页号互相覆盖。
  */
 describe('xq 学情 schema', () => {
+  /**
+   * xq_concept_occurrence 有一条复合外键指回 document_scenes(stage_id, id) ——
+   * 那是上游 document store 的表，不属这组 DDL。这里建一个最小版本，
+   * 只为让外键能落地；列与真实表一致（真实表还有 scene_order / data）。
+   */
+  const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_scenes (
+    stage_id    text NOT NULL,
+    id          text NOT NULL,
+    scene_order double precision,
+    data        jsonb,
+    PRIMARY KEY (stage_id, id)
+  );`;
+
   async function freshDb(): Promise<PGlite> {
     const db = new PGlite();
     await db.waitReady;
+    await db.exec(DOCUMENT_SCENES_MIN);
     await db.exec(XQ_LEARNER_SCHEMA);
     return db;
   }
@@ -167,6 +181,9 @@ describe('xq 学情 schema', () => {
     await db.query(
       `INSERT INTO xq_concept (id, canonical_name, kind) VALUES ('c_a', 'A', 'concept')`,
     );
+    await db.query(
+      `INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', 'scene-p1')`,
+    );
     for (const bad of [0, 1.5]) {
       await expect(
         db.query(
@@ -239,6 +256,91 @@ describe('xq 学情 schema', () => {
     await db.close();
   });
 
+  /**
+   * ★ P0：同形异义必须写得进去。
+   *
+   * 实测依据：「构造」在算法竞赛图里指构造题、在 Java 课里指构造方法，
+   * 全库 25 页命中。主键若只到 (alias, kind)，给第二个概念写同一个别名会
+   * 直接 duplicate key ⇒ 同形异义**写不进去**，只能把两个概念合成一个。
+   */
+  it('同一个别名可以挂给两个概念（同形异义），但必须显式标 ambiguous', async () => {
+    const db = await freshDb();
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind)
+       VALUES ('c_ctor', '构造方法', 'concept'), ('c_problem', '构造题', 'concept')`,
+    );
+
+    // 第一行：不含糊
+    await db.query(
+      `INSERT INTO xq_concept_alias (alias, kind, concept_id, source)
+       VALUES ('构造', 'concept', 'c_ctor', 'java-course')`,
+    );
+
+    // 第二行同 alias 但不标 ambiguous ⇒ 被部分唯一索引挡住
+    await expect(
+      db.query(
+        `INSERT INTO xq_concept_alias (alias, kind, concept_id, source)
+         VALUES ('构造', 'concept', 'c_problem', 'acm-graph')`,
+      ),
+    ).rejects.toThrow(/xq_concept_alias_unambiguous_idx|duplicate key/i);
+
+    // 把第一行标成含糊，再插第二行 —— 这样「含糊」是一条可查的事实，不是静默覆盖
+    await db.query(
+      `UPDATE xq_concept_alias SET ambiguous = true
+        WHERE alias = '构造' AND concept_id = 'c_ctor'`,
+    );
+    await db.query(
+      `INSERT INTO xq_concept_alias (alias, kind, concept_id, source, ambiguous)
+       VALUES ('构造', 'concept', 'c_problem', 'acm-graph', true)`,
+    );
+
+    const { rows } = await db.query<{ n: string; amb: string }>(
+      `SELECT count(*)::text AS n, count(*) FILTER (WHERE ambiguous)::text AS amb
+         FROM xq_concept_alias WHERE alias = '构造'`,
+    );
+    expect(rows[0]!.n).toBe('2');
+    expect(rows[0]!.amb).toBe('2');
+    await db.close();
+  });
+
+  /**
+   * ★ P0：出现记录不许指向不存在的页。
+   *
+   * 没有这条复合外键时，能插进 stage-DOES-NOT-EXIST/scene-p999 并且成功 ——
+   * 一条永远指不到页的记录会静默污染覆盖率（「挂了 3 页」其实是 1 页 + 2 条幻影）。
+   */
+  it('出现记录不许指向不存在的页', async () => {
+    const db = await freshDb();
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind) VALUES ('c_a', 'A', 'concept')`,
+    );
+    await expect(
+      db.query(
+        `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
+         VALUES ('c_a', 'stage-DOES-NOT-EXIST', 'scene-p999', 1.0, 'keypoint')`,
+      ),
+    ).rejects.toThrow(/xq_concept_occurrence_stage_id_scene_id_fkey|foreign key/i);
+    await db.close();
+  });
+
+  it('页被删时它的出现记录一起消失（ON DELETE CASCADE）', async () => {
+    const db = await freshDb();
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind) VALUES ('c_a', 'A', 'concept')`,
+    );
+    await db.query(`INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', 'scene-p1')`);
+    await db.query(
+      `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
+       VALUES ('c_a', 'stage-A', 'scene-p1', 1.0, 'keypoint')`,
+    );
+    await db.query(`DELETE FROM document_scenes WHERE stage_id = 'stage-A' AND id = 'scene-p1'`);
+    const { rows } = await db.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM xq_concept_occurrence`,
+    );
+    expect(rows[0]!.count).toBe('0');
+    await db.close();
+  });
+
   it('删概念会连带删掉它的别名与出现记录（ON DELETE CASCADE）', async () => {
     const db = await freshDb();
     await db.query(
@@ -246,6 +348,9 @@ describe('xq 学情 schema', () => {
     );
     await db.query(
       `INSERT INTO xq_concept_alias (alias, kind, concept_id, source) VALUES ('a-alias', 'concept', 'c_a', 'test')`,
+    );
+    await db.query(
+      `INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', 'scene-p1')`,
     );
     await db.query(
       `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)

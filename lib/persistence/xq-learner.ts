@@ -219,14 +219,34 @@ CREATE INDEX IF NOT EXISTS xq_concept_name_idx
 -- xq_concept.canonical_name。理由：一个概念会有一堆叫法（中/英/缩写/
 -- 课程作者的口语），只认 canonical_name 的话，第二个叫法进来就是新概念。
 -- \`source\` 记录这个别名从哪来，合并不掉历史。
+--
+-- ★★ 主键必须是 (alias, kind, concept_id)，**不是** (alias, kind)。
+--    同形异义是实测风险：「构造」在算法竞赛里指构造题、在 Java 课里指构造方法，
+--    全库 25 页命中这两个义项。主键只到 (alias, kind) 时，给第二个概念写同一个
+--    别名会直接 duplicate key ⇒ 同形异义**写不进去**，只能被迫把两个概念合成
+--    一个 —— 这正是 SR-F11.8 要防的事。加上 concept_id 之后，一个别名可以指向
+--    多个概念。
+--
+--    那「一个名字到底指谁」怎么保证不含糊？由 ambiguous 列显式声明：默认 false，
+--    此时 (alias, kind) 必须唯一（下面那条部分唯一索引管住）；要把一个名字同时
+--    挂给第二个概念，必须先把原有的置 true，再插新的。这样「含糊」是一条
+--    **被记录下来的判断**，不是一次静默覆盖 —— 而且 contains_scope 那句
+--    「模糊的名字不许直接匹配」在 SQL 层就有了落点。
 CREATE TABLE IF NOT EXISTS xq_concept_alias (
   alias      text NOT NULL,
   kind       text NOT NULL CHECK (kind IN ('concept', 'topic', 'tool')),
   concept_id text NOT NULL REFERENCES xq_concept(id) ON DELETE CASCADE,
   source     text NOT NULL,
   confidence numeric(3,2) NOT NULL DEFAULT 1.00,
-  PRIMARY KEY (alias, kind)
+  ambiguous  boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (alias, kind, concept_id)
 );
+
+-- 不含糊的别名，一个名字只能指一个概念。含混的（ambiguous=true）不进这条索引，
+-- 因此可以一名多指 —— 但每一行都带着 ambiguous 这个可查的事实。
+CREATE UNIQUE INDEX IF NOT EXISTS xq_concept_alias_unambiguous_idx
+  ON xq_concept_alias (alias, kind)
+  WHERE ambiguous = false;
 
 CREATE INDEX IF NOT EXISTS xq_concept_alias_concept_idx
   ON xq_concept_alias (concept_id);
@@ -252,13 +272,28 @@ CREATE INDEX IF NOT EXISTS xq_concept_external_ref_concept_idx
 -- \`weight\` 是这一页讲这个概念的比重（0–1）：一页顺带提一句 vs 一页专门讲它，
 -- 是两个不同的证据。没有这个权，「出现在哪页」就只剩是/否，掌握度没法加权
 -- （程天学的口径就是「关联题按比重加权得分率」）。
+-- ★★ 页这一侧必须是**复合外键** (stage_id, scene_id) → document_scenes(stage_id, id)，
+--    不能只存两个裸 text 列。实测：没有这个外键时能插进
+--    「stage_id='stage-DOES-NOT-EXIST', scene_id='scene-p999'」并且成功 —— 那是一条
+--    永远指不到任何页的出现记录，它会静默污染覆盖率（「这个概念挂了 3 页」
+--    其实挂了 1 页 + 2 条幻影）。
+--
+--    为什么复合而不是只管 scene_id：document_scenes 的主键是 (stage_id, id)，
+--    而 scene_id 会跨课复用（实测 234 页里 35 个 scene id 跨 stage、34 个连类型都
+--    不同）⇒ 单列外键根本建不出来，也没有正确语义。
+--
+--    ON DELETE CASCADE 是刻意的：页被重生成删掉时，指向它的出现记录应当一起消失，
+--    否则「覆盖率」会永远停在一个包含幽灵页的数上。要保留「这一页曾经讲过这个」
+--    的历史，那是别的事（教学历史在课程文档的版本里，不在这张表）。
 CREATE TABLE IF NOT EXISTS xq_concept_occurrence (
   concept_id text NOT NULL REFERENCES xq_concept(id) ON DELETE CASCADE,
   stage_id   text NOT NULL,
   scene_id   text NOT NULL,
   weight     numeric(3,2) NOT NULL DEFAULT 1.00 CHECK (weight > 0 AND weight <= 1),
   source     text NOT NULL CHECK (source IN ('keypoint', 'title', 'body', 'manual')),
-  PRIMARY KEY (concept_id, stage_id, scene_id)
+  PRIMARY KEY (concept_id, stage_id, scene_id),
+  FOREIGN KEY (stage_id, scene_id)
+    REFERENCES document_scenes (stage_id, id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS xq_concept_occurrence_page_idx
