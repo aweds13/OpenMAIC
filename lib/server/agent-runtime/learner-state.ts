@@ -276,37 +276,6 @@ function toDate(value: Date | number | string | undefined): Date {
 }
 
 /**
- * 查库 → 渲染 → **返回块文本**。不写文件。
- *
- * 三样数据都空时返回 `''`（渲染器的零冷启动规则）—— 调用方不得把它写成占位句。
- */
-export async function buildLearnerStatePromptBlock(
-  options: RefreshLearnerStateOptions = {},
-): Promise<string> {
-  const now = toDate(options.now);
-  const practiceEntries = await readPracticeResults(options.practiceRoot ?? practiceRoot());
-  const practiceText = formatPracticeResultsForState(practiceEntries);
-
-  let cells: LearnerStateCell[] = [];
-  let reviews: LearnerStateReview[] = [];
-  try {
-    const db =
-      options.queryable ??
-      (await getServerPersistenceProvider(process.env.DATABASE_URL ?? '')).pool;
-    cells = (await loadCells(db)).cells;
-    reviews = await loadDueReviews(db, now);
-  } catch (error) {
-    // 库连不上：练习结果仍然是真事实，照常渲染；三态与复习退化成「没有」。
-    log.warn(
-      { error: String(error) },
-      'learner-state sources unavailable; rendering practice only',
-    );
-  }
-
-  return renderLearnerStateBlock({ cells, reviews, practiceText, now });
-}
-
-/**
  * 查库 → 渲染 → 写文件。**离线调用**（不在提示词组装里）。
  *
  * 没有可说的内容时返回 `text: ''` 并且**不写文件** —— 写一份空状态只会让提示词

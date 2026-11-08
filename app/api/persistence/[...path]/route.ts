@@ -34,6 +34,7 @@ import {
   retiredCredentialCookies,
 } from '@/lib/persistence/owner-merges';
 import { guardedServerRuntimeStore } from '@/lib/persistence/runtime-tombstone-guard';
+import { withXqProbeRecording } from '@/lib/persistence/xq-probe-recorder';
 import {
   getServerPersistenceProvider,
   type PersistencePoolFactory,
@@ -265,8 +266,13 @@ async function createPersistenceHandler(
   const byteEgress = indirectEgressWithinGrace(
     configuredAssetByteEgress(process.env.ASSET_BYTE_EGRESS),
   );
+  // Order matters: the xq probe recorder is wrapped INSIDE the tombstone guard
+  // so a refused write (deleted course) never leaves a probe fact behind, and
+  // OUTSIDE it so it sees the record the guard actually allowed through.
+  // `mergeThroughClaim` stays outermost: it replaces `mergeLearner`, which
+  // neither of the two appendRecord decorators touches.
   const guardedRuntimeStore = mergeThroughClaim(
-    guardedServerRuntimeStore(runtimeStore, pool),
+    withXqProbeRecording(guardedServerRuntimeStore(runtimeStore, pool), { queryable: pool }),
     principal,
   );
   return createStorageHttpHandler(guardedRuntimeStore, documentStore, {

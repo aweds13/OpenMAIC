@@ -173,7 +173,7 @@
 | 运行期开关 / 上下文压缩 / 会话命令 | §二 M2/M5（`lib/server/agent-runtime/config.ts`、`lib/server/agent-runtime/session-commands.ts`、`lib/server/agent-runtime/compaction.ts`、`lib/server/agent-runtime/prompt-context-file.ts`、`usageAnchorIsStale()`） |
 | 生成提示词 / brief 规矩 / 听课 vs 自学 | §二 M4（`lib/server/agent-runtime/course-design.ts`、`lib/server/agent-runtime/study-mode.ts`、`lib/server/self-study-mode.ts`、`lib/server/agent-runtime/course-outline-write.ts`） |
 | 写入后诊断 / 版面判据 / 审查 | §二 M9/M13（`lib/server/agent-runtime/scene-diagnostics.ts`、`lib/quiz/layout-check.ts`、`lib/slide/text-metrics.ts`、`lib/server/agent-runtime/review-tools.ts`、`lib/server/agent-runtime/page-review.ts`、`sceneWriteDiagnosticsWithReview()`、`outOfScopeGapClaims()`） |
-| 答题状态 / 覆盖缺口 / 出题注入 / 题库文本 | §二 M6/M12（`lib/quiz/attempt-fold.ts`、`lib/quiz/learner-state.ts`、`lib/quiz/coverage-gap.ts`、`lib/quiz/quiz-grounding.ts`、`lib/quiz/page-text.ts`） |
+| 答题状态 / 覆盖缺口 / 出题注入 / 题库文本 | §二 M6/M12（`lib/quiz/attempt-fold.ts`、`lib/server/agent-runtime/learner-state-render.ts`、`lib/quiz/coverage-gap.ts`、`lib/quiz/quiz-grounding.ts`、`lib/quiz/page-text.ts`） |
 | 练习 / 草稿纸 / 计划冻结 / 导出翻页 / MCP 与审计 | §二 M3/M7/M8/M10/M11（`lib/practice/scaffold.ts`、`lib/practice/results.ts`、`lib/scratch/scratchpad.ts`、`lib/server/agent-runtime/plan-freeze.ts`、`lib/export/batch-export.ts`、`lib/playback/reading-navigation.ts`、`lib/server/agent-runtime/mcp-tools.ts`、`lib/server/agent-runtime/audit-tools.ts`、`refreshLearnerStateFromRuntime()`） |
 
 ---

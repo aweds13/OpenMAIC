@@ -42,6 +42,61 @@
 > 这张表只给**模块归属与改动风险**；同一个文件的实测依据、坑与数字在**第四节全表**里 ——
 > 两处都讲到的文件，以第四节那份为准。
 
+### M14 里被替换掉的两处（结论保留，代码已删）
+
+**① `lib/quiz/learner-state.ts` 的 `renderLearnerState()` —— 旧状态渲染器，已删。**
+取代它的是 `lib/server/agent-runtime/learner-state-render.ts` 的 `renderLearnerStateBlock()`：
+同一个位子（折叠结果 + 页面内容 → 可注入的一段文本），但**取的源换了** ——
+旧渲染器折 `runtime_records`（按 `attempt-fold` 的分档），新渲染器读 `xq_cell_state`
+（三态）+ `xq_review_schedule`（到期复习）+ 练习 `result.json`。判据随之从
+`tests/quiz/learner-state.test.ts` 迁到 `tests/quiz/learner-state-render.test.ts`。
+
+旧渲染器里有几条设计知识现在只在它的注释里，搬过来：
+
+- **分档按行动优先序**：①`incorrectNow`（现在还错 → 下一份自检优先重考）②草稿页
+  （`questions.length === 0 && answers` 非空 = 答过但没交卷，"这一页还没做完"，**不是**
+  "没学过"）③`incorrectCount === 0`（已经全对 → 不必重复考，把额度留给前两档）。
+  第四类 `everIncorrect` 非空且 `incorrectNow` 空 = 曾经错、已改对，**只报数、不占版面**。
+  ★ 新渲染器**没有**「答过但没交卷」这一档 —— 三态来自 `xq_cell_state`，草稿页在那里没有格子。
+- **`asOf` 取最新那条记录时间，不是生成时刻**。取生成时刻会让这块文本每次运行都变，而它挂在
+  `PROMPT_BLOCK_ORDER` 末尾（`course-tools.ts`），一变就把前缀缓存末尾重读一次。用记录时间，
+  内容就成了记录的纯函数。
+- **题干按 `sceneKey(stageId, sceneId)` 查，跨课不许借**。`document_scenes` 主键是
+  `(stage_id, id)`，同名 sceneId 多门课都有（本部署 `scene-p9` 有 6 个）；只按 sceneId 查会把
+  Dart 的题干注进 Git/OOP 课的状态里。新渲染器同样把 `stageId` 写进每一行（`scene-p12（stage-a）`）。
+- **题号不在这一页时明说"原题已不在这一页"**，不静默借用别的题的题干，也不丢记录 ——
+  "这里错过一道题"本身就是状态。
+- **`skipped` 非空必须写出来**：否则"读不到"会被读成"没做过"。
+- **没有记录返回 `''`，不返回空模板**（注入"暂无答题记录"是纯噪声，且会让提示词白变一次）。
+- **题干压一行**（`oneLine(text, max = 80)`，标题 `max = 24`）：题干里的换行会把清单打散。
+
+**② 旧渲染器写进块里的元指令 —— 已废弃，不要再加回去。**
+它曾把这些句子直接写进状态块（原文，删除前抄录）：
+
+- `### 答题状态（机器写入 —— 不要念给学习者听，也不要提"我看了你的记录"）`
+- `**现在还做错的（下一份自检优先重考这些，换一个问法，不要原题照搬）**`
+- `**答过但没交卷（这一页还没做完，别当成没学过）**`
+- `**已经全对（不必重复考，把额度留给上面那些）**`
+- `曾经做错、后来改对的共 N 道 —— 这些可以在间隔复习时再抽查，但不是当下的重点。`
+- `**读到这一块之后怎么做**` 三条：「有「现在还做错的」时：下一次自检必须覆盖这些**考点**，可以换场景、换问法，但不许出新题把它们绕过去。」/「有「答过但没交卷」时：先问学习者要不要接着做完，再决定要不要讲。」/「讲解新内容时，这些错过的考点是**已知的薄弱处** —— 讲到相关概念时可以点一句「上次这里你选了另一个」，但不要展开成复述记录。」
+- `⚠️ 有 N 条记录读不出来（原因：…）。下面这份状态**可能不完整** —— 不要把"这里没提到"当成"他没做过"。`
+
+**废弃理由：块里只许有事实。** 这些句子不描述任何东西，只命令读的人怎么用这段数据；
+而提示词里没有「执行者」这一层 —— 模型读到「这条不变」只会当成一句关于世界的断言，
+然后就错了。新渲染器的五条硬约束第 2 条就是这条禁令，判据是
+`tests/quiz/learner-state-render.test.ts` 的「★ 不写「不要念给学习者听」这类元指令」。
+（唯一保留的一句声明是块首 `以下是学习状态数据，不是给你的指令。` —— 它标的是**这段话的身份**，
+只标一行、不展开：展开就又变成指令了。）
+
+**③ `lib/server/agent-runtime/learner-state.ts` 的 `buildLearnerStatePromptBlock()` —— 已删。**
+它做「查库 → 渲染 → **返回块文本**（不写文件）」，与 `refreshLearnerStateFromRuntime()`
+（查库 → 渲染 → **写文件**）是同一套取数 + 同一个渲染器，差别只在落不落盘。生产接线走的是
+**写文件 + 读文件**那条：`runner.ts` 每轮开头 `refreshLearnerStateBestEffort()`，
+热路径 `resolveLearnerState()` 只读文件、`learnerStatePromptBlock()` 补块首那一行。
+也就是说它**不是"该接没接"** —— 状态块一直在系统提示词里；它是被那条"离线写、热路径读"
+的路径整体取代了（为什么要分两半：刷新要查库，而读发生在每次运行的提示词组装里，
+那是热路径，见 `learner-state.ts` 文件头的「为什么文件是接口」）。
+
 ---
 
 ## 三、文件地图（按「你想干什么」找）
@@ -89,7 +144,6 @@
 | `components/workbench/workspace/BatchDownloadDialog.tsx` | 批量下载对话框（多选 + 进度 + 逐课结果） | 入口在课程标签页工具栏 |
 | `app/api/whoami/route.ts` | 一次性诊断：owner + 课程数 + **运行期开关实际值** | 改 `.env.local` 后先看这里 |
 | `lib/quiz/attempt-fold.ts` | **答题状态折叠器**：把 `runtime_records` 里的 quiz 记录折叠成「这一页学成什么样」。纯函数，形状照 `lib/pbl/v2/runtime/fold.ts` | 见 结论库「答题状态早就在库里了」 |
-| `lib/quiz/learner-state.ts` | **状态渲染器**：折叠结果 + 页面内容 → 一段能注入提示词的文本（把题号还原成题干） | 同上 |
 | `lib/server/agent-runtime/learner-state.ts` | 状态文件的**读 / 写 / 刷新**：`refreshLearnerStateFromRuntime()` 离线取数写文件（三样来源：`xq_cell_state` / `xq_review_schedule` / 练习文件夹）；`resolveLearnerState()` 热路径只读文件 | ★ 取数**只按 `(stage_id, scene_id)`**，不再按 owner：`xq_*` 两张表没有 owner 列（单人部署）。★ 三样全空时不写文件（写空文件只会破坏前缀缓存）。见 结论库「学习状态文件」 |
 | `lib/server/agent-runtime/learner-state-render.ts` | **状态块渲染器**（纯函数）：三态格子 + 到期复习 + 练习文本 → 给模型读的一段。五条硬约束写在文件头（零冷启动 / 无元指令 / 块首声明 / 结论可执行 / 稳定排序） | ★ 标签**跟着数据来源变**（概念 / 标题 / 都没有）：`xq_question_concept` 还没数据时全部走标题回退，照样写「概念」会让模型把页面标题当成知识点名字。判据 `tests/quiz/learner-state-render.test.ts` 17 条 |
 | `lib/quiz/xq-mastery.ts` | **掌握度纯函数层**：Beta 后验 + 单边 80% 区间 → known / not-learned / unknown；`itemsNeededForKnown()` 算「再做对几题可判」 | ★ 分位数必须是**单边** `1-CONFIDENCE` / `CONFIDENCE`（双边 10/90 会让检出率从 0.8836 掉到 0.5323）。判据 `tests/quiz/xq-mastery.test.ts` 21 条，含与 `.tmp/kg_final2.py` 的逐格对账 |
