@@ -21,6 +21,7 @@ import { ensureOwnerMaterialSchema } from '@/lib/persistence/owner-materials';
 import { fenceOwnerWrite } from '@/lib/persistence/owner-merges';
 import { withSchemaBootstrapLock } from '@/lib/persistence/schema-bootstrap-lock';
 import { ensureWorkspaceModelConfigSchema } from '@/lib/persistence/workspace-model-config';
+import { ensureXqLearnerSchema } from '@/lib/persistence/xq-learner';
 import { ensureStageMetaSchema } from '@/lib/persistence/stage-meta';
 import { APP_RUNTIME_PAYLOAD_VALIDATORS } from '@/lib/runtime/payload-validators';
 import { ensureOwnerAgentSchema } from '@/lib/server/agents/store';
@@ -100,6 +101,9 @@ async function createServerPersistenceProvider(
       await ensureLegacyClassroomImportSchema(locked);
       await ensureWorkspaceModelConfigSchema(locked);
       await ensureOwnerAgentSchema(locked);
+      // 学情是外挂的一组表：不读它照样能上课，但读了就能跳过已会的。
+      // 与其它 store 同一个锁、同一批建，这样启动期校验能一次看到全部版本。
+      await ensureXqLearnerSchema(locked);
     });
     const withTransaction = nodePostgresTransaction(queryable);
     const byteStore = configuredLazyAssetByteStore(queryable);

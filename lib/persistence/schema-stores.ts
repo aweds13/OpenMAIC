@@ -26,6 +26,7 @@ import { OWNER_MERGE_MIGRATIONS } from './owner-merges';
 import { SESSION_MATERIAL_LINK_MIGRATIONS } from './session-material-links';
 import { STAGE_META_MIGRATIONS } from './stage-meta';
 import { WORKSPACE_MODEL_CONFIG_MIGRATIONS } from './workspace-model-config';
+import { XQ_LEARNER_MIGRATIONS } from './xq-learner';
 
 export const APP_SCHEMA_STORES: readonly SchemaMigrationSet[] = [
   RUNTIME_PG_MIGRATIONS,
@@ -43,4 +44,5 @@ export const APP_SCHEMA_STORES: readonly SchemaMigrationSet[] = [
   SESSION_MATERIAL_LINK_MIGRATIONS,
   USER_SKILL_PG_MIGRATIONS,
   GENERATION_RUN_MIGRATIONS,
+  XQ_LEARNER_MIGRATIONS,
 ];
