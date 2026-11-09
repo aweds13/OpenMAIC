@@ -224,6 +224,20 @@ describe('POST /api/persistence/xq/events', () => {
     const handle = await bootRoute();
     const sessionId = await openSession(handle);
 
+    // 提问闸：instrumental 要求同一道题上已有更早的作答痕迹。
+    const attempt = await handle(
+      post({
+        kind: 'answer_attempted',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:19:00.000Z',
+        sessionId,
+      }),
+      {},
+    );
+    expect(attempt.status).toBe(201);
+
     const instrumental = await handle(
       post({
         kind: 'hint_requested',
@@ -296,5 +310,128 @@ describe('POST /api/persistence/xq/events', () => {
     );
     expect(response.status).toBe(400);
     expect(await countEvents('hint_requested')).toBe(0);
+  });
+
+  it('★ 没先动过手就问「怎么想」，409 且一行都不写 —— 闸在写入侧，不是界面上不好点', async () => {
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+    const response = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:30:00.000Z',
+        sessionId,
+        hintSubtype: 'instrumental',
+      }),
+      {},
+    );
+    // 409 而不是 400：请求形状没错，是**顺序**不对。
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'ANSWER_FIRST' },
+    });
+    expect(await countEvents('hint_requested')).toBe(0);
+  });
+
+  it('★ 先答过再问就放行 —— 挡的是顺序，不是提问本身', async () => {
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+    const attempt = await handle(
+      post({
+        kind: 'answer_attempted',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:31:00.000Z',
+        sessionId,
+      }),
+      {},
+    );
+    expect(attempt.status).toBe(201);
+
+    const response = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:32:00.000Z',
+        sessionId,
+        hintSubtype: 'instrumental',
+      }),
+      {},
+    );
+    expect(response.status).toBe(201);
+    expect(await countEvents('hint_requested')).toBe(1);
+  });
+
+  it('★ 回答在提问之后不算 —— 闸判的是先后，不是有没有', async () => {
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+    const attempt = await handle(
+      post({
+        kind: 'answer_attempted',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:41:00.000Z',
+        sessionId,
+      }),
+      {},
+    );
+    expect(attempt.status).toBe(201);
+
+    const response = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:40:00.000Z',
+        sessionId,
+        hintSubtype: 'instrumental',
+      }),
+      {},
+    );
+    expect(response.status).toBe(409);
+    expect(await countEvents('hint_requested')).toBe(0);
+  });
+
+  it('★ executive 不受管 —— 留一个自由口子，但如实记成「要答案」', async () => {
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+    const response = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:50:00.000Z',
+        sessionId,
+        hintSubtype: 'executive',
+      }),
+      {},
+    );
+    // 挡死会把学生推到搜索引擎那边 —— 那边一个事件都收不到。
+    expect(response.status).toBe(201);
+  });
+
+  it('★ 页面级提问（没有题号）不受管 —— 没有「先答」的对象', async () => {
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+    const response = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        occurredAt: '2026-11-09T02:55:00.000Z',
+        sessionId,
+        hintSubtype: 'instrumental',
+      }),
+      {},
+    );
+    expect(response.status).toBe(201);
   });
 });

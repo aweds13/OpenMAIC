@@ -36,6 +36,12 @@ import {
 import { guardedServerRuntimeStore } from '@/lib/persistence/runtime-tombstone-guard';
 import { withXqProbeRecording } from '@/lib/persistence/xq-probe-recorder';
 import {
+  ANSWER_FIRST_CODE,
+  hasPriorAnswerEvent,
+  hintGateApplies,
+  XqAnswerNotStartedError,
+} from '@/lib/persistence/xq-hint-gate';
+import {
   recordXqEvent,
   XQ_END_REASONS,
   XQ_EVENT_KINDS,
@@ -196,7 +202,27 @@ async function handleXqEvent(
       responseHeaders,
     );
   }
+  const sceneId = asOptionalString(body.sceneId);
+  const questionId = asOptionalString(body.questionId);
   try {
+    // 提问闸：同一道题上没先动过手，`instrumental` 提问在落库之前就被挡掉。
+    // 放在**写入侧**是刻意的 —— UI 侧挡不住直接调接口，而闸的意义是
+    // 「这件事在系统里不允许发生」，不是「界面上不好点」。
+    // `executive` 与页面级提问不受管（见 `hintGateApplies`）。
+    if (hintGateApplies(kind, questionId, hintSubtype) && sceneId !== undefined) {
+      const occurredDate = new Date(occurredAt);
+      if (!Number.isNaN(occurredDate.getTime())) {
+        const ready = await hasPriorAnswerEvent(queryable, {
+          stageId,
+          sceneId,
+          questionId: questionId as string,
+          occurredAt: occurredDate,
+        });
+        if (!ready) {
+          throw new XqAnswerNotStartedError(stageId, sceneId, questionId as string);
+        }
+      }
+    }
     const result = await recordXqEvent(queryable, {
       kind: kind as (typeof XQ_EVENT_KINDS)[number],
       stageId,
@@ -235,6 +261,14 @@ async function handleXqEvent(
       responseHeaders,
     );
   } catch (error) {
+    if (error instanceof XqAnswerNotStartedError) {
+      // 409 而不是 400：请求形状没错，是**顺序**不对。客户端据此把「问」
+      // 按钮换成「先写下你的想法」，而不是提示「请求有误」。
+      return withHeaders(
+        jsonError(409, ANSWER_FIRST_CODE, 'answer the question before asking for a hint'),
+        responseHeaders,
+      );
+    }
     if (error instanceof RangeError) {
       return withHeaders(jsonError(400, 'VALIDATION_FAILED', error.message), responseHeaders);
     }

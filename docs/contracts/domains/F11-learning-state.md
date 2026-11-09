@@ -156,6 +156,7 @@
   - 浏览器发送端 `tests/learning/xq-event-client.test.ts` 8 条 —— 只开一条会话；三个页签同 tick 齐发也只开一个；不同课各开一条；**5xx 重试一次且复用同一个 `occurredAt`**；失败不抛只告警；4xx 不重试；结束会话后要重新开；没开过会话就不发结束。
   - 触发判据 `tests/learning/use-xq-page-view.test.ts` 4 条 —— 正常翻页记；占位页 `__pending__` 不记；无课程 id 不记；无页面 id 不记。
   - 答题事件 `tests/learning/xq-answer-events.test.ts` 7 条 —— 坐标三样（`stageId` / `sceneId` / `attemptId`）缺一或缺题号就不发；同一轮同一题的键稳定；换题、换轮（`att-1` vs `att-1:retry:1`）都换键；`answer_attempted` 与 `answer_submitted` 是两个不同的键。**为什么这两条要单独测**：`recordAnswerAttempt()` / `recordAnswerSubmitted()` 一进去就发网络，副作用层断言不了「发了几条」，而「该不该发」「键是不是同一个」正是它们唯一会出错的地方。**幂等键不能由 `occurredAt` 派生** —— 同一道题的答案他会改三遍，三个时刻派生三个键，「他动过手」就变成三行；`attemptId` 必须进键，重做换 `:retry:N`，不能被上一轮吃掉。
+  - 提问闸 `tests/persistence/xq-hint-gate.test.ts` 5 条 + `tests/persistence/xq-events-route.test.ts` 里的 5 条 —— 只挡 `instrumental` 的题目级提问；`executive` 放行（自由口子，如实记账）、页面级放行（没有「先答」的对象）、别的 kind 不进闸；没先动过手就问 `instrumental` 回 **409 `ANSWER_FIRST`** 且**一行都不写**；先答过再问放行；**答在问之后不算**（闸判先后，不是有没有）。闸在**服务端写入侧**（UI 侧挡不住直接调接口），判据只查事件存在性、**不调模型** —— 让模型判「你想清楚了没有」恰好会在迎合时放行（`2605.16207` / `2605.12748`）。
 
 - **两边各自要满足**：
   - 写入侧：会话必须**先于**它的第一条事件之外的所有事件存在（写入顺序本身要保证，不是靠调用方）；幂等键必须只由本来稳定的字段派生，不许要求调用方记得传。
