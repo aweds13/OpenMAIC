@@ -193,13 +193,42 @@ async function loadCells(db: Queryable): Promise<{ cells: LearnerStateCell[]; co
       });
     }
 
-    const conceptRows = await db.query<{ stage_id: string; scene_id: string; concept: string }>(
-      // 一格可能挂多个 keypoint；取码点最小的那个当代表，**保证两次渲染同一个**。
-      `SELECT DISTINCT stage_id, scene_id, concept
-         FROM xq_question_concept
-        WHERE concept_kind = 'keypoint'
-          AND stage_id = ANY($1::text[]) AND scene_id = ANY($2::text[])
-        ORDER BY stage_id, scene_id, concept`,
+    // ★ 一格挂多个概念时**不给标签** —— 用页标题，而不是挑一个概念顶上去。
+    //
+    // 这条是实测逼出来的。`xq_question_concept` 一落库，六格里有四格的候选是
+    // 「同一档上一堆概念」：`stage--ShZtYAYOj/scene-p18` 有 3 个 0.80（字符串 /
+    // 继承 / 重写与 @Override）、`scene-p35` 有 5 个、`stage-GYvpbYB_aN/scene-p23`
+    // 有 6 个。挑码点最小的当名字，`scene-p18` 变成「字符串」—— 因为 q8 贴了一段
+    // `class Person { String name; … }` 代码；挑「命中题数最多」的，`stage-7tNoR37iqT/scene-p7`
+    // 变成「提交」——而那页十道题讲的是 git 的整套工作流，没有哪一个是它的名字。
+    //
+    // 状态块里那一行是**这一格的读数**，不是概念清单；一个格子只要拿不出
+    // 「这一个概念」，就不该假装有。所以判据是「最高档上只有一个概念」：
+    //
+    //   - 最高档恰好 1 个概念 ⇒ 用它当标签（那时它确实是这一格的主题）。
+    //   - 最高档 ≥ 2 个概念 ⇒ 返回空，渲染器退回页标题。
+    const conceptRows = await db.query<{
+      stage_id: string;
+      scene_id: string;
+      concept: string;
+      confidence: string;
+      ties: number;
+    }>(
+      `SELECT stage_id, scene_id, concept, top::text AS confidence, ties
+         FROM (
+           SELECT stage_id, scene_id, concept,
+                  max(confidence) AS top,
+                  count(*) OVER (PARTITION BY stage_id, scene_id, max(confidence)) AS ties,
+                  row_number() OVER (
+                    PARTITION BY stage_id, scene_id
+                    ORDER BY max(confidence) DESC, count(DISTINCT question_id) DESC, concept
+                  ) AS rank
+             FROM xq_question_concept
+            WHERE concept_kind = 'keypoint'
+              AND stage_id = ANY($1::text[]) AND scene_id = ANY($2::text[])
+            GROUP BY stage_id, scene_id, concept
+         ) ranked
+        WHERE rank = 1 AND ties = 1`,
       [stageIds, sceneIds],
     );
     for (const row of conceptRows.rows) {
