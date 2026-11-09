@@ -109,6 +109,14 @@ export async function recordXqReview(
   queryable: Queryable,
   input: XqReviewInput,
 ): Promise<XqReviewResult> {
+  // 先解析一次：幂等键里要用**归一化后**的时刻。同一次复习用 `Z` 写还是用
+  // `+08:00` 写是同一个瞬间，若把原始字符串拼进键，两次不同格式的投递会被
+  // 当成两件事 —— 而复投正是这个键存在的理由。
+  const occurredAt = new Date(input.occurredAt);
+  if (Number.isNaN(occurredAt.getTime())) {
+    throw new RangeError(`xq: review occurredAt is not a valid timestamp: ${input.occurredAt}`);
+  }
+
   const exists = await queryable.query(ROUND_EXISTS_SQL, [
     input.stageId,
     input.sceneId,
@@ -130,6 +138,19 @@ export async function recordXqReview(
       occurredAt: input.occurredAt,
       sessionId: input.sessionId,
       payload: { round: input.round, outcome: input.outcome, concept: input.concept },
+      // ★ 幂等键必须带 round 与 concept。
+      //
+      // `recordXqEvent` 的默认派生是 `(kind, stage, scene, question, session, occurredAt)`——
+      // 里面**没有 round**。而同一道题的四关完全可能在同一个时刻被点到（人一次点完，
+      // 或者客户端把四个按钮的回调一起发出去）：那一刻四条请求派生出的键一模一样，
+      // 于是第 2、3、4 关的事件被当成「第 1 关的重复投递」丢掉，**但排期照样关掉**。
+      // 结果是一条事件、四行 `done_at` —— 库里说「他复习了 1 次」，界面说「四关都过了」。
+      //
+      // 加上 round 之后，一件事仍然只记一次（重投同一关仍然命中同一个键），
+      // 但不同关不会再互相吃掉。
+      dedupeKey:
+        `review:${input.sessionId}:${input.stageId}:${input.sceneId}:` +
+        `${input.questionId}:${input.round}:${input.concept}:${occurredAt.toISOString()}`,
     });
     eventId = event.eventId;
     duplicate = event.duplicate;
@@ -146,7 +167,7 @@ export async function recordXqReview(
     input.concept,
     input.round,
     input.outcome,
-    new Date(input.occurredAt),
+    occurredAt,
   );
 
   return { recorded: true, eventId, duplicate };

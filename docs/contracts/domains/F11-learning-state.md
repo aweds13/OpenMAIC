@@ -199,7 +199,7 @@
 - **失败长什么样**：排期里的关到期后永远清不掉，越积越多；为了清掉它直接删排期行，「他做错了」这件事不可考；`skip` 也写一条 `review_passed`，状态层以为他答对了；先改排期后写事件且事件失败，那一关关掉了但失败计数少一次；重试时重新取 `now()`，同一关一条失败变两条，计数翻倍。
 
 - **判据落点**：
-  - 写入器 `tests/persistence/xq-review-recorder.test.ts` 8 条 —— 答对写一条 `review_passed` 且只关这一关（后三关不动）；答错写一条 `review_failed` 且四关全部重排回未完成；跳过不写任何事件只标掉这一关；这一关不存在时抛 `XqReviewRoundMissingError` 且不写任何事件；同一时刻重投两次只留一条事件（`duplicate: true`，`eventId` 相同）；**真的又错一次（时刻不同）就该是两条**（这正是降级规则要数的）；事件 `payload` 里带 `round` / `outcome` / `concept`（光看 `kind` 分不出是第几关）；记完之后那一关不再出现在 `dueReviews()` 里。
+  - 写入器 `tests/persistence/xq-review-recorder.test.ts` 11 条 —— 答对写一条 `review_passed` 且只关这一关（后三关不动）；答错写一条 `review_failed` 且四关全部重排回未完成；跳过不写任何事件只标掉这一关；这一关不存在时抛 `XqReviewRoundMissingError` 且不写任何事件；同一时刻重投两次只留一条事件（`duplicate: true`，`eventId` 相同）；**真的又错一次（时刻不同）就该是两条**（这正是降级规则要数的）；事件 `payload` 里带 `round` / `outcome` / `concept`（光看 `kind` 分不出是第几关）；记完之后那一关不再出现在 `dueReviews()` 里。
   - 路由 `tests/persistence/xq-reviews-route.test.ts` 10 条 —— 走真路由 + 真写入器：答对 201 且这一关关掉；答错写 `review_failed` 且四关重排；跳过 201 且 `eventId: null`；重投 200 + `duplicate: true` 且库里仍一条；**关不存在回 404 `REVIEW_ROUND_NOT_FOUND` 而不是 400**（请求形状没错，是那一关没了 —— 400 会让客户端以为该改请求）；`outcome` 拼错当场 400；`round` 必须是正整数（`0` / `1.5` / `'1'` 都拒）；缺 `sessionId` 拒；非 POST 405；记完之后 `dueReviews()` 少一条且不再含第 1 关。
 
 - **做错几次会改变排期（2026-11-10 补，P5 四关重置降级）**：

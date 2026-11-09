@@ -99,6 +99,43 @@ describe('xq review recorder', () => {
     }));
   };
 
+  it('★ 同一时刻关不同关 —— 四关各记一条，不许互相吃掉', async () => {
+    // 真机撞到过：四关的按钮可以一次点完（或客户端把回调一起发出去），
+    // 于是四条请求的 `occurredAt` 完全相同。而幂等键按默认派生**不含 round**，
+    // 第 2/3/4 关被当成「第 1 关的重复投递」丢掉 —— 事件只有一条，
+    // 排期却四行全关。库里说他复习了 1 次，界面说四关都过了。
+    await seedRounds();
+    const at = '2026-11-09T02:00:00.000Z';
+    for (const round of [1, 2, 3, 4]) {
+      await recordXqReview(db, reviewInput({ round, occurredAt: at }));
+    }
+    expect(await events()).toEqual({ review_passed: 4 });
+    expect((await rounds()).every((row) => row.done)).toBe(true);
+  });
+
+  it('★ 同一关重投仍然只记一条 —— 键里有 round，但同一关同一个时刻是同一件事', async () => {
+    await seedRounds();
+    const at = '2026-11-09T02:00:00.000Z';
+    const first = await recordXqReview(db, reviewInput({ occurredAt: at }));
+    const again = await recordXqReview(db, reviewInput({ occurredAt: at }));
+    expect(first.duplicate).toBe(false);
+    expect(again.duplicate).toBe(true);
+    expect(again.eventId).toBe(first.eventId);
+    expect(await events()).toEqual({ review_passed: 1 });
+  });
+
+  it('★ 同一瞬间换个写法仍然是同一件事 —— 幂等键吃归一化后的时刻', async () => {
+    await seedRounds();
+    const first = await recordXqReview(
+      db,
+      reviewInput({ occurredAt: '2026-11-09T10:00:00+08:00' }),
+    );
+    const again = await recordXqReview(db, reviewInput({ occurredAt: '2026-11-09T02:00:00Z' }));
+    expect(again.duplicate).toBe(true);
+    expect(again.eventId).toBe(first.eventId);
+    expect(await events()).toEqual({ review_passed: 1 });
+  });
+
   it('★ 答对：写一条 review_passed，只关掉这一关，后三关不动', async () => {
     await seedRounds();
     const result = await recordXqReview(db, reviewInput());
