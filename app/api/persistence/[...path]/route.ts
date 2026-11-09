@@ -49,6 +49,7 @@ import {
   XQ_HINT_SUBTYPES,
 } from '@/lib/persistence/xq-event-recorder';
 import { digestSessions, SESSION_DIGEST_LIMIT } from '@/lib/persistence/xq-session-digest';
+import { sweepStaleSessions } from '@/lib/persistence/xq-session-sweeper';
 import {
   recordXqReview,
   XqReviewRoundMissingError,
@@ -550,6 +551,21 @@ async function handleXqSessionDigest(
     );
   }
   try {
+    // ★ 读之前先把**死会话**收掉。
+    //
+    // 这个视图正是被死会话弄坏的那一个：合计只累加已结束的会话（进行中那一个
+    // 的活跃毫秒会越算越小，算进去会让合计倒退），而断电、浏览器崩溃、
+    // `keepalive` 被中间层截掉这三种情况下客户端不会再跑一行代码 —— 会话在库里
+    // 永远开着，那一次学习就被永久地从「今天学了多久」里抹掉。
+    //
+    // 让读顺手修，是因为**没有别的地方会来修**：这是唯一一个会被打开、
+    // 且正好关心这件事的入口。操作本身是幂等的（幂等键用最后一条事件的时刻，
+    // 不是 now()），失败也不影响读（下面 catch 到就当作没收）。
+    try {
+      await sweepStaleSessions(queryable);
+    } catch (error) {
+      log.warn({ error }, 'xq session sweep failed; reading anyway');
+    }
     const sessions = await digestSessions(queryable, {
       ...(day === undefined ? {} : { day }),
       ...(limit === undefined ? {} : { limit }),

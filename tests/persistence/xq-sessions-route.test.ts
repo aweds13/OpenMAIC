@@ -158,10 +158,15 @@ describe('GET /api/persistence/xq/sessions', () => {
   });
 
   it('★ 去吃饭的两小时不算学习 —— activeMs 截断，wallMs 不截断', async () => {
+    // ★ 这条用**相对现在**的时刻，不能用测试文件里那个固定的历史基准：
+    // `GET /xq/sessions` 会顺手把静默太久的会话收掉（死会话会让合计永远
+    // 少一次），而一条 2026-11-08 的会话在真实钟表下当然算静默太久 ——
+    // 那时被收掉是对的，但这条判据要问的是「没被收掉时墙钟怎么算」。
+    const base = Date.now() - 90 * 60_000;
     const { sessionId } = await record(db, {
       kind: 'session_started',
       stageId: STAGE,
-      occurredAt: at(0),
+      occurredAt: new Date(base).toISOString(),
     });
     // 一小时后才翻页：超出 30 分钟默认上限，但墙钟照实记。
     await record(db, {
@@ -169,7 +174,7 @@ describe('GET /api/persistence/xq/sessions', () => {
       stageId: STAGE,
       sceneId: SCENE,
       sessionId,
-      occurredAt: at(60),
+      occurredAt: new Date(base + 60 * 60_000).toISOString(),
     });
 
     const handle = await bootRoute();
