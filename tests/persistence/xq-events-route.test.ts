@@ -312,6 +312,29 @@ describe('POST /api/persistence/xq/events', () => {
     expect(await countEvents('hint_requested')).toBe(0);
   });
 
+  it('★ 带题号却不带类型，仍是 400 —— 形状先于闸，别把「少个字段」说成「先答题」', async () => {
+    // 实测踩过：`hint_requested` 带题号但漏 `hintSubtype` 时，闸先跑、
+    // 抛 `XqAnswerNotStartedError`，回的是 409「先答题」。学生照做去答了题，
+    // 再点一次仍然 409 —— 因为真正缺的是请求里的那个字段，不是前置事件。
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+    const response = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:23:00.000Z',
+        sessionId,
+      }),
+      {},
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe('VALIDATION_FAILED');
+    expect(await countEvents('hint_requested')).toBe(0);
+  });
+
   it('★ 没先动过手就问「怎么想」，409 且一行都不写 —— 闸在写入侧，不是界面上不好点', async () => {
     const handle = await bootRoute();
     const sessionId = await openSession(handle);

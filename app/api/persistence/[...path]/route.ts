@@ -205,6 +205,21 @@ async function handleXqEvent(
   }
   const sceneId = asOptionalString(body.sceneId);
   const questionId = asOptionalString(body.questionId);
+  // ★ 形状先于闸。`hint_requested` 不带 `hintSubtype` 是**请求写错了**，
+  // 该回 400；如果让它走到闸那里，闸会先跑、抛 `XqAnswerNotStartedError`，
+  // 前端拿到的是 409「先答题」—— 而真正的问题是它少发了一个字段，
+  // 学生按提示去答题、再点一次，仍然 409。这个错位是实测出来的：
+  // 一次 `hint_requested` 漏了 `hintSubtype`，回来的是 409 而不是 400。
+  if (kind === 'hint_requested' && hintSubtype === undefined) {
+    return withHeaders(
+      jsonError(
+        400,
+        'VALIDATION_FAILED',
+        'xq: hint_requested needs a hintSubtype (instrumental or executive)',
+      ),
+      responseHeaders,
+    );
+  }
   try {
     // 提问闸：同一道题上没先动过手，`instrumental` 提问在落库之前就被挡掉。
     // 放在**写入侧**是刻意的 —— UI 侧挡不住直接调接口，而闸的意义是

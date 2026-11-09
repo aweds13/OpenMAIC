@@ -830,7 +830,17 @@
     "aiGrading": "AI đang chấm…",
     "aiGradingWait": "Vui lòng đợi, đang phân tích câu trả lời của bạn",
     "quizReport": "Báo cáo kết quả",
-    "retry": "Làm lại"
+    "retry": "Làm lại",
+    "ask": {
+      "label": "Ask AI",
+      "instrumental": "I'm stuck — give me a direction",
+      "executive": "Just tell me the answer",
+      "hint": "Write down your own thinking first — without any attempt on record, asking for a direction is blocked. Use the right-hand button to just get the answer.",
+      "refused": "Write something on this question first, then ask for a direction. If you just want the answer, use “Just tell me the answer”.",
+      "failed": "This request wasn't recorded (not your fault). Try again in a moment.",
+      "unsent": "The request was recorded but the message wasn't sent — check that a model is configured.",
+      "template": "I'm stuck on this question. Give me a direction to think in — don't give me the answer:\n\n{{stem}}"
+    }
   },
   "roundtable": {
     "teacher": "GIẢNG VIÊN",

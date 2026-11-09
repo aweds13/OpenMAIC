@@ -151,6 +151,44 @@ describe('xq event client', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('★ 4xx 的拒绝码要带回给界面 —— 闸挡住不是「网络失败」', async () => {
+    const { fetchImpl } = fakeFetch((call) =>
+      call.body.kind === 'session_started'
+        ? { status: 201, json: { eventId: 'ev-1', sessionId: 'ev-1', duplicate: false } }
+        : { status: 409, json: { error: { code: 'ANSWER_FIRST', message: 'no' } } },
+    );
+    const client = createXqEventClient({
+      fetchImpl,
+      now: () => new Date('2026-11-08T02:00:00.000Z'),
+      logFailure: () => {},
+    });
+
+    const result = await client.recordEvent({
+      kind: 'hint_requested',
+      stageId: 'stage-A',
+      sceneId: 'scene-p1',
+      questionId: 'q1',
+      occurredAt: '2026-11-08T02:00:00.000Z',
+      hintSubtype: 'instrumental',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('ANSWER_FIRST');
+  });
+
+  it('★ 5xx 不带码 —— 服务端自己坏了，码对它没意义', async () => {
+    const { fetchImpl } = fakeFetch(() => ({ status: 503 }));
+    const client = createXqEventClient({
+      fetchImpl,
+      now: () => new Date('2026-11-08T02:00:00.000Z'),
+      logFailure: () => {},
+    });
+
+    const result = await client.viewPage('stage-A', 'scene-p1');
+    expect(result.ok).toBe(false);
+    expect(result.code).toBeUndefined();
+  });
+
   it('★ 结束会话后要重新开 —— 下次翻页是另一次坐下学习', async () => {
     let next = 0;
     const { calls, fetchImpl } = fakeFetch((call) => {

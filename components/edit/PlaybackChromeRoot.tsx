@@ -39,6 +39,8 @@ import {
 } from '@/lib/playback/action-resume';
 import { loadCursor, saveCursor, type PlaybackCursor } from '@/lib/playback/cursor';
 import { endXqLearningSession, useXqPageView } from '@/lib/learning/use-xq-page-view';
+import { QuizAskProvider, type QuizAskHandle } from '@/lib/contexts/quiz-ask-context';
+import { askForHint, type XqHintSubtype } from '@/lib/learning/xq-hint';
 import { ActionEngine } from '@/lib/action/engine';
 import { createAudioPlayer } from '@/lib/utils/audio-player';
 import { useDiscussionTTS } from '@/lib/hooks/use-discussion-tts';
@@ -356,6 +358,50 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         );
       },
       [setDraftElementReference],
+    );
+
+    /**
+     * 「这道题我不会，问一句」的把手 —— 交给 `CanvasArea` 下面任意一层用
+     * （今天只有 `QuizView` 的题卡在用它）。
+     *
+     * 顺序在这里是硬的：`askForHint` 先记 `hint_requested`、成功了才调
+     * `sendMessageWithElementReference`。反过来的话，一旦闸（服务端 409
+     * `ANSWER_FIRST`）挡住，模型已经答了一半，那条提问却记不上 ——
+     * 要么撒谎记成 executive，要么学情断掉。
+     */
+    // 课程 id 的口径与游标那处一致（`stage.id` 优先，退回当前页自带的
+    // stageId）：导入的页可能来自另一门课，而 `stage.id` 才是这次播放态的课。
+    const askStageId = stage?.id ?? currentScene?.stageId ?? '';
+    const askSceneId = currentSceneId ?? '';
+    const quizAsk = useMemo<QuizAskHandle>(
+      () => ({
+        ask: (target, subtype: XqHintSubtype) =>
+          askForHint(
+            {
+              stageId: askStageId,
+              sceneId: askSceneId,
+              questionId: target.questionId,
+              stem: target.stem,
+            },
+            subtype,
+            {
+              // 模板要给两次：一次给 `askForHint` 拼消息用，一次留在
+              // 把手上 —— 界面若想在别处显示同一句话，不必再取一遍 i18n。
+              template: t('quiz.ask.template'),
+              send: (content) => {
+                // 发了就得让人看见。侧栏收着时 `sendMessage` 照样跑，
+                // 但回答落在一个折叠面板里 —— 那和没问成没区别，
+                // 学生只会以为按钮坏了再点一次。
+                setChatAreaCollapsed(false);
+                return sendMessageWithElementReference(content);
+              },
+            },
+          ),
+        template: t('quiz.ask.template'),
+        stageId: askStageId,
+        sceneId: askSceneId,
+      }),
+      [askStageId, askSceneId, sendMessageWithElementReference, setChatAreaCollapsed, t],
     );
 
     const updateCurrentPlaybackActionIndex = useCallback((actionIndex: number | null) => {
@@ -1758,74 +1804,80 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           {/* Canvas Area — playback-only renderer. The parent Stage swaps
             this whole PlaybackChromeRoot out when entering edit mode, so
             no inline branching is needed here. */}
-          <div
-            className="overflow-hidden relative flex-1 min-h-0 isolate"
-            style={{
-              height: sceneViewerHeight,
-            }}
-            suppressHydrationWarning
-          >
-            <CanvasArea
-              currentScene={currentScene}
-              currentSceneIndex={currentSceneIndex}
-              scenesCount={totalScenesCount}
-              mode={mode}
-              engineState={canvasEngineState}
-              isLiveSession={
-                chatIsStreaming ||
-                chatIsSoftClosing ||
-                isTopicPending ||
-                engineMode === 'live' ||
-                !!chatSessionType
-              }
-              isSoftClosing={chatIsSoftClosing}
-              softCloseDeadline={softCloseDeadline}
-              whiteboardOpen={whiteboardOpen}
-              sidebarCollapsed={sidebarCollapsed}
-              chatCollapsed={chatAreaCollapsed}
-              onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-              onToggleChat={() => setChatAreaCollapsed(!chatAreaCollapsed)}
-              onPrevSlide={handlePreviousScene}
-              onNextSlide={handleNextScene}
-              onPlayPause={handlePlayPause}
-              onWhiteboardClose={handleWhiteboardToggle}
-              isPresenting={isPresenting}
-              onTogglePresentation={togglePresentation}
-              showStopDiscussion={
-                engineMode === 'live' ||
-                ((chatIsStreaming || chatIsSoftClosing) &&
-                  (chatSessionType === 'qa' || chatSessionType === 'discussion'))
-              }
-              onStopDiscussion={handleStopDiscussion}
-              onContinueDiscussion={handleContinueDiscussion}
-              showElementReference={showElementReference}
-              canPickSlideElement={canPickElement}
-              elementPickActive={elementPickActive}
-              onToggleElementPick={handleToggleElementPick}
-              onPickElement={handlePickElement}
-              whiteboardElementReference={
-                showElementReference &&
-                draftElementReference?.reference.kind === 'whiteboard_element'
-                  ? draftElementReference.reference
-                  : undefined
-              }
-              onPickWhiteboardElement={handlePickWhiteboardElement}
-              onCancelElementPick={() => setElementPickActive(false)}
-              hideToolbar={mode === 'playback' || (isPresenting && !controlsVisible)}
-              isPendingScene={isPendingScene}
-              isCourseComplete={isCourseComplete}
-              isGenerationFailed={
-                isPendingScene && failedOutlines.some((f) => f.id === generatingOutlines[0]?.id)
-              }
-              isGenerationInterrupted={isPendingScene && generationInterrupted}
-              generationFailureMessage={generationFailureMessage}
-              onRetryGeneration={
-                onRetryOutline && generatingOutlines[0]
-                  ? () => onRetryOutline(generatingOutlines[0].id)
-                  : undefined
-              }
-            />
-          </div>
+          {/* 提问把手只包住画布这一块：白板、侧栏、圆桌都不该有「问这道题」
+              这个概念。放在这个 div 外面而不是 CanvasArea 外面，是为了让
+              CanvasArea 那一大段 props 保持原样（三十多个 prop 重排一遍
+              只是噪声，审的人看不出真改了什么）。 */}
+          <QuizAskProvider value={quizAsk}>
+            <div
+              className="overflow-hidden relative flex-1 min-h-0 isolate"
+              style={{
+                height: sceneViewerHeight,
+              }}
+              suppressHydrationWarning
+            >
+              <CanvasArea
+                currentScene={currentScene}
+                currentSceneIndex={currentSceneIndex}
+                scenesCount={totalScenesCount}
+                mode={mode}
+                engineState={canvasEngineState}
+                isLiveSession={
+                  chatIsStreaming ||
+                  chatIsSoftClosing ||
+                  isTopicPending ||
+                  engineMode === 'live' ||
+                  !!chatSessionType
+                }
+                isSoftClosing={chatIsSoftClosing}
+                softCloseDeadline={softCloseDeadline}
+                whiteboardOpen={whiteboardOpen}
+                sidebarCollapsed={sidebarCollapsed}
+                chatCollapsed={chatAreaCollapsed}
+                onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+                onToggleChat={() => setChatAreaCollapsed(!chatAreaCollapsed)}
+                onPrevSlide={handlePreviousScene}
+                onNextSlide={handleNextScene}
+                onPlayPause={handlePlayPause}
+                onWhiteboardClose={handleWhiteboardToggle}
+                isPresenting={isPresenting}
+                onTogglePresentation={togglePresentation}
+                showStopDiscussion={
+                  engineMode === 'live' ||
+                  ((chatIsStreaming || chatIsSoftClosing) &&
+                    (chatSessionType === 'qa' || chatSessionType === 'discussion'))
+                }
+                onStopDiscussion={handleStopDiscussion}
+                onContinueDiscussion={handleContinueDiscussion}
+                showElementReference={showElementReference}
+                canPickSlideElement={canPickElement}
+                elementPickActive={elementPickActive}
+                onToggleElementPick={handleToggleElementPick}
+                onPickElement={handlePickElement}
+                whiteboardElementReference={
+                  showElementReference &&
+                  draftElementReference?.reference.kind === 'whiteboard_element'
+                    ? draftElementReference.reference
+                    : undefined
+                }
+                onPickWhiteboardElement={handlePickWhiteboardElement}
+                onCancelElementPick={() => setElementPickActive(false)}
+                hideToolbar={mode === 'playback' || (isPresenting && !controlsVisible)}
+                isPendingScene={isPendingScene}
+                isCourseComplete={isCourseComplete}
+                isGenerationFailed={
+                  isPendingScene && failedOutlines.some((f) => f.id === generatingOutlines[0]?.id)
+                }
+                isGenerationInterrupted={isPendingScene && generationInterrupted}
+                generationFailureMessage={generationFailureMessage}
+                onRetryGeneration={
+                  onRetryOutline && generatingOutlines[0]
+                    ? () => onRetryOutline(generatingOutlines[0].id)
+                    : undefined
+                }
+              />
+            </div>
+          </QuizAskProvider>
 
           {/* Roundtable Area */}
           {mode === 'playback' && (

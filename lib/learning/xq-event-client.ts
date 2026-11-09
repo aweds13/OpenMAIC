@@ -81,6 +81,14 @@ export interface XqEventSendResult {
   ok: boolean;
   duplicate: boolean;
   sessionId?: string;
+  /**
+   * 被服务端拒绝时的错误码（响应体里的 `error.code`），例如提问闸的
+   * `ANSWER_FIRST`。只有 4xx 才有 —— 5xx 是服务端自己坏了，码对它没意义。
+   *
+   * ★ 这个字段是**给界面看的**：闸挡住时学生必须看到「先写下你的想法」，
+   * 而不是笼统的「发送失败」—— 前者可行动，后者只能重试。
+   */
+  code?: string;
 }
 
 export interface XqEventClient {
@@ -176,8 +184,19 @@ export function createXqEventClient(deps: XqEventClientDeps = {}): XqEventClient
         if (!response.ok) {
           // 4xx 是请求本身不对，重发也一样 —— 不浪费第二次。
           if (response.status < 500) {
-            logFailure(`xq events: ${body.kind} refused with ${response.status}`);
-            return FAILURE_NOOP;
+            // 把码带回去。闸（409 ANSWER_FIRST）是**唯一**一种「拒绝也是
+            // 正常结果」的情况：界面要按码说「先写下你的想法」，而不是
+            // 说「发送失败」。其它 4xx 的码调用方多数不看，顺手带着。
+            const refused = (await response.json().catch(() => null)) as {
+              error?: { code?: unknown };
+            } | null;
+            const code = typeof refused?.error?.code === 'string' ? refused.error.code : undefined;
+            logFailure(
+              code === undefined
+                ? `xq events: ${body.kind} refused with ${response.status}`
+                : `xq events: ${body.kind} refused with ${response.status} ${code}`,
+            );
+            return { ok: false, duplicate: false, ...(code === undefined ? {} : { code }) };
           }
           continue;
         }

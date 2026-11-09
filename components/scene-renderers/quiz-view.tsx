@@ -13,6 +13,7 @@ import {
   BookOpenText,
   Loader2,
   Sparkles,
+  HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
@@ -42,6 +43,7 @@ import {
   type QuizViewLifetime,
 } from '@/lib/quiz/view-state';
 import { recordAnswerAttempt, recordAnswerSubmitted } from '@/lib/learning/xq-answer-events';
+import { useQuizAsk } from '@/lib/contexts/quiz-ask-context';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -513,6 +515,44 @@ function QuestionCard({
   const { t } = useI18n();
   const isReview = !!result;
   const pts = question.points ?? 1;
+  const ask = useQuizAsk();
+  /**
+   * 展开的两种问法。`null` = 收着。
+   *
+   * 为什么是「先展开再选」而不是两个常驻按钮：常驻两个按钮会让每一道题
+   * 都多出两个凸起的控件，而绝大多数题目学生是不想问的。展开这一步也是
+   * 一次极短的停顿 —— 正好卡在「他想问」与「他真的问了」之间。
+   */
+  const [askOpen, setAskOpen] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [askNotice, setAskNotice] = useState<string>('');
+
+  const handleAsk = useCallback(
+    async (subtype: 'instrumental' | 'executive') => {
+      if (!ask || asking) return;
+      setAsking(true);
+      setAskNotice('');
+      try {
+        const outcome = await ask.ask(
+          { questionId: question.id, stem: question.question },
+          subtype,
+        );
+        // 三种结果说三句不同的话。★ `refused` 不是错误：那是闸按设计工作，
+        // 这时该说「先写下你的想法」，而不是「失败了，再试一次」——
+        // 后者会把学生推回去再点一次，而再点一次仍然是 409。
+        if (outcome.status === 'refused') setAskNotice(t('quiz.ask.refused'));
+        else if (outcome.status === 'failed') setAskNotice(t('quiz.ask.failed'));
+        else if (outcome.status === 'unsent') setAskNotice(t('quiz.ask.unsent'));
+        else {
+          setAskOpen(false);
+          setAskNotice('');
+        }
+      } finally {
+        setAsking(false);
+      }
+    },
+    [ask, asking, question.id, question.question, t],
+  );
 
   return (
     <motion.div
@@ -573,13 +613,72 @@ function QuestionCard({
             </p>
           </div>
         </div>
-        {isReview && (
-          <div className="shrink-0 ml-2">
-            {result.status === 'correct' && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
-            {result.status === 'incorrect' && <XCircle className="w-6 h-6 text-red-400" />}
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-2 ml-2">
+          {/* 问 AI。没有聊天框时（编辑态 / 预览 / 单测）`ask` 是 null，
+              整个按钮不渲染 —— 不做一个点了没反应的按钮。 */}
+          {ask !== null && (
+            <button
+              type="button"
+              data-testid="quiz-ask-toggle"
+              aria-expanded={askOpen}
+              onClick={() => {
+                setAskOpen((open) => !open);
+                setAskNotice('');
+              }}
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-900/30 dark:hover:text-violet-400"
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+              {t('quiz.ask.label')}
+            </button>
+          )}
+          {isReview && (
+            <div>
+              {result.status === 'correct' && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
+              {result.status === 'incorrect' && <XCircle className="w-6 h-6 text-red-400" />}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* 两种问法。★ 分成两个按钮而不是一个：`instrumental`（问「怎么想」）
+          与 `executive`（直接要答案）与成绩的相关方向相反，让界面记两个
+          不同的值，比事后从文本反推可靠。 */}
+      {ask !== null && askOpen && (
+        <div className="mb-3 rounded-lg border border-violet-100 bg-violet-50/60 p-3 dark:border-violet-800 dark:bg-violet-900/20">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid="quiz-ask-instrumental"
+              disabled={asking}
+              onClick={() => void handleAsk('instrumental')}
+              className="rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-violet-700 shadow-sm transition-colors hover:bg-violet-100 disabled:opacity-50 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60"
+            >
+              {t('quiz.ask.instrumental')}
+            </button>
+            <button
+              type="button"
+              data-testid="quiz-ask-executive"
+              disabled={asking}
+              onClick={() => void handleAsk('executive')}
+              className="rounded-lg bg-white px-3 py-1.5 text-xs text-gray-500 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+            >
+              {t('quiz.ask.executive')}
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-violet-500/80 dark:text-violet-300/70">
+            {t('quiz.ask.hint')}
+          </p>
+        </div>
+      )}
+
+      {askNotice !== '' && (
+        <p
+          data-testid="quiz-ask-notice"
+          className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+        >
+          {askNotice}
+        </p>
+      )}
 
       {/* Body */}
       {children}
