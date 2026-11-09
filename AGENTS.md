@@ -13,10 +13,10 @@
 
 | 层 | 入口 | 装什么 |
 |---|---|---|
-| 意图 | [`docs/intention/needs.md`](docs/intention/needs.md) | N1–N23 需求全表（要什么，不管怎么做） |
-| 规格 | [`docs/specification/traceability.md`](docs/specification/traceability.md) | 十域 F1–F10、50 条 SR；`domains/` 下逐域规则 |
+| 意图 | [`docs/intention/needs.md`](docs/intention/needs.md) | N1–N32 需求全表（要什么，不管怎么做） |
+| 规格 | [`docs/specification/traceability.md`](docs/specification/traceability.md) | 十一域 F1–F11、60 条 SR；`domains/` 下逐域规则 |
 | 契约 | [`docs/contracts/interactions.md`](docs/contracts/interactions.md) | OP-1…OP-6 操作契约；`flows.md` 的 FLOW-1…FLOW-4 |
-| 实现 | [`docs/implementation/modules.md`](docs/implementation/modules.md) | M1–M13 模块索引；`coverage.md` 的判据矩阵 |
+| 实现 | [`docs/implementation/modules.md`](docs/implementation/modules.md) | M1–M15 模块索引；`coverage.md` 的判据矩阵 |
 | 品味 | [`docs/taste/README.md`](docs/taste/README.md) | 产品 / 架构 / 工程品味与红线、冲突排序 |
 
 表外还有 [`docs/research/`](docs/research/README.md)：**不是第六层**，是证据留存区（动手之前的勘察读数，只写实测不写应该怎样）。出路两条 —— 被推翻就删，成立就升格进上面五层。**别把规格写成 research**。
@@ -63,12 +63,16 @@
 
 ---
 
-## 0.1 当前状态（2026-10-30 晚）
+## 0.1 当前状态（2026-11-09）
 
-- **HEAD 已推到 `mine/main`，CI 全绿**（13/13 success）。★ 推送失败看 `curl https://api.github.com`（通）
+- **本地分支 `upgrade/v1.3.0` 领先 `mine/main` 36 笔，未推送**（2026-11-09 实测
+  `git rev-list --count mine/main..upgrade/v1.3.0` = 36、反向 = 0；
+  `git merge-base --is-ancestor f7ecefd7 mine/main` = no）。领先段里最老的 3 笔是插件结论库
+  （`4fa27693` … `1c111528`），其后是材料模块收敛与学情链 `84ad7e8b`…`f7ecefd7`。
+  ⇒ 本文件 §0.1 下面写的「已落码」都还只在本机分支上。★ 推送失败看 `curl https://api.github.com`（通）
   对 `curl https://github.com`（000）；日志里 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），
   只能信 API / `git ls-remote`。原命令重试，**不要**改 remote / 换协议 / 强推。
-- **五层 `docs/` 全绿**：`check-layers.py` → `122 条引用（断链 0 处）` + `PASS ✅`（做过反向验证）。
+- **五层 `docs/` 全绿**：`check-layers.py` → `186 条引用（断链 0 处）` + `PASS ✅`（做过反向验证）。
 - **仓根三份老文档与两份一次性复盘已删**（含「新窗口交接卡」），内容拆进五层与本文件
   §0.1/§8（旧版 `git show 490259c1:<文件名>`）。结论库 140200 → 88228 字节。
 - ★ **prettier 不看 Markdown**（`.prettierignore` 有 `*.md`）⇒ 四步门禁第一步对文档是空跑。
@@ -78,6 +82,13 @@
   → 还原回 `740876…|4007` **逐字节相同**（★ 第一次还原差 1 字节：原文 `<strong>` 只包「使用说明」
   —— **只比指纹不看原文会误判成还原成功**）。**B2** 非 slide 页只读文本在真数据上成立。
   其余 B1/B2 细节 → 结论库 §3.9。
+
+**学情链九步（M §8.1 的 S1–S9）全部落码并各自提交**（`abe3bdb1` … `f7ecefd7`），
+对 M §8.4 的 C1–C10 逐条实测是 **9 PASS / 1 FAIL**，FAIL 的那条（概念映射 ≥ 17 页）是
+**判据定得比现实高**、不是实现缺口（17 个 quiz 页里 13 页能命中，另 4 页的题干概念不在种子图、
+或那门课的 `document_outlines` 本身是空数组）。八条断点（M §1.3 的 D1–D8）现状：
+D1–D5 通、D6（自评一次没采）/ D7（19 个练习只有 1 份 `result.json`）/ D8（笔记层未落地）仍断。
+读数与复现命令在 `.tmp/s_accept.mts` / `.tmp/s_gaps.mts`（未进仓）。
 
 **未决只有两条**，都在 §8：真人点一页；重启后复验 `markupChanged`。
 
