@@ -2574,5 +2574,21 @@
         "materialExtraction": null
       }
     }
+  },
+  "review": {
+    "title": "今天到期的复习",
+    "loading": "正在读到期的关…",
+    "readFailed": "没读到复习队列 —— 这和「没有要复习的」不是一回事。",
+    "retry": "重试",
+    "empty": "现在没有到期的复习。",
+    "meta": "第 {{round}} 关 · {{concept}}",
+    "noConcept": "没有概念标签",
+    "saving": "正在记录…",
+    "saveFailed": "没记上 —— 这一关还会留在列表里。",
+    "action": {
+      "pass": "我答对了",
+      "fail": "我答错了",
+      "skip": "跳过"
+    }
   }
 }

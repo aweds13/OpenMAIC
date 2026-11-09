@@ -96,6 +96,14 @@ export interface XqEventClient {
   endSession(stageId: string, endReason?: string): Promise<XqEventSendResult>;
   /** 其它事件（答题、复习、提示）。会话没开时不发 —— 没有会话的事件挂不上去。 */
   recordEvent(event: Omit<XqEventRequest, 'sessionId'>): Promise<XqEventSendResult>;
+  /**
+   * 取这门课当前的会话 id（没有就开一个）。
+   *
+   * 给那些**不经过这个客户端发请求**的调用方用：交复习结果走的是
+   * `/xq/reviews`（它不只追加事件，还要关排期，顺序必须在服务端一处），
+   * 但那条事实同样要挂在会话上。共用同一张会话表，两条链才不会各开一个会话。
+   */
+  sessionFor(stageId: string): Promise<string | undefined>;
 }
 
 const FAILURE_NOOP: XqEventSendResult = { ok: false, duplicate: false };
@@ -264,5 +272,7 @@ export function createXqEventClient(deps: XqEventClientDeps = {}): XqEventClient
         if (sessionId === undefined) return FAILURE_NOOP;
         return await post({ ...event, sessionId });
       }, FAILURE_NOOP),
+
+    sessionFor: (stageId: string) => openSession(stageId),
   };
 }

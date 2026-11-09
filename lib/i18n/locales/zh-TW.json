@@ -2574,5 +2574,21 @@
         "materialExtraction": null
       }
     }
+  },
+  "review": {
+    "title": "今天到期的複習",
+    "loading": "正在讀到期的關…",
+    "readFailed": "沒讀到複習佇列 —— 這和「沒有要複習的」不是一回事。",
+    "retry": "重試",
+    "empty": "現在沒有到期的複習。",
+    "meta": "第 {{round}} 關 · {{concept}}",
+    "noConcept": "沒有概念標籤",
+    "saving": "正在記錄…",
+    "saveFailed": "沒記上 —— 這一關還會留在列表裡。",
+    "action": {
+      "pass": "我答對了",
+      "fail": "我答錯了",
+      "skip": "跳過"
+    }
   }
 }

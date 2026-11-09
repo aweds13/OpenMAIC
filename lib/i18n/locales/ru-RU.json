@@ -2574,5 +2574,21 @@
         "materialExtraction": null
       }
     }
+  },
+  "review": {
+    "title": "Due for review",
+    "loading": "Loading what is due…",
+    "readFailed": "Could not read the review queue — this is not the same as nothing being due.",
+    "retry": "Try again",
+    "empty": "Nothing is due for review.",
+    "meta": "Round {{round}} · {{concept}}",
+    "noConcept": "no concept label",
+    "saving": "Saving…",
+    "saveFailed": "Not saved — it will still be listed.",
+    "action": {
+      "pass": "I got it right",
+      "fail": "I got it wrong",
+      "skip": "Skip"
+    }
   }
 }
