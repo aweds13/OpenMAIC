@@ -139,6 +139,7 @@
 | SR-F11.7 | M14 / M15 | 两份文件实测分家：`D:/文档/jelly_ware/个人数据/学习状态.md` **全部由 `refreshLearnerStateBestEffort` 生成**（`lib/server/agent-runtime/learner-state.ts:353`），`D:/文档/jelly_ware/个人数据/学习画像.md` **1851 B 由人写**。**两份文件的「不要手改」标注尚不存在** |
 | SR-F11.8 | 无（**未落地**） | 无模块。图谱与「概念身份」都不存在：全库无概念表、无来源映射表，`document_scenes` 里只有 `outlineId` 一个可挂点（234 页 100% 有值，138 页能对上计划条目）。设计见 `D:/文档/jelly_ware/_tools/kg/xq/J-外来课程接入设计.md` |
 | SR-F11.9 | 无（**未落地**） | 无模块。提案态不存在，导入路径目前是「人写内容 → agent 生成页面」，没有任何自动收编概念的入口 |
+| SR-F11.10 | M14 | `lib/persistence/xq-event-recorder.ts` 的 `recordXqEvent()` 写 `xq_event`、`localDayOf()` 定 04:00 跨天、`deriveDedupeKey()` 派生幂等键（`tests/persistence/xq-event-recorder.test.ts` 11 例，含契约漂移那条逐字核对 16 个 kind 与 7 个 end_reason）；`POST /api/persistence/xq/events` 由 `app/api/persistence/[...path]/route.ts` 的 `handleXqEvent` 接（`tests/persistence/xq-events-route.test.ts` 5 例，真路由 + 真写入器，只把池子换成 PGlite）；浏览器侧 `lib/learning/xq-event-client.ts` 负责会话懒开、串行发送、重试复用同一 `occurredAt`（`tests/learning/xq-event-client.test.ts` 8 例）；触发点在 `lib/learning/use-xq-page-view.ts`，挂在播放态 `currentSceneId` 的副作用上（`tests/learning/use-xq-page-view.test.ts` 4 例只测纯判据）。**只落地了入口**：`xq_event` 至今没有任何读方，`active_ms` / `wall_ms` / `self_report` / 三档空闲阈值都还没有实现，`dwell_ms` 只是列在那儿不进判定 |
 
 **横切（NF）**
 

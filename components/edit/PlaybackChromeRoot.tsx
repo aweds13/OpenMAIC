@@ -38,6 +38,7 @@ import {
   saveActionResumePosition,
 } from '@/lib/playback/action-resume';
 import { loadCursor, saveCursor, type PlaybackCursor } from '@/lib/playback/cursor';
+import { endXqLearningSession, useXqPageView } from '@/lib/learning/use-xq-page-view';
 import { ActionEngine } from '@/lib/action/engine';
 import { createAudioPlayer } from '@/lib/utils/audio-player';
 import { useDiscussionTTS } from '@/lib/hooks/use-discussion-tts';
@@ -167,6 +168,9 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
      */
     const readingPage = (currentScene?.actions?.length ?? 0) === 0;
     const coursewareReferenceEnabled = isCoursewareReferenceEnabled();
+    // 「他翻到了哪一页」是一条学习事实，不是 UI 状态。这里跟的是结果
+    // （currentSceneId 变了），所以五条翻页入口都不必各自埋点。
+    useXqPageView(stage?.id, currentSceneId);
     const [elementPickActive, setElementPickActiveState] = useState(false);
     const elementPickActiveRef = useRef(false);
     const setElementPickActive = useCallback((next: boolean | ((active: boolean) => boolean)) => {
@@ -596,6 +600,10 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
           engineRef.current?.stop();
           discussionTTS.cleanup();
           resetSceneState();
+          // 离开播放态 = 这次坐下学习结束。放在最后：会话关掉之后不该再有
+          // 事件挂上去，而前面几步都可能产生事件（endActiveSession 会落一次
+          // 讨论记录）。
+          endXqLearningSession(stage?.id);
         },
         pauseForInteractiveMedia: () => {
           const engine = engineRef.current;
@@ -607,7 +615,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
         acceptInteractivePick: (pick) => interactivePickHandlerRef.current(pick),
         cancelElementPick: () => setElementPickActive(false),
       }),
-      [discussionTTS, resetSceneState, setElementPickActive],
+      [discussionTTS, resetSceneState, setElementPickActive, stage?.id],
     );
 
     const clearPresentationIdleTimer = useCallback(() => {

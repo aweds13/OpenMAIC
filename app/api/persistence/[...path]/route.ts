@@ -35,6 +35,7 @@ import {
 } from '@/lib/persistence/owner-merges';
 import { guardedServerRuntimeStore } from '@/lib/persistence/runtime-tombstone-guard';
 import { withXqProbeRecording } from '@/lib/persistence/xq-probe-recorder';
+import { recordXqEvent, XQ_END_REASONS, XQ_EVENT_KINDS } from '@/lib/persistence/xq-event-recorder';
 import {
   getServerPersistenceProvider,
   type PersistencePoolFactory,
@@ -69,6 +70,145 @@ function withHeaders(response: Response, headers: Headers): Response {
  * uncacheable because it is per owner.
  */
 const LEARNER_KEY_PATH = '/learner-key';
+
+/**
+ * `POST /api/persistence/xq/events`: one learning event (page view, session
+ * start/end, answer, review) appended to `xq_event` / `xq_session`.
+ *
+ * A dedicated route rather than a runtime record: turning a page writes no
+ * runtime record at all (`lib/store/stage.ts` only touches the zustand store),
+ * and the runtime payload validators have no `playback` shape to lend it one.
+ * Events are facts the caller asserts — unlike probe evidence, a refusal here
+ * is a real failure and answers non-2xx.
+ */
+const XQ_EVENTS_PATH = '/xq/events';
+
+/**
+ * The body of one learning event. Kept narrow on purpose: the writer's own
+ * validation (kind against the DDL's CHECK list, `session_started` without a
+ * session id) is the single source of truth, and this only rejects shapes it
+ * could not carry at all.
+ */
+interface XqEventBody {
+  kind?: unknown;
+  stageId?: unknown;
+  sceneId?: unknown;
+  questionId?: unknown;
+  occurredAt?: unknown;
+  sessionId?: unknown;
+  dedupeKey?: unknown;
+  dwellMs?: unknown;
+  payload?: unknown;
+  source?: unknown;
+  endReason?: unknown;
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/**
+ * `POST /xq/events` for this app: one event per request, 2xx with the ids the
+ * browser needs to continue the session (`sessionId` for the first page view
+ * that follows a `session_started`), and `duplicate` so a retry is visible
+ * rather than silently doubled.
+ *
+ * Answering 500 on a write failure is deliberate. Probe recording swallows its
+ * failures because it is a by-product of an answer already stored; an event is
+ * the thing the caller asked for, and pretending it landed would make the
+ * browser's session id diverge from the one in `xq_session`.
+ */
+async function handleXqEvent(
+  request: Request,
+  queryable: Queryable,
+  responseHeaders: Headers,
+): Promise<Response> {
+  let body: XqEventBody;
+  try {
+    body = (await request.json()) as XqEventBody;
+  } catch {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', 'request body must be JSON'),
+      responseHeaders,
+    );
+  }
+  if (typeof body !== 'object' || body === null) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', 'request body must be an object'),
+      responseHeaders,
+    );
+  }
+  const kind = asOptionalString(body.kind);
+  const stageId = asOptionalString(body.stageId);
+  const occurredAt = asOptionalString(body.occurredAt);
+  if (kind === undefined || stageId === undefined || occurredAt === undefined) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', 'kind, stageId and occurredAt are required'),
+      responseHeaders,
+    );
+  }
+  if (!XQ_EVENT_KINDS.includes(kind as (typeof XQ_EVENT_KINDS)[number])) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', `unknown event kind: ${kind}`),
+      responseHeaders,
+    );
+  }
+  const endReason = asOptionalString(body.endReason);
+  if (
+    endReason !== undefined &&
+    !XQ_END_REASONS.includes(endReason as (typeof XQ_END_REASONS)[number])
+  ) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', `unknown end reason: ${endReason}`),
+      responseHeaders,
+    );
+  }
+  try {
+    const result = await recordXqEvent(queryable, {
+      kind: kind as (typeof XQ_EVENT_KINDS)[number],
+      stageId,
+      occurredAt,
+      ...(asOptionalString(body.sceneId) === undefined
+        ? {}
+        : { sceneId: asOptionalString(body.sceneId) as string }),
+      ...(asOptionalString(body.questionId) === undefined
+        ? {}
+        : { questionId: asOptionalString(body.questionId) as string }),
+      ...(asOptionalString(body.sessionId) === undefined
+        ? {}
+        : { sessionId: asOptionalString(body.sessionId) as string }),
+      ...(asOptionalString(body.dedupeKey) === undefined
+        ? {}
+        : { dedupeKey: asOptionalString(body.dedupeKey) as string }),
+      ...(typeof body.dwellMs === 'number' ? { dwellMs: body.dwellMs } : {}),
+      ...(typeof body.payload === 'object' && body.payload !== null && !Array.isArray(body.payload)
+        ? { payload: body.payload as Record<string, unknown> }
+        : {}),
+      ...(asOptionalString(body.source) === undefined
+        ? {}
+        : { source: asOptionalString(body.source) as 'self' | 'model' | 'system' | 'import' }),
+      ...(endReason === undefined
+        ? {}
+        : { endReason: endReason as (typeof XQ_END_REASONS)[number] }),
+    });
+    return withHeaders(
+      Response.json(
+        { eventId: result.eventId, sessionId: result.sessionId, duplicate: result.duplicate },
+        { status: result.duplicate ? 200 : 201 },
+      ),
+      responseHeaders,
+    );
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return withHeaders(jsonError(400, 'VALIDATION_FAILED', error.message), responseHeaders);
+    }
+    log.error(`xq event write failed: ${error instanceof Error ? error.message : String(error)}`);
+    return withHeaders(
+      jsonError(500, 'XQ_EVENT_WRITE_FAILED', 'learning event write failed'),
+      responseHeaders,
+    );
+  }
+}
 
 function learnerKeyResponse(ownerId: string, responseHeaders: Headers): Response {
   const response = Response.json(
@@ -541,6 +681,19 @@ async function handlePersistenceRequestInner(
         if (await isOwnerRetired(pool as unknown as Queryable, ownerId)) {
           return withHeaders(ownerRetiredResponse(), responseHeaders);
         }
+      }
+      // Placed after the retirement fence on purpose: an identity a claim
+      // retired appends no learning events either, for the same reason it
+      // writes no runtime record.
+      if (path === XQ_EVENTS_PATH) {
+        if (request.method !== 'POST') {
+          return withHeaders(
+            jsonError(405, 'METHOD_NOT_ALLOWED', 'xq/events accepts POST only'),
+            responseHeaders,
+          );
+        }
+        const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
+        return await handleXqEvent(request, pool as unknown as Queryable, responseHeaders);
       }
       const action = parseDocumentAction(request.method, path);
       let access: DocumentAccess = 'allow';
