@@ -46,6 +46,24 @@ export interface XqDueReviewCard {
   readonly concept: string;
   readonly round: number;
   readonly dueAt: string;
+  /**
+   * 这个概念现在的三态读数，服务端顺带给的。
+   *
+   * `null` 是**「这个概念没有可判的证据」**，不是「他不会」——
+   * 卡片上不许把这两件事画成同一句。今天真库上绝大多数卡都是 `null`：
+   * 只有 14 个概念吃到过证据，而每题至少三题才够判。
+   */
+  readonly mastery: XqCardMastery | null;
+}
+
+/** 一张卡上顺带显示的概念读数。只有 `tri` 是判据，其余是让人能看出凭据多少。 */
+export interface XqCardMastery {
+  /** `known` / `not-learned` / `unknown` —— 与 `xq_cell_state.tri` 同一套三态。 */
+  readonly tri: string;
+  /** 加权题数（同一题重测算 0.5）。 */
+  readonly n: number;
+  /** 去重后的题目个数 —— 与 `n` 不是一回事。 */
+  readonly questions: number;
 }
 
 /** 交一次复习结果的入参。`sessionId` 由调用方给（它属于哪一次坐下学习）。 */
@@ -162,7 +180,21 @@ function asCard(raw: unknown): XqDueReviewCard | undefined {
     concept: typeof row.concept === 'string' ? row.concept : '',
     round: row.round,
     dueAt: row.dueAt,
+    mastery: asMastery(row.mastery),
   };
+}
+
+/**
+ * 概念读数。形状不对就回 `null`（＝「没有」），不让半个读数上卡片 ——
+ * 一个 `tri` 是真的、`n` 是编的读数，比没有读数更坏。
+ */
+function asMastery(raw: unknown): XqCardMastery | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const row = raw as Record<string, unknown>;
+  if (typeof row.tri !== 'string' || row.tri === '') return null;
+  if (typeof row.n !== 'number' || !Number.isFinite(row.n)) return null;
+  if (typeof row.questions !== 'number' || !Number.isFinite(row.questions)) return null;
+  return { tri: row.tri, n: row.n, questions: row.questions };
 }
 
 export function createXqReviewClient(deps: XqReviewClientDeps = {}): XqReviewClient {

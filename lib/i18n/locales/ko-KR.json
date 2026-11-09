@@ -2615,6 +2615,12 @@
       "pass": "I got it right",
       "fail": "I got it wrong",
       "skip": "Skip"
+    },
+    "mastery": "This concept: {{tri}} ({{questions}} questions, weighted {{n}})",
+    "tri": {
+      "known": "passed the bar",
+      "not-learned": "below the bar",
+      "unknown": "not enough evidence"
     }
   },
   "aiLog": {

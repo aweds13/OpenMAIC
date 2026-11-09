@@ -151,6 +151,62 @@ describe('GET /api/persistence/xq/reviews', () => {
     });
   });
 
+  it('★ 卡片顺带说出「这个概念他到底会不会」—— 跨课证据合到一处', async () => {
+    await seedQuizScene(db, STAGE, SCENE, '自检', [{ id: 'q1', question: '甲' }]);
+    await schedule(STAGE, SCENE, 'q1');
+    await makeDue(STAGE, SCENE, 'q1');
+
+    // 同一个概念在**三门课**上各考过一次（今天只有 stage-q1 有到期关）。
+    // 只数到期那门课的话，这三个概念永远停在「一题，不够判」。
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind, status, created_in)
+       VALUES ('c_aaaaaaaaaaaa', $1, 'concept', 'active', 1)`,
+      [CONCEPT],
+    );
+    let i = 0;
+    for (const stageId of [STAGE, 'stage-q2', 'stage-q3']) {
+      const sceneId = `scene-m${i}`;
+      i += 1;
+      await seedQuizScene(db, stageId, sceneId, '别课', [{ id: 'q1', question: '甲' }]);
+      await db.query(
+        `INSERT INTO xq_question_concept
+           (stage_id, scene_id, question_id, concept, concept_kind, link, confidence)
+         VALUES ($1, $2, 'q1', $3, 'keypoint', 'exact', 0.8)`,
+        [stageId, sceneId, CONCEPT],
+      );
+      await db.query(
+        `INSERT INTO xq_probe_item
+           (task_id, stage_id, scene_id, question_id, asked_at, correct, source)
+         VALUES ($1, $2, $3, 'q1', now() - interval '20 days', true, 'existing')`,
+        [`task-${stageId}`, stageId, sceneId],
+      );
+    }
+
+    const handle = await bootRoute();
+    const payload = (await (await handle(request('/xq/reviews'), {})).json()) as {
+      reviews: {
+        questionId: string;
+        mastery: { tri: string; n: number; questions: number } | null;
+      }[];
+    };
+    const card = payload.reviews.find((r) => r.questionId === 'q1');
+    // 三门课的 `q1` 是三道不同的题（题号只在页内唯一），所以 questions 也是 3。
+    expect(card?.mastery).toEqual({ tri: 'known', n: 3, questions: 3 });
+  });
+
+  it('★ 没有可判证据时 mastery 是 null，不是「暂未定」—— 两件事差得很远', async () => {
+    await seedQuizScene(db, STAGE, SCENE, '自检', [{ id: 'q1', question: '甲' }]);
+    await schedule(STAGE, SCENE, 'q1');
+    await makeDue(STAGE, SCENE, 'q1');
+
+    const handle = await bootRoute();
+    const payload = (await (await handle(request('/xq/reviews'), {})).json()) as {
+      reviews: { mastery: unknown }[];
+    };
+    expect(payload.reviews).toHaveLength(1);
+    expect(payload.reviews[0]!.mastery).toBeNull();
+  });
+
   it('★ 到期判据与 dueReviews() 是同一条 —— 两处判据会漂，所以比集合', async () => {
     await seedQuizScene(db, STAGE, SCENE, '自检', [
       { id: 'q1', question: '甲' },

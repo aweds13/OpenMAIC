@@ -44,6 +44,7 @@ const CARD = {
   concept: '类与对象',
   round: 1,
   dueAt: '2026-11-10T05:58:49.909Z',
+  mastery: null,
 };
 
 describe('xq review client', () => {

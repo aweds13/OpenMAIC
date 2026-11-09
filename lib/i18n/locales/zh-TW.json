@@ -2615,6 +2615,12 @@
       "pass": "我答對了",
       "fail": "我答錯了",
       "skip": "跳過"
+    },
+    "mastery": "這個概念現在：{{tri}}（{{questions}} 題，加權 {{n}}）",
+    "tri": {
+      "known": "已達判據",
+      "not-learned": "未達判據",
+      "unknown": "暫未定"
     }
   },
   "aiLog": {

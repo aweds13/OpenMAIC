@@ -169,6 +169,22 @@ export function DueReviewList({ reviewClient, resolveSessionId }: DueReviewListP
                       concept: card.concept === '' ? t('review.noConcept') : card.concept,
                     })}
                   </p>
+                  {/* 概念读数。没有就不显示这一行 —— 不写「暂未定」占位：
+                      那个词在这里会被读成「他大概不会」，而 `null` 的含义是
+                      「这个概念一条可判的证据都没有」，两件事差得很远。 */}
+                  {card.mastery === null ? null : (
+                    <p
+                      data-testid="due-review-mastery"
+                      data-tri={card.mastery.tri}
+                      className="ws-quiet mt-1 text-[12px]"
+                    >
+                      {t('review.mastery', {
+                        tri: t(`review.tri.${card.mastery.tri}` as never),
+                        questions: card.mastery.questions,
+                        n: card.mastery.n,
+                      })}
+                    </p>
+                  )}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {(['pass', 'fail', 'skip'] as const).map((outcome) => (
                       <button

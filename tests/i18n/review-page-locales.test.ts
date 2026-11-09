@@ -71,6 +71,27 @@ describe('review page locale coverage', () => {
     }
   });
 
+  it.each(LOCALES)('%s 定义了概念读数的文案与三档名', (_code, locale) => {
+    const review = blockOf(locale);
+    expect(typeof review.mastery, 'mastery').toBe('string');
+    expect(review.mastery as string).toContain('{{tri}}');
+    expect(review.mastery as string).toContain('{{questions}}');
+    expect(review.mastery as string).toContain('{{n}}');
+    const tri = review.tri as Record<string, unknown> | undefined;
+    expect(tri, 'tri').toBeTruthy();
+    for (const key of ['known', 'not-learned', 'unknown']) {
+      expect(typeof tri?.[key], key).toBe('string');
+      expect((tri?.[key] as string).length, key).toBeGreaterThan(0);
+    }
+  });
+
+  it('★ 三档名互不相同 —— 三态画成同一句话就等于没有三态', () => {
+    for (const [code, locale] of LOCALES) {
+      const tri = blockOf(locale).tri as Record<string, string>;
+      expect(new Set([tri.known, tri['not-learned'], tri.unknown]).size, code).toBe(3);
+    }
+  });
+
   it('★ 「读失败」与「没有到期」不许是同一句话', () => {
     for (const [code, locale] of LOCALES) {
       const review = blockOf(locale);

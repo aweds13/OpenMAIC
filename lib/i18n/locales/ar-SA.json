@@ -2615,6 +2615,12 @@
       "pass": "I got it right",
       "fail": "I got it wrong",
       "skip": "Skip"
+    },
+    "mastery": "هذا المفهوم الآن: {{tri}} ({{questions}} سؤالًا، موزون {{n}})",
+    "tri": {
+      "known": "بلغ الحد",
+      "not-learned": "دون الحد",
+      "unknown": "الأدلة غير كافية"
     }
   },
   "aiLog": {

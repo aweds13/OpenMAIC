@@ -56,6 +56,7 @@ import {
   XQ_REVIEW_OUTCOMES,
 } from '@/lib/persistence/xq-review-recorder';
 import { DUE_REVIEW_CARD_LIMIT, listDueReviewCards } from '@/lib/persistence/xq-review-queue';
+import { readConceptMastery } from '@/lib/persistence/xq-concept-mastery';
 import { AI_LOG_LIMIT, readAiLog } from '@/lib/persistence/xq-ai-log';
 import {
   DEFAULT_PREREQ_STRENGTHS,
@@ -804,6 +805,35 @@ async function handleXqReviewQueue(
       : undefined;
   try {
     const cards = await listDueReviewCards(queryable, limit === undefined ? {} : { limit });
+
+    // ★ 每张卡顺带一句「这个概念他到底会不会」。
+    //
+    // 为什么不放在卡里算：`listDueReviewCards` 是**排期**的读侧（一张卡 = 一关），
+    // 而「会不会」是**证据**的读侧（一个概念 = 跨课跨页的全部观测）。两件事的
+    // 粒度不同 —— 同一道题的四关共享同一个概念判定，逐卡算会把同一份证据
+    // 折四遍，而且四张卡之间可能给出不一致的答案（如果中间有新证据进来）。
+    //
+    // 所以：先按概念去重，一次算完，再把结果贴回每张卡。算失败不影响排期 ——
+    // 「今天该复习什么」比「他大概会不会」重要，前者不该被后者拖垮。
+    // ★ 不传 `stageIds`：一个概念可能在三门课的五个页面上各考过一道题，
+    // 只统计「今天恰好有到期关的那几门课」会把别的课的证据悄悄排除掉 ——
+    // 排除之后照样给出一个看着很确定的读数，比不给更坏。
+    const concepts = [...new Set(cards.map((card) => card.concept).filter((name) => name !== ''))];
+    let mastery = new Map<string, { tri: string; n: number; questions: number }>();
+    if (concepts.length > 0) {
+      try {
+        const rows = await readConceptMastery(queryable, { concepts });
+        mastery = new Map(
+          rows.map((row) => [
+            row.concept,
+            { tri: row.verdict.tri, n: row.verdict.n, questions: row.questions },
+          ]),
+        );
+      } catch (error) {
+        log.warn({ error }, 'xq review queue: concept mastery read failed; serving cards alone');
+      }
+    }
+
     return withHeaders(
       Response.json(
         {
@@ -816,6 +846,9 @@ async function handleXqReviewQueue(
             concept: card.concept,
             round: card.round,
             dueAt: card.dueAt.toISOString(),
+            // `null` 是「这个概念没有可判的证据」，不是「不会」——
+            // 卡片上不许把这两件事画成同一句（同 `/sessions` 的 readFailed/empty）。
+            mastery: mastery.get(card.concept) ?? null,
           })),
         },
         // Per-owner and time-dependent: the list changes as soon as a round is
