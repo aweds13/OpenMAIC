@@ -212,4 +212,89 @@ describe('POST /api/persistence/xq/events', () => {
     expect(rows[0]!.event_n).toBe(3);
     expect(rows[0]!.scene_n).toBe(1);
   });
+
+  /**
+   * ★ 提示分型从浏览器到表里是一条完整的路 —— 2026-11-10 之前它断在写入器。
+   *
+   * 断的时候的症状很安静：DDL 的 CHECK 要求 `hint_requested` 必带类型，
+   * 而写入器的字段与列清单都没有它，于是唯一一个带方向的 kind
+   * 从来没有被写进去过 —— 没有报错，只是**永远为零**。
+   */
+  it('★ 提示分型写得进去，且落在 hint_subtype 列上', async () => {
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+
+    const instrumental = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q1',
+        occurredAt: '2026-11-09T02:20:00.000Z',
+        sessionId,
+        hintSubtype: 'instrumental',
+      }),
+      {},
+    );
+    expect(instrumental.status).toBe(201);
+
+    const executive = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        questionId: 'q2',
+        occurredAt: '2026-11-09T02:21:00.000Z',
+        sessionId,
+        hintSubtype: 'executive',
+      }),
+      {},
+    );
+    expect(executive.status).toBe(201);
+
+    const { rows } = await db.query<{ hint_subtype: string }>(
+      `SELECT hint_subtype FROM xq_event
+        WHERE kind = 'hint_requested' ORDER BY occurred_at`,
+    );
+    // 两个方向必须分开落 —— 合成一个「用过提示」就再也折不出折扣。
+    expect(rows.map((r) => r.hint_subtype)).toEqual(['instrumental', 'executive']);
+  });
+
+  it('★ 未知提示类型当场 400 —— 不接受一个错的方向', async () => {
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+    const response = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        occurredAt: '2026-11-09T02:22:00.000Z',
+        sessionId,
+        hintSubtype: 'hint',
+      }),
+      {},
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'VALIDATION_FAILED' },
+    });
+    expect(await countEvents('hint_requested')).toBe(0);
+  });
+
+  it('★ 要求提示却不说类型，400 而不是 500 —— 是请求不对，不是服务端坏了', async () => {
+    const handle = await bootRoute();
+    const sessionId = await openSession(handle);
+    const response = await handle(
+      post({
+        kind: 'hint_requested',
+        stageId: 'stage-s5',
+        sceneId: 'scene-p1',
+        occurredAt: '2026-11-09T02:23:00.000Z',
+        sessionId,
+      }),
+      {},
+    );
+    expect(response.status).toBe(400);
+    expect(await countEvents('hint_requested')).toBe(0);
+  });
 });

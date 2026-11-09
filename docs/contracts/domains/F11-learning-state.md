@@ -151,8 +151,8 @@
 - **失败长什么样**：翻页什么都没留下；同一次翻页因为组件重渲染被记成 3 条；跨零点的学习被劈成两天的两段会话（凌晨 2 点学的那一课时该算前一天）；事件外键指向一个还没插进库的会话（先发事件后建会话）；客户端把自己的时钟写进 `recorded_at`。
 
 - **判据落点**：
-  - 写入器 `tests/persistence/xq-event-recorder.test.ts` 11 条 —— 会话 id = 首事件 id；同一次开始投递两次只建一个会话；同页同时刻重发只算一次而隔一分钟是新的一次；手点三页 = 3 条 `page_viewed`；结束会话写 `ended_at` + `end_reason` + `event_n` + `scene_n`；答题与复习事件走同一条路；`localDayOf` 在 04:00 前后分属两天；同日第二会话 `seq_no = 2`；`deriveDedupeKey` 稳定且换页换键；非法时间戳与空 `stageId` 抛错且不写半条；**契约漂移**（`pg_get_constraintdef` 里逐字核对 16 个 kind 与 7 个 end_reason，DDL 加值而代码没跟上会当场红）。
-  - 路由 `tests/persistence/xq-events-route.test.ts` 5 条 —— 走真路由 + 真写入器，只把连接池换成 PGlite：手点三页落 3 条；同一事件重发两次 `count(*)` 不变（201 → 200 + `duplicate: true`）；未知 kind 当场 400；非 POST 405；结束会话后 `event_n` / `scene_n` / `end_reason` 都对。
+  - 写入器 `tests/persistence/xq-event-recorder.test.ts` 14 条 —— 会话 id = 首事件 id；同一次开始投递两次只建一个会话；同页同时刻重发只算一次而隔一分钟是新的一次；手点三页 = 3 条 `page_viewed`；结束会话写 `ended_at` + `end_reason` + `event_n` + `scene_n`；答题与复习事件走同一条路；`localDayOf` 在 04:00 前后分属两天；同日第二会话 `seq_no = 2`；`deriveDedupeKey` 稳定且换页换键；非法时间戳与空 `stageId` 抛错且不写半条；**契约漂移**（`pg_get_constraintdef` 里逐字核对 16 个 kind、7 个 end_reason 与 2 个 hint_subtype，DDL 加值而代码没跟上会当场红）；**提示分型写得进去**（`hint_requested` + `instrumental` 落 `hint_subtype` 列）；**说了要提示却不说类型，发 SQL 之前就抛**；**别的 kind 挂提示类型抛**（那是写错行，不是宽容）。
+  - 路由 `tests/persistence/xq-events-route.test.ts` 8 条 —— 走真路由 + 真写入器，只把连接池换成 PGlite：手点三页落 3 条；同一事件重发两次 `count(*)` 不变（201 → 200 + `duplicate: true`）；未知 kind 当场 400；非 POST 405；结束会话后 `event_n` / `scene_n` / `end_reason` 都对；**提示分型从浏览器到表里是一条完整的路**（两个方向必须分开落，合成一个「用过提示」就再也折不出折扣）；未知提示类型 400；要求提示却不说类型 400 而不是 500。
   - 浏览器发送端 `tests/learning/xq-event-client.test.ts` 8 条 —— 只开一条会话；三个页签同 tick 齐发也只开一个；不同课各开一条；**5xx 重试一次且复用同一个 `occurredAt`**；失败不抛只告警；4xx 不重试；结束会话后要重新开；没开过会话就不发结束。
   - 触发判据 `tests/learning/use-xq-page-view.test.ts` 4 条 —— 正常翻页记；占位页 `__pending__` 不记；无课程 id 不记；无页面 id 不记。
 

@@ -35,7 +35,12 @@ import {
 } from '@/lib/persistence/owner-merges';
 import { guardedServerRuntimeStore } from '@/lib/persistence/runtime-tombstone-guard';
 import { withXqProbeRecording } from '@/lib/persistence/xq-probe-recorder';
-import { recordXqEvent, XQ_END_REASONS, XQ_EVENT_KINDS } from '@/lib/persistence/xq-event-recorder';
+import {
+  recordXqEvent,
+  XQ_END_REASONS,
+  XQ_EVENT_KINDS,
+  XQ_HINT_SUBTYPES,
+} from '@/lib/persistence/xq-event-recorder';
 import {
   recordXqReview,
   XqReviewRoundMissingError,
@@ -118,6 +123,7 @@ interface XqEventBody {
   payload?: unknown;
   source?: unknown;
   endReason?: unknown;
+  hintSubtype?: unknown;
 }
 
 function asOptionalString(value: unknown): string | undefined {
@@ -180,6 +186,16 @@ async function handleXqEvent(
       responseHeaders,
     );
   }
+  const hintSubtype = asOptionalString(body.hintSubtype);
+  if (
+    hintSubtype !== undefined &&
+    !XQ_HINT_SUBTYPES.includes(hintSubtype as (typeof XQ_HINT_SUBTYPES)[number])
+  ) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', `unknown hint subtype: ${hintSubtype}`),
+      responseHeaders,
+    );
+  }
   try {
     const result = await recordXqEvent(queryable, {
       kind: kind as (typeof XQ_EVENT_KINDS)[number],
@@ -207,6 +223,9 @@ async function handleXqEvent(
       ...(endReason === undefined
         ? {}
         : { endReason: endReason as (typeof XQ_END_REASONS)[number] }),
+      ...(hintSubtype === undefined
+        ? {}
+        : { hintSubtype: hintSubtype as (typeof XQ_HINT_SUBTYPES)[number] }),
     });
     return withHeaders(
       Response.json(

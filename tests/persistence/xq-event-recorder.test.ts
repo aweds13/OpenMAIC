@@ -8,6 +8,7 @@ import {
   recordXqEvent,
   XQ_END_REASONS,
   XQ_EVENT_KINDS,
+  XQ_HINT_SUBTYPES,
   type XqEventInput,
 } from '@/lib/persistence/xq-event-recorder';
 
@@ -231,6 +232,62 @@ describe('xq event recorder', () => {
     expect(await countSessions()).toBe(0);
   });
 
+  /**
+   * ★ S5 建表时 `hint_subtype` 就被 CHECK 规定「hint_requested 必填」，
+   * 但写入器直到 2026-11-10 都没有这个字段 —— 于是十六个 kind 里
+   * 唯一一个带**方向**的事件从来没被写进去过。这三条钉住补上的路径。
+   */
+  it('★ 求提示必须说清是哪一类 —— 这一列终于写得进去了', async () => {
+    const { sessionId } = await recordXqEvent(db, startInput());
+    const hint = (hintSubtype?: 'instrumental' | 'executive'): XqEventInput => ({
+      kind: 'hint_requested',
+      stageId: 'stage-A',
+      sceneId: 'scene-p1',
+      questionId: 'q1',
+      sessionId,
+      occurredAt: '2026-11-08T02:01:00.000Z',
+      ...(hintSubtype === undefined ? {} : { hintSubtype }),
+    });
+
+    const written = await recordXqEvent(db, hint('instrumental'));
+    expect(written.duplicate).toBe(false);
+
+    const rows = await db.query<{ hint_subtype: string | null; kind: string }>(
+      'SELECT hint_subtype, kind FROM xq_event WHERE event_id = $1',
+      [written.eventId],
+    );
+    expect(rows.rows[0]).toEqual({ hint_subtype: 'instrumental', kind: 'hint_requested' });
+  });
+
+  it('★ 说了要求提示却不说哪一类，发 SQL 之前就抛 —— 不留半条', async () => {
+    const { sessionId } = await recordXqEvent(db, startInput());
+    await expect(
+      recordXqEvent(db, {
+        kind: 'hint_requested',
+        stageId: 'stage-A',
+        sceneId: 'scene-p1',
+        sessionId,
+        occurredAt: '2026-11-08T02:01:00.000Z',
+      }),
+    ).rejects.toThrow(RangeError);
+    expect(await countEvents()).toBe(1); // 只有那条 session_started
+  });
+
+  it('★ 别的 kind 不许挂提示类型 —— 那是写错行，不是宽容', async () => {
+    const { sessionId } = await recordXqEvent(db, startInput());
+    await expect(
+      recordXqEvent(db, {
+        kind: 'page_viewed',
+        stageId: 'stage-A',
+        sceneId: 'scene-p1',
+        sessionId,
+        occurredAt: '2026-11-08T02:01:00.000Z',
+        hintSubtype: 'executive',
+      }),
+    ).rejects.toThrow(RangeError);
+    expect(await countEvents()).toBe(1);
+  });
+
   it('契约漂移会当场红 —— kind 与 end_reason 的取值与 DDL 逐字一致', async () => {
     const kinds = await db.query<{ def: string }>(
       `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
@@ -245,6 +302,13 @@ describe('xq event recorder', () => {
     );
     for (const reason of XQ_END_REASONS) {
       expect(reasons.rows[0]!.def).toContain(`'${reason}'`);
+    }
+    const hints = await db.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+        WHERE conname = 'xq_event_hint_subtype_check'`,
+    );
+    for (const subtype of XQ_HINT_SUBTYPES) {
+      expect(hints.rows[0]!.def).toContain(`'${subtype}'`);
     }
   });
 });

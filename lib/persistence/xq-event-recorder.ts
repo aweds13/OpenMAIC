@@ -34,6 +34,18 @@
  *
  * ## 为什么不在这里判定
  *
+ * ## 为什么提示分型是必填而不是可选
+ *
+ * `hint_subtype` 在 DDL 里就是「`hint_requested` 时 NOT NULL」，但这条约束
+ * 从 S5 建表起一直没有写入路径 —— `XqEventInput` 里没有这个字段、
+ * `INSERT_EVENT_SQL` 的列清单里也没有它，于是想记一次「他求了提示」只会
+ * 撞一个约束名。结果是：十六个 kind 里唯一一个**带符号方向**的事件
+ * （`instrumental` 与成绩正相关、`executive` 强负相关）从未被写进去过。
+ *
+ * 现在补上，并且两条都挡在发 SQL 之前：该有没有、不该有却有。
+ * 事后再从对话文本反推类型不可靠（同一个人问「这步为什么错」与
+ * 「直接告诉我答案」在字面上可能只差几个字），所以宁可写不进去也不许留空。
+ *
  * 本文件只写事实：不读 `xq_cell_state`、不算掌握度、不排期。
  * 状态是从事件与探针**派生**的缓存，派生逻辑在 `xq-learner-store.ts` 与
  * `learner-state.ts` 里；事件层一旦开始判定，「同一件事两种结论」就有了两个源头。
@@ -87,6 +99,18 @@ export const XQ_END_REASONS = [
 export type XqEndReason = (typeof XQ_END_REASONS)[number];
 
 /**
+ * 求提示的两种子类型，与 `xq_event.hint_subtype` 的 CHECK 逐字一致。
+ *
+ * `instrumental` 是「这条提示该怎么说」—— 要的是方法与线索；
+ * `executive` 是「直接告诉我下一步做什么」—— 要的是执行结果。
+ * 两者与成绩的关系**方向相反**（instrumental 正相关、executive 强负相关），
+ * 所以宁可写不进去，也不许留空：事后再从对话文本反推类型，实测不可靠。
+ */
+export const XQ_HINT_SUBTYPES = ['instrumental', 'executive'] as const;
+
+export type XqHintSubtype = (typeof XQ_HINT_SUBTYPES)[number];
+
+/**
  * 一条要写进去的事件。
  *
  * `occurredAt` 是**客户端时钟**（现实里发生的时刻），不是服务端收到的时刻 ——
@@ -111,6 +135,12 @@ export interface XqEventInput {
   source?: 'self' | 'model' | 'system' | 'import';
   /** 只在 `session_ended` / `session_abandoned` 上有意义。 */
   endReason?: XqEndReason;
+  /**
+   * 只在 `hint_requested` 上必填 —— DDL 里有 CHECK 兜着
+   * （`kind <> 'hint_requested' OR hint_subtype IS NOT NULL`）。
+   * 其余 kind 带它就是写错行，见 `recordXqEvent` 的校验。
+   */
+  hintSubtype?: XqHintSubtype;
 }
 
 /** 写完回什么。调用方只用来打日志与继续发后续事件。 */
@@ -132,8 +162,8 @@ VALUES ($1, $2::timestamptz, $3, $4::date)`;
 
 const INSERT_EVENT_SQL = `INSERT INTO xq_event
   (event_id, session_id, occurred_at, kind, stage_id, scene_id, question_id,
-   dwell_ms, payload, dedupe_key, source)
-VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+   dwell_ms, hint_subtype, payload, dedupe_key, source)
+VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
 ON CONFLICT (dedupe_key) DO NOTHING
 RETURNING event_id`;
 
@@ -194,6 +224,15 @@ export async function recordXqEvent(
   if (!startsSession && input.sessionId === undefined) {
     throw new RangeError(`xq: event ${input.kind} needs a sessionId`);
   }
+  // 提示分型：说「要提示」就必须说哪一类，反之不许挂在别的 kind 上。
+  // 前者 DDL 也有 CHECK，但那要等到 INSERT 才报一个约束名；后者 DDL 不拦
+  // （列本身合法，只是挂错了行），两条都在这里挡掉更好读。
+  if (input.kind === 'hint_requested' && input.hintSubtype === undefined) {
+    throw new RangeError('xq: hint_requested needs a hintSubtype (instrumental or executive)');
+  }
+  if (input.kind !== 'hint_requested' && input.hintSubtype !== undefined) {
+    throw new RangeError(`xq: event ${input.kind} must not carry a hintSubtype`);
+  }
 
   // 幂等键不交给调用方：浏览器重发同一条事件时**必须**被认出来，
   // 而「每次都由客户端记得带 dedupeKey」是一条迟早会破的约定。
@@ -231,6 +270,7 @@ export async function recordXqEvent(
     input.sceneId ?? null,
     input.questionId ?? null,
     input.dwellMs ?? null,
+    input.hintSubtype ?? null,
     JSON.stringify(payload),
     dedupeKey,
     input.source ?? 'self',

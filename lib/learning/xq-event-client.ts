@@ -47,6 +47,14 @@ export interface XqEventRequest {
   sessionId?: string;
   payload?: Record<string, unknown>;
   endReason?: string;
+  /**
+   * 只在 `hint_requested` 上必填（服务端的 DDL 有 CHECK 兜着）。
+   *
+   * 这个字段是**必填**而不是可选：`instrumental`（问「怎么想」）与
+   * `executive`（问「直接给答案」）与成绩的关系方向相反，
+   * 事后再从文本反推类型不可靠。调用方宁可不发这条事件，也不要空着发。
+   */
+  hintSubtype?: 'instrumental' | 'executive';
 }
 
 export interface XqEventClientDeps {
