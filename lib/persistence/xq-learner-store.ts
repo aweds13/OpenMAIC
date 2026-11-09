@@ -94,6 +94,28 @@ export interface DueReview {
 /** 复习关次：1/3/7/15 天。下标即「第 n 个剩余关次」，不是 round 本身。 */
 const REVIEW_INTERVAL_DAYS: readonly number[] = [1, 3, 7, 15];
 
+/**
+ * 做错之后重排用的阶梯：**两行**，按「这道题以前失败过几次」选行。
+ *
+ * 第 0 次失败（也就是第一次做错）走第一行，仍然是 1/3/7/15 —— 和一期完全一样。
+ * 从第二次失败起走第二行 3/7/15/30：一道题若在 15 天后才错，说明它曾经稳定过，
+ * 再把它按 1 天的节奏重排等于永远出不了本（M §3.2 分歧四，Anki 用
+ * `interval < 0.5 天` 区分短学期步进与回到 review）。
+ *
+ * ★ 为什么是「整行后移」而不是「按关次逐个加长」：阶梯的语义是**这一轮要走几步**，
+ * 不是「每一步间隔多少」。行内仍严格递增，所以「四关依次变远」这条性质没变；
+ * 变的只是起点。按关次逐个加长会得到非递增的序列，`due_at` 就不再能当排序依据。
+ *
+ * ★ 为什么只分两行而不是按失败次数继续加：失败次数多到一定程度，任何更长的间隔
+ * 都只是「把它彻底忘掉」。两行已经覆盖了「新错题」与「反复错的题」两种情况，
+ * 再细分需要真实数据支撑，而我们今天一条 `review_failed` 都还没有（见 §10.6 的教训：
+ * 判据在空表上通过是空真）。
+ */
+const REVIEW_RESET_LADDER: readonly (readonly number[])[] = [
+  [1, 3, 7, 15],
+  [3, 7, 15, 30],
+];
+
 /** 每行的绑定参数个数（改这个必须同时改 `probeRowPlaceholders`）。 */
 const PROBE_PARAMS_PER_ROW = 10;
 
@@ -283,19 +305,28 @@ const RECORD_OUTCOME_SQL = `WITH target AS (
      AND round = $5
      AND $6 <> 'fail'
   RETURNING id
+), prior AS (
+  SELECT count(*)::int AS n
+    FROM xq_event
+   WHERE kind = 'review_failed'
+     AND stage_id = $1 AND scene_id = $2 AND question_id = $3
+     AND coalesce(payload->>'concept', '') = $4
+     AND occurred_at < $8::timestamptz
 ), rescheduled AS (
-  UPDATE xq_review_schedule
-     SET due_at = now() + make_interval(days => ($7::int[])[round]),
+  UPDATE xq_review_schedule s
+     SET due_at = now() + make_interval(days =>
+           ($7::int[][])[LEAST((SELECT n FROM prior), 1) + 1][s.round]),
          done_at = NULL,
          outcome = NULL
-   WHERE stage_id = $1 AND scene_id = $2 AND question_id = $3 AND concept = $4
+   WHERE s.stage_id = $1 AND s.scene_id = $2 AND s.question_id = $3 AND s.concept = $4
      AND $6 = 'fail'
      AND EXISTS (SELECT 1 FROM target)
   RETURNING id
 )
 SELECT (SELECT count(*)::int FROM target) AS target,
        (SELECT count(*)::int FROM marked) AS marked,
-       (SELECT count(*)::int FROM rescheduled) AS rescheduled`;
+       (SELECT count(*)::int FROM rescheduled) AS rescheduled,
+       (SELECT n FROM prior) AS prior_failures`;
 
 const DUE_REVIEWS_SQL = `SELECT stage_id, scene_id, question_id, concept, round, due_at
   FROM xq_review_schedule
@@ -529,10 +560,21 @@ export class XqLearnerStore {
    * - `pass`：写 `done_at` 与 `outcome='pass'`。**后续关不动** —— 第 3 关仍然按
    *   排期那天到期，不会因为它提前过了就提前。
    * - `fail`：**四关全部重置**（不只是当前关之后的）：`due_at` 一律改成
-   *   `now() + 阶梯[round]`（round 1..4 ⇒ 1/3/7/15 天），`done_at` 与 `outcome`
-   *   一律清空，连刚刚失败的那一关也清空。这就是「做错回第 1 关」：下一关还是
-   *   第 1 关（明天到期），这一轮的四个关卡从头再走一遍。
+   *   `now() + 阶梯[round]`，`done_at` 与 `outcome` 一律清空，连刚刚失败的那一关
+   *   也清空。这就是「做错回第 1 关」：下一关还是第 1 关，这一轮的四个关卡从头
+   *   再走一遍。
    * - `skip`：只写 `done_at` 与 `outcome='skip'`，不动排期。
+   *
+   * ## `fail` 用哪一行阶梯，取决于「以前错过几次」
+   *
+   * `REVIEW_RESET_LADDER` 是两行：第 0 次失败（第一次做错）走 `[1,3,7,15]`，
+   * 第 1 次及以上走 `[3,7,15,30]`。计数来自 `xq_event`（排期表没有「重置次数」列），
+   * 且**严格早于这一次** —— `recordXqReview` 先写事件再调这里，这一次自己的失败
+   * 事件若被算进去，第一次做错就会用上第二行，一期判决被悄悄推翻。
+   *
+   * `occurredAt` 就是那个比较锚点。不传时退回本实例的 `now`（测试注入固定钟即可，
+   * 生产路径由 `recordXqReview` 传事件的时刻）。**重放同一批事件必须传**，否则
+   * 同一份历史重跑两次会按两个不同的「现在」算出两套排期。
    *
    * 抛：`XqReviewRoundNotFoundError` —— 这一关没有排过期（三种 outcome 都会先查它，
    * 否则 fail 一个不存在的 round 会顺手把四关重置一遍还报成功）；驱动错误原样抛出。
@@ -545,7 +587,12 @@ export class XqLearnerStore {
     concept: string,
     round: number,
     outcome: 'pass' | 'fail' | 'skip',
+    occurredAt?: Date,
   ): Promise<void> {
+    // 失败计数要**排除这一次**：`recordXqReview` 会先把 `review_failed` 事件写进去，
+    // 再调这里。用严格小于，所以「第几次失败」指的是「这一次之前失败过几次」。
+    // 不传时刻时退回本实例的 `now`，测试里注入固定钟即可复现。
+    const anchor = occurredAt ?? this.now?.() ?? new Date();
     const { rows } = await this.queryable.query<{
       target: number;
       marked: number;
@@ -557,7 +604,8 @@ export class XqLearnerStore {
       concept,
       round,
       outcome,
-      [...REVIEW_INTERVAL_DAYS],
+      REVIEW_RESET_LADDER.map((row) => [...row]),
+      anchor.toISOString(),
     ]);
     const found = rows[0]?.target ?? 0;
     if (found === 0) {

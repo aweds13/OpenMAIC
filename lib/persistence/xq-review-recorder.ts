@@ -135,6 +135,9 @@ export async function recordXqReview(
     duplicate = event.duplicate;
   }
 
+  // 失败计数要按**这一次之前**数，所以把这一刻传下去。用 `occurredAt` 而不是真实
+  // 时钟：重放同一批事件时「第几次失败」必须算出同一个答案，否则同一份历史重跑
+  // 两次会得到两套排期。
   const store = new XqLearnerStore({ queryable });
   await store.recordReviewOutcome(
     input.stageId,
@@ -143,6 +146,7 @@ export async function recordXqReview(
     input.concept,
     input.round,
     input.outcome,
+    new Date(input.occurredAt),
   );
 
   return { recorded: true, eventId, duplicate };

@@ -62,12 +62,32 @@ describe('XqLearnerStore', () => {
     source: 'manual' as const,
   });
 
+  /**
+   * 造一条「更早的失败」。
+   *
+   * `xq_event.session_id` 有外键指回 `xq_session`，所以先开一个会话。
+   * payload 里的 `concept` 是计数口径的一部分（`coalesce(payload->>'concept','') = $4`）。
+   */
+  async function seedReviewFailed(at: Date): Promise<void> {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    await db.query(
+      `INSERT INTO xq_session (session_id, started_at, seq_no, local_day)
+       VALUES ($1::uuid, $2::timestamptz, 1, $2::date)
+       ON CONFLICT (session_id) DO NOTHING`,
+      [sessionId, at.toISOString()],
+    );
+    await db.query(
+      `INSERT INTO xq_event
+         (event_id, session_id, occurred_at, kind, stage_id, scene_id, question_id, payload)
+       VALUES (gen_random_uuid(), $1::uuid, $2::timestamptz, 'review_failed',
+               'stage-A', 'scene-p1', 'q1', $3::jsonb)`,
+      [sessionId, at.toISOString(), JSON.stringify({ concept: 'concept-x', round: 1 })],
+    );
+  }
+
   describe('ingestProbeItems', () => {
     it('写入一批，返回真插进去的条数', async () => {
-      const result = await store.ingestProbeItems([
-        probe('q1', true, 1),
-        probe('q2', false, 2),
-      ]);
+      const result = await store.ingestProbeItems([probe('q1', true, 1), probe('q2', false, 2)]);
       expect(result).toEqual({ inserted: 2, skipped: 0 });
     });
 
@@ -251,6 +271,68 @@ describe('XqLearnerStore', () => {
       expect(days).toEqual([0, 2, 6, 14]);
       // 而且第 1 关的到期日确实往后推了（不是留在原地）
       expect(base).toBeGreaterThan(firstDue);
+    });
+
+    it('★ 第二次做错起，重置阶梯整行后移（1/3/7/15 → 3/7/15/30）', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      // 排期表里没有「重置过几次」这一列 —— 计数只能来自事件。
+      // 这里直接造一条更早的 `review_failed`，代表「他以前就错过这道题」。
+      await seedReviewFailed(new Date(Date.UTC(2026, 10, 2)));
+
+      await store.recordReviewOutcome(
+        'stage-A',
+        'scene-p1',
+        'q1',
+        'concept-x',
+        1,
+        'fail',
+        new Date(Date.UTC(2026, 10, 3)),
+      );
+
+      const { rows } = await db.query<{ round: number; days: number }>(
+        `SELECT round, round(EXTRACT(EPOCH FROM (due_at - now())) / 86400)::int AS days
+           FROM xq_review_schedule ORDER BY round`,
+      );
+      // 整行后移，但行内仍严格递增 —— 「四关依次变远」这条性质没变。
+      expect(rows.map((r) => Number(r.days))).toEqual([3, 7, 15, 30]);
+    });
+
+    it('★ 第三次、第 N 次做错仍用第二行，不会无限往后推', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      for (let i = 0; i < 4; i += 1) {
+        await seedReviewFailed(new Date(Date.UTC(2026, 10, 2 + i)));
+      }
+      await store.recordReviewOutcome(
+        'stage-A',
+        'scene-p1',
+        'q1',
+        'concept-x',
+        1,
+        'fail',
+        new Date(Date.UTC(2026, 10, 20)),
+      );
+      const { rows } = await db.query<{ days: number }>(
+        `SELECT round(EXTRACT(EPOCH FROM (due_at - now())) / 86400)::int AS days
+           FROM xq_review_schedule ORDER BY round`,
+      );
+      expect(rows.map((r) => Number(r.days))).toEqual([3, 7, 15, 30]);
+    });
+
+    it('★ 这一次自己的失败事件不算「以前」—— 用严格小于，不是小于等于', async () => {
+      await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
+      const at = new Date(Date.UTC(2026, 10, 3));
+      // 与失败**同一时刻**的事件：它是这一次自己写的（`recordXqReview` 先写事件
+      // 再改排期），若把它算进 `prior`，第一次失败就会用上第二行阶梯 ——
+      // 一期「做错仍回 1/3/7/15」的判决会被悄悄推翻。
+      await seedReviewFailed(at);
+
+      await store.recordReviewOutcome('stage-A', 'scene-p1', 'q1', 'concept-x', 1, 'fail', at);
+
+      const { rows } = await db.query<{ days: number }>(
+        `SELECT round(EXTRACT(EPOCH FROM (due_at - now())) / 86400)::int AS days
+           FROM xq_review_schedule ORDER BY round`,
+      );
+      expect(rows.map((r) => Number(r.days))).toEqual([1, 3, 7, 15]);
     });
 
     it('做对只标记那一关，不影响后面', async () => {
