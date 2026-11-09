@@ -14,7 +14,7 @@
 | 层 | 入口 | 装什么 |
 |---|---|---|
 | 意图 | [`docs/intention/needs.md`](docs/intention/needs.md) | N1–N32 需求全表（要什么，不管怎么做） |
-| 规格 | [`docs/specification/traceability.md`](docs/specification/traceability.md) | 十一域 F1–F11、60 条 SR；`domains/` 下逐域规则 |
+| 规格 | [`docs/specification/traceability.md`](docs/specification/traceability.md) | 十一域 F1–F11、62 条 SR；`domains/` 下逐域规则 |
 | 契约 | [`docs/contracts/interactions.md`](docs/contracts/interactions.md) | OP-1…OP-6 操作契约；`flows.md` 的 FLOW-1…FLOW-4 |
 | 实现 | [`docs/implementation/modules.md`](docs/implementation/modules.md) | M1–M15 模块索引；`coverage.md` 的判据矩阵 |
 | 品味 | [`docs/taste/README.md`](docs/taste/README.md) | 产品 / 架构 / 工程品味与红线、冲突排序 |

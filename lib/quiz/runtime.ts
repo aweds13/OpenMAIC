@@ -13,6 +13,7 @@ import {
   type LegacyQuizStateSnapshot,
   type QuizAnswers,
 } from '@/lib/quiz/persistence';
+import { asConfidenceMap, type ConfidenceMap } from '@/lib/quiz/confidence';
 import { getLearnerKey } from '@/lib/runtime/learner-key';
 import { getRuntimeStore } from '@/lib/runtime/store';
 
@@ -21,6 +22,14 @@ export interface QuizAttemptPayload extends QuizAttemptSkeleton {
   phase: QuizAttemptPhase;
   answers: QuizAnswers;
   results?: QuestionResult[];
+  /**
+   * 题号 → 他当时说的把握（四档 25/50/75/95）。
+   *
+   * 放在 payload 而不是单开一张表，是因为它**跟着这一次作答走**：
+   * 同一道题第二次做时的把握与第一次无关，而 payload 天然按 attempt 分开。
+   * `xq_probe_item.confidence_pre` 只在 `reviewed` 记录落库时读它。
+   */
+  confidence?: ConfidenceMap;
 }
 
 export interface QuizAttemptRecordInput {
@@ -30,6 +39,8 @@ export interface QuizAttemptRecordInput {
   phase: QuizAttemptPhase;
   answers: QuizAnswers;
   results?: QuestionResult[];
+  /** 题号 → 自评把握。只在 `reviewed` 那一次有意义（探针从这里取）。 */
+  confidence?: ConfidenceMap;
   /** Begin a distinct retry even when the prior attempt has the same payload. */
   startNewAttempt?: boolean;
 }
@@ -63,6 +74,8 @@ export interface QuizAttemptState {
   phase: QuizAttemptPhase;
   answers: QuizAnswers;
   results?: QuestionResult[];
+  /** 已落库的自评。刷新页面后要接着用，不能只活在组件 state 里。 */
+  confidence?: ConfidenceMap;
 }
 
 export interface LoadedQuizAttemptState {
@@ -279,6 +292,9 @@ async function readLatestQuizAttemptState(
       ...(payload.phase === 'reviewed'
         ? { results: Array.isArray(payload.results) ? payload.results : [] }
         : {}),
+      ...(payload.confidence === undefined
+        ? {}
+        : { confidence: asConfidenceMap(payload.confidence) }),
     };
   }
   return undefined;
@@ -516,6 +532,12 @@ export async function recordQuizAttempt(
         phase: input.phase,
         answers: input.answers,
         ...(input.results === undefined ? {} : { results: input.results }),
+        // 自评跟着**这一次 append** 走。空映射不写：`{}` 与「没问过」在
+        // 读侧要能分开，而写一个空对象会让 `samePayload` 把两次不同的
+        // 草稿判成相同，草稿就会静默丢掉。
+        ...(input.confidence === undefined || Object.keys(input.confidence).length === 0
+          ? {}
+          : { confidence: asConfidenceMap(input.confidence) }),
       };
       let rolloverIndex = 0;
       let sessionId = input.attemptId;

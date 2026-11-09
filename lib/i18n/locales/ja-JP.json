@@ -840,6 +840,22 @@
       "failed": "This request wasn't recorded (not your fault). Try again in a moment.",
       "unsent": "The request was recorded but the message wasn't sent — check that a model is configured.",
       "template": "I'm stuck on this question. Give me a direction to think in — don't give me the answer:\n\n{{stem}}"
+    },
+    "confidence": {
+      "label": "この問題、どれくらい自信ありますか？",
+      "missing": "答えた問題それぞれについて自信の程度を選んでください",
+      "title": "自己評価の校正",
+      "summary": "{{expected}}% の自信に対して実際は {{actual}}%（{{count}} 問）",
+      "needMore": "あと {{needed}} 問自己評価すると傾向が見えます",
+      "level25": "ほぼ勘",
+      "level50": "あまり自信なし",
+      "level75": "まあまあ自信あり",
+      "level95": "かなり自信あり",
+      "calibration": {
+        "over": "思ったより自信がなかったようです — 自信のある問題で予想より多く間違えました。",
+        "under": "思ったより自信があったようです — 迷った問題は正解でした。",
+        "good": "自己評価と実際の結果はおおむね一致しています。"
+      }
     }
   },
   "roundtable": {

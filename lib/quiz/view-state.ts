@@ -1,3 +1,4 @@
+import type { ConfidenceMap } from '@/lib/quiz/confidence';
 import type { QuestionResult } from '@/lib/quiz/grading';
 import type { QuizAnswers } from '@/lib/quiz/persistence';
 import type { QuizAttemptState, QuizAttemptWriter, QuizDraftInput } from '@/lib/quiz/runtime';
@@ -76,21 +77,27 @@ export interface QuizViewHydratedState {
   phase: 'not_started' | 'answering' | 'reviewing';
   answers: QuizAnswers;
   results: QuestionResult[];
+  /** 已落库的自评。换页签/刷新后要接着显示，不能只活在组件 state 里。 */
+  confidence: ConfidenceMap;
 }
 
 export function quizViewStateFromAttempt(
   state: QuizAttemptState | undefined,
 ): QuizViewHydratedState {
-  if (!state) return { phase: 'not_started', answers: {}, results: [] };
+  if (!state) {
+    return { phase: 'not_started', answers: {}, results: [], confidence: {} };
+  }
+  const confidence = state.confidence ?? {};
   if (state.phase === 'reviewed') {
     return {
       phase: 'reviewing',
       answers: state.answers,
       results: state.results ?? [],
+      confidence,
     };
   }
   if (state.phase === 'draft' && Object.keys(state.answers).length === 0) {
-    return { phase: 'not_started', answers: {}, results: [] };
+    return { phase: 'not_started', answers: {}, results: [], confidence };
   }
-  return { phase: 'answering', answers: state.answers, results: [] };
+  return { phase: 'answering', answers: state.answers, results: [], confidence };
 }

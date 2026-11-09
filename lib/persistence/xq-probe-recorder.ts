@@ -61,6 +61,7 @@
 import type { RuntimeStore } from '@openmaic/storage';
 import type { Queryable } from '@openmaic/storage/document/pg';
 import { createLogger } from '@/lib/logger';
+import { asConfidenceMap, confidenceOf } from '@/lib/quiz/confidence';
 import type { QuestionResult } from '@/lib/quiz/grading';
 import { XqLearnerStore, type ProbeItemInput } from './xq-learner-store';
 
@@ -74,6 +75,8 @@ export interface ReviewedQuizPayload {
   payloadVersion?: unknown;
   phase?: unknown;
   results?: unknown;
+  /** 题号 → 自评把握（四档）。收不进来的条目一律当没问过。 */
+  confidence?: unknown;
 }
 
 /** 写入口要的最小依赖。全部可注入，所以判据不需要真库也能跑。 */
@@ -163,15 +166,24 @@ export async function recordProbeFromRuntimeAppend(
   }
   if (graded.length === 0) return result;
 
-  const items: ProbeItemInput[] = graded.map(({ result: item, correct }) => ({
-    taskId,
-    stageId: input.stageId,
-    sceneId: input.sceneId,
-    questionId: item.questionId,
-    askedAt,
-    correct,
-    source: 'existing',
-  }));
+  // ★ 自评是**事实**，不是判定。它只落 `xq_probe_item.confidence_pre`，
+  // 不进 `EvidenceItem`（`lib/quiz/xq-mastery.ts` 里刻意没有这个字段）——
+  // Karpicke & Roediger 2008 实测预测 50% / 实际 80% 对 33%、组间 F<1，
+  // 自评与真实零相关。所以它既不能让一格变「会」，也不能让它变「不会」。
+  const confidence = asConfidenceMap(input.payload.confidence);
+  const items: ProbeItemInput[] = graded.map(({ result: item, correct }) => {
+    const level = confidenceOf(confidence, item.questionId);
+    return {
+      taskId,
+      stageId: input.stageId,
+      sceneId: input.sceneId,
+      questionId: item.questionId,
+      askedAt,
+      correct,
+      source: 'existing',
+      ...(level === undefined ? {} : { confidencePre: level }),
+    };
+  });
 
   try {
     const ingested = await store.ingestProbeItems(items);

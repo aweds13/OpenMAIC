@@ -840,6 +840,22 @@
       "failed": "This request wasn't recorded (not your fault). Try again in a moment.",
       "unsent": "The request was recorded but the message wasn't sent — check that a model is configured.",
       "template": "I'm stuck on this question. Give me a direction to think in — don't give me the answer:\n\n{{stem}}"
+    },
+    "confidence": {
+      "label": "Насколько ты уверен?",
+      "missing": "Выбери степень уверенности для каждого отвеченного вопроса",
+      "title": "Калибровка",
+      "summary": "Ты ожидал {{expected}} %, а получилось {{actual}} % ({{count}} вопросов)",
+      "needMore": "Ещё {{needed}} самооценок, и это начнёт что-то показывать",
+      "level25": "Почти угадал",
+      "level50": "Не очень уверен",
+      "level75": "Довольно уверен",
+      "level95": "Очень уверен",
+      "calibration": {
+        "over": "Ты был менее уверен, чем думал — среди «уверенных» ответов ошибок больше ожидаемого.",
+        "under": "Ты был более уверен, чем думал — сомнительные ответы оказались верными.",
+        "good": "Сказанное примерно совпало с результатом."
+      }
     }
   },
   "roundtable": {

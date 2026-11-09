@@ -840,6 +840,22 @@
       "failed": "This request wasn't recorded (not your fault). Try again in a moment.",
       "unsent": "The request was recorded but the message wasn't sent — check that a model is configured.",
       "template": "I'm stuck on this question. Give me a direction to think in — don't give me the answer:\n\n{{stem}}"
+    },
+    "confidence": {
+      "label": "Quanta certeza você tem?",
+      "missing": "Escolha quanta certeza você tinha em cada questão respondida",
+      "title": "Calibração",
+      "summary": "Você esperava {{expected}}%, acertou {{actual}}% ({{count}} questões)",
+      "needMore": "Faltam {{needed}} autoavaliações para isso dizer algo",
+      "level25": "Quase chute",
+      "level50": "Pouca certeza",
+      "level75": "Bastante certeza",
+      "level95": "Muita certeza",
+      "calibration": {
+        "over": "Você estava menos certo do que pensava — errou mais do que esperado entre as que tinha certeza.",
+        "under": "Você estava mais certo do que pensava — acertou as que causavam dúvida.",
+        "good": "O que você disse bateu mais ou menos com o que fez."
+      }
     }
   },
   "roundtable": {

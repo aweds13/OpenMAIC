@@ -840,6 +840,22 @@
       "failed": "This request wasn't recorded (not your fault). Try again in a moment.",
       "unsent": "The request was recorded but the message wasn't sent — check that a model is configured.",
       "template": "I'm stuck on this question. Give me a direction to think in — don't give me the answer:\n\n{{stem}}"
+    },
+    "confidence": {
+      "label": "ما مدى ثقتك؟",
+      "missing": "اختر مدى ثقتك لكل سؤال أجبت عنه",
+      "title": "معايرة التقييم الذاتي",
+      "summary": "توقعت {{expected}}% وأصبت {{actual}}% ({{count}} أسئلة)",
+      "needMore": "تبقّى {{needed}} تقييمات ذاتية ليصبح لهذا معنى",
+      "level25": "تخمين غالبًا",
+      "level50": "غير متأكد",
+      "level75": "متأكد نوعًا ما",
+      "level95": "متأكد جدًا",
+      "calibration": {
+        "over": "كنت أقل ثقة مما ظننت — أخطأت في أسئلة الثقة أكثر من المتوقع.",
+        "under": "كنت أكثر ثقة مما ظننت — الأسئلة التي شككت فيها كانت صحيحة.",
+        "good": "ما قلته طابق تقريبًا ما فعلته."
+      }
     }
   },
   "roundtable": {

@@ -840,6 +840,22 @@
       "failed": "This request wasn't recorded (not your fault). Try again in a moment.",
       "unsent": "The request was recorded but the message wasn't sent — check that a model is configured.",
       "template": "I'm stuck on this question. Give me a direction to think in — don't give me the answer:\n\n{{stem}}"
+    },
+    "confidence": {
+      "label": "이 문제, 얼마나 자신 있나요?",
+      "missing": "답한 문제마다 확신 정도를 골라 주세요",
+      "title": "자기평가 보정",
+      "summary": "{{expected}}% 확신했지만 실제로는 {{actual}}% 맞았습니다 ({{count}}문항)",
+      "needMore": "{{needed}}문항을 더 자기평가하면 경향이 보입니다",
+      "level25": "거의 찍음",
+      "level50": "별로 확신 없음",
+      "level75": "꽤 확신함",
+      "level95": "아주 확신함",
+      "calibration": {
+        "over": "생각보다 확신이 낮았습니다 — 확신한 문제에서 예상보다 많이 틀렸습니다.",
+        "under": "생각보다 확신이 높았습니다 — 망설인 문제를 실제로 맞혔습니다.",
+        "good": "말한 것과 실제 결과가 대체로 맞습니다."
+      }
     }
   },
   "roundtable": {

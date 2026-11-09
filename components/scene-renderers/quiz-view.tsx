@@ -23,6 +23,16 @@ const log = createLogger('QuizView');
 import type { QuizQuestion } from '@/lib/types/stage';
 import { SpeechButton } from '@/components/audio/speech-button';
 import { gradeChoiceQuestions, isShortAnswer, type QuestionResult } from '@/lib/quiz/grading';
+import {
+  CONFIDENCE_LEVELS,
+  answeredQuestionIds,
+  calibrationFromResults,
+  confidenceOf,
+  isConfidenceComplete,
+  withConfidence,
+  type ConfidenceLevel,
+  type ConfidenceMap,
+} from '@/lib/quiz/confidence';
 import { renderQuizMathText } from '@/lib/quiz/math-text';
 import { writeDraftRecovery } from '@/lib/quiz/persistence';
 import {
@@ -230,6 +240,8 @@ function SingleChoiceQuestion({
   onChange,
   disabled,
   result,
+  confidence,
+  onConfidence,
 }: {
   question: QuizQuestion;
   index: number;
@@ -237,11 +249,19 @@ function SingleChoiceQuestion({
   onChange: (value: string) => void;
   disabled?: boolean;
   result?: QuestionResult;
+  confidence?: ConfidenceLevel;
+  onConfidence?: (level: ConfidenceLevel) => void;
 }) {
   const isReview = !!result;
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard
+      question={question}
+      index={index}
+      result={result}
+      confidence={confidence}
+      onConfidence={onConfidence}
+    >
       <div className="grid gap-2">
         {question.options?.map((opt) => {
           const selected = value === opt.value;
@@ -323,6 +343,8 @@ function MultipleChoiceQuestion({
   onChange,
   disabled,
   result,
+  confidence,
+  onConfidence,
 }: {
   question: QuizQuestion;
   index: number;
@@ -330,6 +352,8 @@ function MultipleChoiceQuestion({
   onChange: (value: string[]) => void;
   disabled?: boolean;
   result?: QuestionResult;
+  confidence?: ConfidenceLevel;
+  onConfidence?: (level: ConfidenceLevel) => void;
 }) {
   const isReview = !!result;
   const selected = value ?? [];
@@ -346,7 +370,13 @@ function MultipleChoiceQuestion({
   const { t } = useI18n();
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard
+      question={question}
+      index={index}
+      result={result}
+      confidence={confidence}
+      onConfidence={onConfidence}
+    >
       {!isReview && (
         <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
           {t('quiz.multipleChoiceHint')}
@@ -426,6 +456,8 @@ function ShortAnswerQuestion({
   onChange,
   disabled,
   result,
+  confidence,
+  onConfidence,
 }: {
   question: QuizQuestion;
   index: number;
@@ -433,6 +465,8 @@ function ShortAnswerQuestion({
   onChange: (value: string) => void;
   disabled?: boolean;
   result?: QuestionResult;
+  confidence?: ConfidenceLevel;
+  onConfidence?: (level: ConfidenceLevel) => void;
 }) {
   const isReview = !!result;
   const { t } = useI18n();
@@ -443,7 +477,13 @@ function ShortAnswerQuestion({
   }, [value]);
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard
+      question={question}
+      index={index}
+      result={result}
+      confidence={confidence}
+      onConfidence={onConfidence}
+    >
       {!isReview ? (
         <div className="relative">
           <textarea
@@ -505,11 +545,17 @@ function QuestionCard({
   question,
   index,
   result,
+  confidence,
+  onConfidence,
   children,
 }: {
   question: QuizQuestion;
   index: number;
   result?: QuestionResult;
+  /** 这一题他已经选过的把握。没选过就是 `undefined`。 */
+  confidence?: ConfidenceLevel;
+  /** 给了才显示自评行 —— 复习态、以及没有写入方的地方不显示。 */
+  onConfidence?: (level: ConfidenceLevel) => void;
   children: React.ReactNode;
 }) {
   const { t } = useI18n();
@@ -680,6 +726,38 @@ function QuestionCard({
         </p>
       )}
 
+      {/* 自评。★ 位置在题干与选项**之下**：他得先看过这道题才有资格说
+          「我有多大把握」，而四档里最低那档写的是「基本靠猜」——
+          没读题就点它只是在回避。复习态不显示：那时他已知对错，
+          再问「当时有多大把握」得到的不是预测，是回忆。 */}
+      {onConfidence !== undefined && (
+        <div data-testid="quiz-confidence" className="mb-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">
+            {t('quiz.confidence.label')}
+          </span>
+          {CONFIDENCE_LEVELS.map((level) => {
+            const active = confidence === level;
+            return (
+              <button
+                key={level}
+                type="button"
+                data-testid={`quiz-confidence-${level}`}
+                aria-pressed={active}
+                onClick={() => onConfidence(level)}
+                className={cn(
+                  'rounded-full px-2.5 py-0.5 text-[11px] transition-colors',
+                  active
+                    ? 'bg-violet-500 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-violet-50 hover:text-violet-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-violet-900/40',
+                )}
+              >
+                {t(`quiz.confidence.level${level}` as never)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Body */}
       {children}
 
@@ -691,6 +769,53 @@ function QuestionCard({
         </div>
       )}
     </motion.div>
+  );
+}
+
+/**
+ * 校准条：他说的把握与真实正确率差多少。
+ *
+ * ★ 只在题数够的时候给标签（`CONFIDENCE_LABEL_MIN_COUNT = 8`），不够时
+ * 说的是「还差几道题」而不是「你的判断很准」。后者是一句它并不知道的话。
+ * ★ 这一条**永远不进掌握度**：它描述的是「他知不知道自己会」，不是
+ * 「他会不会」。二者零相关（Karpicke & Roediger 2008）。
+ */
+function CalibrationBanner({
+  results,
+  confidence,
+}: {
+  results: QuestionResult[];
+  confidence: ConfidenceMap;
+}) {
+  const { t } = useI18n();
+  const calibration = useMemo(
+    () => calibrationFromResults(confidence, results),
+    [confidence, results],
+  );
+  if (calibration.count === 0) return null;
+  const tone =
+    calibration.label === 'over'
+      ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+      : calibration.label === 'under'
+        ? 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
+        : 'bg-gray-50 text-gray-600 dark:bg-gray-800/60 dark:text-gray-300';
+  return (
+    <div
+      data-testid="quiz-calibration"
+      data-label={calibration.label ?? 'unknown'}
+      className={cn('rounded-xl px-4 py-3 text-xs leading-relaxed', tone)}
+    >
+      <span className="font-medium">{t('quiz.confidence.title')}</span>{' '}
+      {t('quiz.confidence.summary', {
+        expected: Math.round(calibration.expected),
+        actual: Math.round(calibration.actual),
+        count: calibration.count,
+      })}
+      {' — '}
+      {calibration.label === undefined
+        ? t('quiz.confidence.needMore', { needed: calibration.needed })
+        : t(`quiz.confidence.calibration.${calibration.label}` as never)}
+    </div>
   );
 }
 
@@ -795,6 +920,7 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
 
   const [phase, setPhase] = useState<Phase>('not_started');
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  const [confidence, setConfidence] = useState<ConfidenceMap>({});
   const [results, setResults] = useState<QuestionResult[]>([]);
   const [runtimeGate, setRuntimeGate] = useState<QuizRuntimeGate>({ status: 'loading' });
   const [hydrationVersion, setHydrationVersion] = useState(0);
@@ -833,6 +959,7 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
         const next = quizViewStateFromAttempt(state);
         setPhase(next.phase);
         setAnswers(next.answers);
+        setConfidence(next.confidence);
         setResults(next.results);
         setRuntimeGate({ status: 'ready', attemptId: nextAttemptId });
       })
@@ -862,6 +989,25 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
       return (a as string).trim().length > 0;
     });
   }, [questions, answers]);
+
+  /**
+   * 自评问全了没有。★ 只对**答过**的题要求自评：没作答的题它不问，
+   * 因为一道他跳过的题不存在「有多大把握」这种判断 —— 强行要一个
+   * 会让「跳过」变成一次必填，而那与 desirable difficulty 相反。
+   */
+  const confidenceComplete = useMemo(
+    () =>
+      isConfidenceComplete(
+        answeredQuestionIds(
+          questions.map((q) => q.id),
+          answers,
+        ),
+        confidence,
+      ),
+    [questions, answers, confidence],
+  );
+
+  const canSubmit = allAnswered && confidenceComplete;
 
   const handleSetAnswer = useCallback(
     (questionId: string, value: string | string[]) => {
@@ -893,11 +1039,32 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
     [attemptId, runtimeWriter, sceneId, stageId],
   );
 
+  /**
+   * 记一道题的自评，并顺手把草稿写下去。
+   *
+   * 为什么自评也要走 `scheduleDraft`：刷新页面时 `loadQuizAttemptState` 读的是
+   * 库里的最后一条 payload。只存在组件 state 里的话，他刷新一次就得重填
+   * 一遍把握 —— 而那时候答案还在、只有把握没了，看起来像被吞了。
+   */
+  const handleSetConfidence = useCallback(
+    (questionId: string, level: ConfidenceLevel) => {
+      setConfidence((prev) => {
+        const next = withConfidence(prev, questionId, level);
+        if (attemptId) {
+          runtimeWriter.scheduleDraft({ stageId, sceneId, attemptId, answers, confidence: next });
+        }
+        return next;
+      });
+    },
+    [answers, attemptId, runtimeWriter, sceneId, stageId],
+  );
+
   const handleSubmit = useCallback(async () => {
     if (!attemptId) return;
     setPhase('submitting');
     await runQuizPersistenceTransition(
-      () => persistQuizSubmission({ stageId, sceneId, attemptId, answers }, runtimeWriter),
+      () =>
+        persistQuizSubmission({ stageId, sceneId, attemptId, answers, confidence }, runtimeWriter),
       viewLifetime,
       () => setPhase('grading'),
       (error) => {
@@ -905,7 +1072,7 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
         setRuntimeGate({ status: 'error' });
       },
     );
-  }, [attemptId, answers, runtimeWriter, sceneId, stageId, viewLifetime]);
+  }, [attemptId, answers, confidence, runtimeWriter, sceneId, stageId, viewLifetime]);
 
   // When entering grading phase, grade choice questions locally + call API for short-answer
   useEffect(() => {
@@ -939,7 +1106,7 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
       }
       try {
         await persistQuizReview(
-          { stageId, sceneId, attemptId, answers, results: ordered },
+          { stageId, sceneId, attemptId, answers, results: ordered, confidence },
           runtimeWriter,
         );
       } catch (error) {
@@ -961,7 +1128,7 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [phase, questions, answers, locale, sceneId, stageId, attemptId, runtimeWriter]);
+  }, [phase, questions, answers, confidence, locale, sceneId, stageId, attemptId, runtimeWriter]);
 
   const handleRetry = useCallback(async () => {
     if (!attemptId || retrying) return;
@@ -1069,10 +1236,17 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
               <button
                 type="button"
                 onClick={() => void handleSubmit()}
-                disabled={!allAnswered}
+                disabled={!canSubmit}
+                title={
+                  !allAnswered
+                    ? undefined
+                    : confidenceComplete
+                      ? undefined
+                      : t('quiz.confidence.missing')
+                }
                 className={cn(
                   'px-4 py-1.5 rounded-lg text-xs font-medium transition-all',
-                  allAnswered
+                  canSubmit
                     ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm hover:shadow-md hover:shadow-violet-200/50 dark:hover:shadow-violet-900/50 active:scale-[0.97]'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed',
                 )}
@@ -1092,6 +1266,8 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
                       index={i}
                       value={answers[q.id] as string | undefined}
                       onChange={(v) => handleSetAnswer(q.id, v)}
+                      confidence={confidenceOf(confidence, q.id)}
+                      onConfidence={(level) => handleSetConfidence(q.id, level)}
                     />
                   );
                 }
@@ -1103,6 +1279,8 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
                       index={i}
                       value={answers[q.id] as string[] | undefined}
                       onChange={(v) => handleSetAnswer(q.id, v)}
+                      confidence={confidenceOf(confidence, q.id)}
+                      onConfidence={(level) => handleSetConfidence(q.id, level)}
                     />
                   );
                 }
@@ -1113,6 +1291,8 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
                     index={i}
                     value={answers[q.id] as string | undefined}
                     onChange={(v) => handleSetAnswer(q.id, v)}
+                    confidence={confidenceOf(confidence, q.id)}
+                    onConfidence={(level) => handleSetConfidence(q.id, level)}
                   />
                 );
               })}
@@ -1186,6 +1366,7 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
             {/* Results */}
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
               <ScoreBanner score={earnedScore} total={totalPoints} results={results} />
+              <CalibrationBanner results={results} confidence={confidence} />
 
               {questions.map((q, i) => {
                 const r = resultMap[q.id];

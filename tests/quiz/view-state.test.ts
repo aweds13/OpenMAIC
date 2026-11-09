@@ -18,7 +18,7 @@ describe('quiz view runtime hydration', () => {
         phase: 'draft',
         answers: { q1: 'A' },
       }),
-    ).toEqual({ phase: 'answering', answers: { q1: 'A' }, results: [] });
+    ).toEqual({ phase: 'answering', answers: { q1: 'A' }, results: [], confidence: {} });
   });
 
   it('hydrates reviewed empty results into reviewing', () => {
@@ -30,7 +30,7 @@ describe('quiz view runtime hydration', () => {
         answers: { q1: 'A' },
         results: [],
       }),
-    ).toEqual({ phase: 'reviewing', answers: { q1: 'A' }, results: [] });
+    ).toEqual({ phase: 'reviewing', answers: { q1: 'A' }, results: [], confidence: {} });
   });
 
   it('uses a clean cover when no attempt exists', () => {
@@ -38,6 +38,7 @@ describe('quiz view runtime hydration', () => {
       phase: 'not_started',
       answers: {},
       results: [],
+      confidence: {},
     });
   });
 
@@ -49,7 +50,7 @@ describe('quiz view runtime hydration', () => {
         phase: 'draft',
         answers: {},
       }),
-    ).toEqual({ phase: 'not_started', answers: {}, results: [] });
+    ).toEqual({ phase: 'not_started', answers: {}, results: [], confidence: {} });
   });
 
   it('keeps the quiz blocked when runtime hydration fails', () => {

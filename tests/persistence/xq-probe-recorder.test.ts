@@ -304,6 +304,99 @@ describe('xq probe recorder', () => {
     });
   });
 
+  describe('自评跟着这一次作答走', () => {
+    const confidenceOfQuestion = async (questionId: string) => {
+      const r = await db.query<{ confidence_pre: number | null }>(
+        'SELECT confidence_pre FROM xq_probe_item WHERE question_id = $1',
+        [questionId],
+      );
+      return r.rows[0]?.confidence_pre ?? null;
+    };
+
+    it('★ 自评落进 confidence_pre —— 这一列在此之前从来没有人写过', async () => {
+      await recordProbeFromRuntimeAppend(
+        appendInput({
+          payload: {
+            payloadVersion: 1,
+            phase: 'reviewed',
+            answers: { q1: 'A', q2: 'B' },
+            results: [
+              { questionId: 'q1', correct: true, status: 'correct', earned: 1 },
+              { questionId: 'q2', correct: false, status: 'incorrect', earned: 0 },
+            ],
+            confidence: { q1: 95, q2: 25 },
+          },
+        }),
+        { queryable: db },
+      );
+      expect(await confidenceOfQuestion('q1')).toBe(95);
+      expect(await confidenceOfQuestion('q2')).toBe(25);
+    });
+
+    it('★ 没自评的那道题留空 —— 空不是 50，空是「没问过」', async () => {
+      await recordProbeFromRuntimeAppend(
+        appendInput({
+          payload: {
+            payloadVersion: 1,
+            phase: 'reviewed',
+            answers: { q1: 'A', q2: 'B' },
+            results: [
+              { questionId: 'q1', correct: true, status: 'correct', earned: 1 },
+              { questionId: 'q2', correct: false, status: 'incorrect', earned: 0 },
+            ],
+            confidence: { q1: 75 },
+          },
+        }),
+        { queryable: db },
+      );
+      expect(await confidenceOfQuestion('q1')).toBe(75);
+      expect(await confidenceOfQuestion('q2')).toBeNull();
+    });
+
+    it('★ 自评不影响判定：同一组对错，有没有自评都算出同一格状态', async () => {
+      const cellNow = async () => {
+        const r = await db.query<{ n: string; k: string }>(
+          'SELECT n::text AS n, k::text AS k FROM xq_cell_state',
+        );
+        return r.rows[0] ?? null;
+      };
+      const withoutConfidence = await recordProbeFromRuntimeAppend(appendInput(), {
+        queryable: db,
+      });
+      const cellAfterFirst = await cellNow();
+      // 换一个 task_id 重投同一组事实，只多一个自评（而且故意给反向的：
+      // 答对的 q1 说「基本靠猜」25，答错的 q2 说「很有把握」95）。
+      await recordProbeFromRuntimeAppend(
+        appendInput({
+          recordId: 'rec-2',
+          // 换一个更晚但同一学习日的时刻：这才是「同题重测」（counted_n 0.5）。
+          // 用同一个时刻会被唯一键当重复投递，`counted_n` 仍是 1.0。
+          createdAt: '2026-11-08T04:00:00.000Z',
+          payload: {
+            payloadVersion: 1,
+            phase: 'reviewed',
+            answers: { q1: 'A' },
+            results: [
+              { questionId: 'q1', correct: true, status: 'correct', earned: 1 },
+              { questionId: 'q2', correct: false, status: 'incorrect', earned: 0 },
+            ],
+            confidence: { q1: 25, q2: 95 },
+          },
+        }),
+        { queryable: db },
+      );
+      const cellAfterSecond = await cellNow();
+      expect(withoutConfidence.inserted).toBe(2);
+      expect(cellAfterFirst).not.toBeNull();
+      expect(cellAfterSecond).not.toBeNull();
+      // ★ 第二次的唯一差别是「同题各重测一次」（两道题各 +0.5 证据）。
+      // 自评故意给反的（答对的说 25、答错的说 95）：若它参与判定，
+      // k 会朝错的那边动。
+      expect(Number(cellAfterSecond!.n)).toBe(Number(cellAfterFirst!.n) + 1);
+      expect(Number(cellAfterSecond!.k)).toBe(Number(cellAfterFirst!.k) + 0.5);
+    });
+  });
+
   describe('withXqProbeRecording', () => {
     /** 一个最小的 RuntimeStore：只实现 appendRecord / getSession，其余转给 stub。 */
     const fakeStore = (

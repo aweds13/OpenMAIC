@@ -840,6 +840,22 @@
       "failed": "This request wasn't recorded (not your fault). Try again in a moment.",
       "unsent": "The request was recorded but the message wasn't sent — check that a model is configured.",
       "template": "I'm stuck on this question. Give me a direction to think in — don't give me the answer:\n\n{{stem}}"
+    },
+    "confidence": {
+      "label": "Wie sicher bist du?",
+      "missing": "Wähle für jede beantwortete Frage, wie sicher du warst",
+      "title": "Kalibrierung",
+      "summary": "Du erwartetest {{expected}} %, erreicht hast du {{actual}} % ({{count}} Fragen)",
+      "needMore": "Noch {{needed}} Selbsteinschätzungen, dann lässt sich etwas sagen",
+      "level25": "Eher geraten",
+      "level50": "Nicht so sicher",
+      "level75": "Ziemlich sicher",
+      "level95": "Sehr sicher",
+      "calibration": {
+        "over": "Du warst unsicherer als gedacht — mehr deiner sicheren Antworten waren falsch als erwartet.",
+        "under": "Du warst sicherer als gedacht — die Antworten, bei denen du unsicher warst, waren richtig.",
+        "good": "Deine Einschätzung passte ungefähr zu deinem Ergebnis."
+      }
     }
   },
   "roundtable": {

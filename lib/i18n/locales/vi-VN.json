@@ -840,6 +840,22 @@
       "failed": "This request wasn't recorded (not your fault). Try again in a moment.",
       "unsent": "The request was recorded but the message wasn't sent — check that a model is configured.",
       "template": "I'm stuck on this question. Give me a direction to think in — don't give me the answer:\n\n{{stem}}"
+    },
+    "confidence": {
+      "label": "Bạn tự tin đến đâu?",
+      "missing": "Chọn mức tự tin cho từng câu bạn đã trả lời",
+      "title": "Hiệu chỉnh tự đánh giá",
+      "summary": "Bạn kỳ vọng {{expected}}%, thực tế đúng {{actual}}% ({{count}} câu)",
+      "needMore": "Còn {{needed}} lần tự đánh giá nữa mới thấy được xu hướng",
+      "level25": "Gần như đoán",
+      "level50": "Không chắc lắm",
+      "level75": "Khá chắc",
+      "level95": "Rất chắc",
+      "calibration": {
+        "over": "Bạn kém tự tin hơn mình tưởng — các câu bạn chắc lại sai nhiều hơn dự kiến.",
+        "under": "Bạn tự tin hơn mình tưởng — những câu bạn phân vân lại đúng.",
+        "good": "Điều bạn nói gần đúng với kết quả."
+      }
     }
   },
   "roundtable": {
