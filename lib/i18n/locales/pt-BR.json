@@ -2600,5 +2600,20 @@
       "fail": "I got it wrong",
       "skip": "Skip"
     }
+  },
+  "aiLog": {
+    "title": "Conversation log",
+    "loading": "Reading your conversation log",
+    "readFailed": "Could not read the conversation log — that is not the same as having no record.",
+    "retry": "Retry",
+    "empty": "No conversations yet. Once you tap “Ask AI” next to a question, the exchange is kept here.",
+    "meta": "Scene {{scene}} · question {{question}}",
+    "instrumental": "asked for a direction",
+    "executive": "asked for the answer",
+    "generations": "This conversation spans {{count}} generations — long conversations are stored across rows",
+    "noTurns": "The question was recorded, but the matching conversation was not found. It may predate sub-anchors, or have rolled into another generation.",
+    "you": "You",
+    "ai": "AI",
+    "truncated": "(truncated)"
   }
 }
