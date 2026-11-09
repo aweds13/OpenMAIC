@@ -48,6 +48,25 @@
  * 悄悄变成「这里没问题」，这是最坏的一种错。所以 `retired` 单独交出去，
  * 让调用方决定是提示、是补讲、还是干脆不让学。
  *
+ * ## 两张表都要读：先修是骨架，出现记录才是「哪一页在讲它」
+ *
+ * `xq_concept_edge`（105 行）回答「先垫什么」，`xq_concept_occurrence`（644 行）
+ * 回答「哪一页讲了它」。两张表都是**零生产读方**，而且它们的缺口是同一种：
+ * 数据在库里躺着，没有任何一处代码拿它来回答人的问题。
+ *
+ * 放在同一个文件里，是因为它们回答的是同一个问题的两半 ——
+ * 「这个概念是什么、要先垫什么、在哪些页里出现过」。分成两个模块，
+ * 调用方每次都得自己把两半拼起来，而拼接点（`concept_id`）两边都可能标错。
+ *
+ * ★ 出现记录带 `weight`（0.40–1.00）与 `source`（keypoint / title / body）。
+ * 读出来时按 `weight DESC, stage_id, scene_id` 排：同一页里一条概念可能同时
+ * 因标题与正文命中，表上主键是 `(concept_id, stage_id, scene_id)` 所以只会有一条，
+ * 取的是更高那一档 —— 排序要反映「这页有多像是在专门讲它」。
+ *
+ * ★ 29 个概念一条出现记录都没有（2026-11-10 实测 104 − 75）。这不是它们不存在，
+ * 是「还没有任何一页讲过它」。读出来时**如实回空数组**，不回 `null`：
+ * 空数组是「没有」，`null` 是「没查」。
+ *
  * ## 合并链要防环，走不到头返回 `null`
  *
  * `merged_into` 是自引用外键，正常是一条链，但没有任何约束禁止 A→B→A。
@@ -504,4 +523,128 @@ export function conceptReadiness(
     retired: closured.retired,
     cycle: closured.cycle,
   };
+}
+
+/** `xq_concept_occurrence.source` 的四种取值。 */
+export const OCCURRENCE_SOURCES = ['keypoint', 'title', 'body', 'manual'] as const;
+
+export type OccurrenceSource = (typeof OCCURRENCE_SOURCES)[number];
+
+/** 一处出现记录：这个概念在这一页上被提到，`weight` 表示有多像是在专门讲它。 */
+export interface ConceptOccurrence {
+  readonly conceptId: string;
+  readonly stageId: string;
+  readonly sceneId: string;
+  readonly weight: number;
+  readonly source: OccurrenceSource;
+}
+
+const READ_OCCURRENCES_SQL = `SELECT concept_id, stage_id, scene_id, weight, source
+  FROM xq_concept_occurrence
+ WHERE concept_id = ANY($1::text[])
+ ORDER BY weight DESC, stage_id, scene_id`;
+
+interface OccurrenceRow extends Record<string, unknown> {
+  concept_id: unknown;
+  stage_id: unknown;
+  scene_id: unknown;
+  weight: unknown;
+  source: unknown;
+}
+
+function asWeight(value: unknown): number | null {
+  const parsed =
+    typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  // `numeric(3,2)` 在两个驱动上都会回字符串。范围由 DDL 的 CHECK 保证，
+  // 这里只挡 NaN —— 一个 NaN 权重会让排序静默错位。
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function asSource(value: unknown): OccurrenceSource | null {
+  return typeof value === 'string' && (OCCURRENCE_SOURCES as readonly string[]).includes(value)
+    ? (value as OccurrenceSource)
+    : null;
+}
+
+/**
+ * 这些概念各自出现在哪些页上。
+ *
+ * ★ 返回的 Map **一定包含每一个被问到的 id**（没出现过的是空数组）。
+ * 少一个键会让调用方以为「查漏了」，而它其实只是「没有」。
+ */
+export async function readConceptOccurrences(
+  queryable: Queryable,
+  conceptIds: readonly string[],
+): Promise<ReadonlyMap<string, readonly ConceptOccurrence[]>> {
+  const result = new Map<string, ConceptOccurrence[]>();
+  const unique = [...new Set(conceptIds)].filter((id) => id !== '');
+  for (const id of unique) result.set(id, []);
+  if (unique.length === 0) return result;
+
+  const { rows } = await queryable.query<OccurrenceRow>(READ_OCCURRENCES_SQL, [unique]);
+  for (const row of rows) {
+    const conceptId = typeof row.concept_id === 'string' ? row.concept_id : null;
+    const stageId = typeof row.stage_id === 'string' ? row.stage_id : null;
+    const sceneId = typeof row.scene_id === 'string' ? row.scene_id : null;
+    const weight = asWeight(row.weight);
+    const source = asSource(row.source);
+    // 形状不对的整条丢 —— 同 `readConceptGraph` 的节点：半条记录会让排序不可信。
+    if (conceptId === null || stageId === null || sceneId === null) continue;
+    if (weight === null || source === null) continue;
+    const list = result.get(conceptId);
+    if (list === undefined) continue;
+    list.push({ conceptId, stageId, sceneId, weight, source });
+  }
+
+  return result;
+}
+
+export interface ConceptPageRef {
+  readonly stageId: string;
+  readonly sceneId: string;
+  readonly title: string | null;
+}
+
+const READ_PAGE_TITLES_SQL = `SELECT s.stage_id, s.id, s.data->>'title' AS title
+  FROM unnest($1::text[], $2::text[]) AS k(stage_id, id)
+  JOIN document_scenes s ON s.stage_id = k.stage_id AND s.id = k.id`;
+
+interface PageTitleRow extends Record<string, unknown> {
+  stage_id: unknown;
+  id: unknown;
+  title: unknown;
+}
+
+/**
+ * 给一批 `(stageId, sceneId)` 补页标题。
+ *
+ * 单独一个函数而不是并进 `readConceptOccurrences`：标题来自 `document_scenes`，
+ * 与概念无关；把它合进去会让「读概念」这条路径也依赖文档表，而概念图本身
+ * 在文档表为空时仍然是对的。
+ *
+ * ★ 查不到的页**不出现在结果里**，不补空标题：页被删了与页没标题是两件事，
+ * 调用方看到「没有这一项」才知道该去查页，而不是把空标题当成页的真实状态。
+ */
+export async function readPageTitles(
+  queryable: Queryable,
+  refs: readonly ConceptPageRef[],
+): Promise<ReadonlyMap<string, string>> {
+  const result = new Map<string, string>();
+  const unique = new Map<string, ConceptPageRef>();
+  for (const ref of refs) unique.set(`${ref.stageId} ${ref.sceneId}`, ref);
+  if (unique.size === 0) return result;
+
+  const entries = [...unique.values()];
+  const { rows } = await queryable.query<PageTitleRow>(READ_PAGE_TITLES_SQL, [
+    entries.map((ref) => ref.stageId),
+    entries.map((ref) => ref.sceneId),
+  ]);
+  for (const row of rows) {
+    const stageId = typeof row.stage_id === 'string' ? row.stage_id : null;
+    const sceneId = typeof row.id === 'string' ? row.id : null;
+    const title = typeof row.title === 'string' && row.title !== '' ? row.title : null;
+    if (stageId === null || sceneId === null || title === null) continue;
+    result.set(`${stageId} ${sceneId}`, title);
+  }
+  return result;
 }

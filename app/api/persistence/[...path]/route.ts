@@ -65,6 +65,8 @@ import {
   prerequisiteClosure,
   prerequisiteDepth,
   readConceptGraph,
+  readConceptOccurrences,
+  readPageTitles,
   resolveConcept,
   type PrereqStrength,
 } from '@/lib/persistence/xq-concept-graph';
@@ -720,6 +722,15 @@ async function handleXqConcepts(
     const direct = directPrerequisites(graph, resolved, strengths);
     const closured = prerequisiteClosure(graph, resolved, strengths);
     const readiness = conceptReadiness(graph, resolved, mastered, strengths);
+    // 出现记录与先修是同一张图的两半：`xq_concept_occurrence` 也有 644 行零读方。
+    // 查不到就是空数组（「还没有哪一页讲过它」），不是 null。
+    const occurrences = await readConceptOccurrences(queryable, [resolved]);
+    const refs = (occurrences.get(resolved) ?? []).map((occurrence) => ({
+      stageId: occurrence.stageId,
+      sceneId: occurrence.sceneId,
+      title: null,
+    }));
+    const titles = await readPageTitles(queryable, refs);
 
     return withHeaders(
       Response.json(
@@ -743,6 +754,15 @@ async function handleXqConcepts(
           ready: readiness.ready,
           blockedBy: readiness.blockedBy,
           masteredCount: [...mastered].length,
+          occurrences: (occurrences.get(resolved) ?? []).map((occurrence) => ({
+            stageId: occurrence.stageId,
+            sceneId: occurrence.sceneId,
+            // 页被删/没标题时是 null —— 与「这页没有标题」分开说不了，
+            // 但至少不编一个空串当标题。
+            title: titles.get(`${occurrence.stageId} ${occurrence.sceneId}`) ?? null,
+            weight: occurrence.weight,
+            source: occurrence.source,
+          })),
         },
         { status: 200, headers: { 'cache-control': 'private, no-store' } },
       ),

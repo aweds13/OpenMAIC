@@ -10,6 +10,8 @@ import {
   prerequisiteClosure,
   prerequisiteDepth,
   readConceptGraph,
+  readConceptOccurrences,
+  readPageTitles,
   resolveConcept,
   type ConceptEdge,
   type ConceptGraph,
@@ -376,5 +378,111 @@ describe('readConceptGraph', () => {
     const g = await readConceptGraph(db);
     expect(g.nodes.size).toBe(0);
     expect(g.edges).toHaveLength(0);
+  });
+});
+
+describe('readConceptOccurrences', () => {
+  let db: PGlite;
+
+  beforeEach(async () => {
+    db = new PGlite();
+    await db.waitReady;
+    await db.exec(DOCUMENT_SCENES_MIN);
+    await ensureXqLearnerSchema(db);
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind, status, created_in)
+       VALUES ($1, 'Dart 变量', 'concept', 'active', 1),
+              ($2, 'Dart 空安全', 'concept', 'active', 1),
+              ($3, '没人讲过', 'concept', 'active', 1)`,
+      [A, B, C],
+    );
+    await db.query(
+      `INSERT INTO document_scenes (stage_id, id, scene_order, data)
+       VALUES ('stage-1', 'scene-p1', 1, '{"title":"变量知识检查"}'::jsonb),
+              ('stage-1', 'scene-p2', 2, '{"title":"空安全一题"}'::jsonb)`,
+    );
+    await db.query(
+      `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
+       VALUES ($1, 'stage-1', 'scene-p1', 0.60, 'title'),
+              ($1, 'stage-1', 'scene-p2', 0.40, 'body'),
+              ($2, 'stage-1', 'scene-p2', 1.00, 'keypoint')`,
+      [A, B],
+    );
+  });
+
+  it('★ 按权重降序给出每个概念出现在哪些页', async () => {
+    const map = await readConceptOccurrences(db, [A]);
+    const list = map.get(A) ?? [];
+    expect(list).toHaveLength(2);
+    expect(list.map((o) => o.sceneId)).toEqual(['scene-p1', 'scene-p2']);
+    expect(list.map((o) => o.weight)).toEqual([0.6, 0.4]);
+    expect(list.map((o) => o.source)).toEqual(['title', 'body']);
+  });
+
+  it('★ 没出现过的概念回空数组，而不是缺键', async () => {
+    const map = await readConceptOccurrences(db, [C]);
+    expect(map.has(C)).toBe(true);
+    expect(map.get(C)).toEqual([]);
+  });
+
+  it('★ 一次问多个概念，各归各的不串', async () => {
+    const map = await readConceptOccurrences(db, [A, B]);
+    expect(map.get(A)).toHaveLength(2);
+    expect(map.get(B)).toHaveLength(1);
+    expect(map.get(B)?.[0]?.source).toBe('keypoint');
+  });
+
+  it('重复的 id 与空串被收拢，不会重复查', async () => {
+    const map = await readConceptOccurrences(db, [A, A, '', A]);
+    expect(map.size).toBe(1);
+    expect(map.get(A)).toHaveLength(2);
+  });
+
+  it('空输入回空 Map', async () => {
+    expect((await readConceptOccurrences(db, [])).size).toBe(0);
+  });
+});
+
+describe('readPageTitles', () => {
+  let db: PGlite;
+
+  beforeEach(async () => {
+    db = new PGlite();
+    await db.waitReady;
+    await db.exec(DOCUMENT_SCENES_MIN);
+    await ensureXqLearnerSchema(db);
+    await db.query(
+      `INSERT INTO document_scenes (stage_id, id, scene_order, data)
+       VALUES ('stage-1', 'scene-p1', 1, '{"title":"变量知识检查"}'::jsonb),
+              ('stage-1', 'scene-p2', 2, '{}'::jsonb)`,
+    );
+  });
+
+  it('★ 只回有标题的那些 —— 页没标题与页被删都不补空串', async () => {
+    const map = await readPageTitles(db, [
+      { stageId: 'stage-1', sceneId: 'scene-p1', title: null },
+      { stageId: 'stage-1', sceneId: 'scene-p2', title: null },
+      { stageId: 'stage-1', sceneId: 'scene-gone', title: null },
+    ]);
+    expect(map.get('stage-1 scene-p1')).toBe('变量知识检查');
+    expect(map.has('stage-1 scene-p2')).toBe(false);
+    expect(map.has('stage-1 scene-gone')).toBe(false);
+  });
+
+  it('★ 跨课同 scene id 不会互相覆盖', async () => {
+    await db.query(
+      `INSERT INTO document_scenes (stage_id, id, scene_order, data)
+       VALUES ('stage-2', 'scene-p1', 1, '{"title":"另一门课的同名页"}'::jsonb)`,
+    );
+    const map = await readPageTitles(db, [
+      { stageId: 'stage-1', sceneId: 'scene-p1', title: null },
+      { stageId: 'stage-2', sceneId: 'scene-p1', title: null },
+    ]);
+    expect(map.get('stage-1 scene-p1')).toBe('变量知识检查');
+    expect(map.get('stage-2 scene-p1')).toBe('另一门课的同名页');
+  });
+
+  it('空输入回空 Map', async () => {
+    expect((await readPageTitles(db, [])).size).toBe(0);
   });
 });

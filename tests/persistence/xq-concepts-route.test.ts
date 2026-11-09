@@ -157,6 +157,44 @@ describe('GET /api/persistence/xq/concepts', () => {
     expect(body).toMatchObject({ ready: false, blockedBy: [A] });
   });
 
+  it('★ 带 id 时一并回出现记录与页标题 —— 644 行出现记录第一次被读', async () => {
+    await db.query(
+      `INSERT INTO document_scenes (stage_id, id, scene_order, data)
+       VALUES ('stage-q1', 'scene-p1', 1, '{"title":"变量知识检查"}'::jsonb),
+              ('stage-q1', 'scene-p9', 9, '{}'::jsonb)`,
+    );
+    await db.query(
+      `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
+       VALUES ($1, 'stage-q1', 'scene-p1', 1.00, 'keypoint'),
+              ($1, 'stage-q1', 'scene-p9', 0.40, 'body')`,
+      [A],
+    );
+    const route = await bootRoute();
+    const response = await route.GET(request(`/xq/concepts?id=${A}`));
+    const body = (await response.json()) as {
+      occurrences: { sceneId: string; title: string | null; weight: number; source: string }[];
+    };
+    expect(body.occurrences).toHaveLength(2);
+    expect(body.occurrences[0]).toEqual({
+      stageId: 'stage-q1',
+      sceneId: 'scene-p1',
+      title: '变量知识检查',
+      weight: 1,
+      source: 'keypoint',
+    });
+    // 页没有标题 ⇒ null，不编空串。
+    expect(body.occurrences[1]).toMatchObject({ sceneId: 'scene-p9', title: null, source: 'body' });
+  });
+
+  it('★ 没有任何页讲过的概念回空数组，而不是缺字段', async () => {
+    const route = await bootRoute();
+    const body = (await (await route.GET(request(`/xq/concepts?id=${B}`))).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(body.occurrences).toEqual([]);
+  });
+
   it('不存在的概念回 404 而不是空对象', async () => {
     const route = await bootRoute();
     const response = await route.GET(request(`/xq/concepts?id=${MISSING}`));
