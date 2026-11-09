@@ -63,16 +63,16 @@
 
 ---
 
-## 0.1 当前状态（2026-11-09）
+## 0.1 当前状态（2026-11-10）
 
-- **本地分支 `upgrade/v1.3.0` 领先 `mine/main` 36 笔，未推送**（2026-11-09 实测
-  `git rev-list --count mine/main..upgrade/v1.3.0` = 36、反向 = 0；
-  `git merge-base --is-ancestor f7ecefd7 mine/main` = no）。领先段里最老的 3 笔是插件结论库
+- **本地分支 `upgrade/v1.3.0` 领先 `mine/main`，未推送**。★ 笔数**会漂**，不要照抄：
+  以 `git rev-list --count mine/main..upgrade/v1.3.0` 为准（2026-11-10 实测 **58**、
+  反向 = 0；`git merge-base --is-ancestor a79e5038 mine/main` = no）。领先段里最老的 3 笔是插件结论库
   （`4fa27693` … `1c111528`），其后是材料模块收敛与学情链 `84ad7e8b`…`f7ecefd7`。
   ⇒ 本文件 §0.1 下面写的「已落码」都还只在本机分支上。★ 推送失败看 `curl https://api.github.com`（通）
   对 `curl https://github.com`（000）；日志里 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），
   只能信 API / `git ls-remote`。原命令重试，**不要**改 remote / 换协议 / 强推。
-- **五层 `docs/` 全绿**：`check-layers.py` → `186 条引用（断链 0 处）` + `PASS ✅`（做过反向验证）。
+- **五层 `docs/` 全绿**：`check-layers.py` → `189 条引用（断链 0 处）` + `PASS ✅`（做过反向验证）。★ 这个数**会漂** —— 每次加一个被反引号点名的源文件它就 +1，写进文档时带日期。
 - **仓根三份老文档与两份一次性复盘已删**（含「新窗口交接卡」），内容拆进五层与本文件
   §0.1/§8（旧版 `git show 490259c1:<文件名>`）。结论库 140200 → 88228 字节。
 - ★ **prettier 不看 Markdown**（`.prettierignore` 有 `*.md`）⇒ 四步门禁第一步对文档是空跑。
