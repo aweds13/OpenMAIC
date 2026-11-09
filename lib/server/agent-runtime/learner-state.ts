@@ -387,3 +387,23 @@ export async function refreshLearnerStateBestEffort(ownerId?: string): Promise<v
     );
   }
 }
+
+/**
+ * 用**调用方已有的连接**刷一次状态块，失败一律降级。
+ *
+ * 与 `refreshLearnerStateBestEffort()` 的分工：那个自己去要连接、给 runner 用；
+ * 这个给「手上已经有池子的写路径」用（`app/api/persistence` 的 appendRecord 与
+ * 复习写入），避免为了一次刷新再建一个池。
+ *
+ * ★ 为什么要它：刷新此前只有 `runner.ts` 一个调用点，也就是**只有下一次运行
+ *   agent 才会更新**。答完题就关掉的人，状态块会一直停在旧内容上 —— 实测磁盘
+ *   那份 946 字节、而当时的库渲染出来 1405 字节（差一整节「练习」）。文件是
+ *   接口（见模块头），所以「库变了但文件没变」就是一次静默的失配。
+ */
+export async function refreshLearnerStateWithConnection(queryable: Queryable): Promise<void> {
+  try {
+    await refreshLearnerStateFromRuntime({ queryable });
+  } catch (error) {
+    log.warn({ error: String(error) }, 'learner-state refresh failed; keeping the last file');
+  }
+}

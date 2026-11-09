@@ -34,6 +34,7 @@ import {
   retiredCredentialCookies,
 } from '@/lib/persistence/owner-merges';
 import { guardedServerRuntimeStore } from '@/lib/persistence/runtime-tombstone-guard';
+import { refreshLearnerStateWithConnection } from '@/lib/server/agent-runtime/learner-state';
 import { withXqProbeRecording } from '@/lib/persistence/xq-probe-recorder';
 import {
   ANSWER_FIRST_CODE,
@@ -412,6 +413,11 @@ async function handleXqReview(
       occurredAt,
       sessionId,
     });
+    // A closed round changes what is due, and "what is due" is rendered into the
+    // status block. Same fire-and-forget reasoning as the probe path.
+    if (result.recorded) {
+      void refreshLearnerStateWithConnection(queryable);
+    }
     return withHeaders(
       Response.json(
         { recorded: result.recorded, eventId: result.eventId, duplicate: result.duplicate },
@@ -840,8 +846,19 @@ async function createPersistenceHandler(
   // OUTSIDE it so it sees the record the guard actually allowed through.
   // `mergeThroughClaim` stays outermost: it replaces `mergeLearner`, which
   // neither of the two appendRecord decorators touches.
+  // The status block is a FILE and only refreshes when someone asks it to. Until
+  // now the single caller was the agent runner's startup, so a learner who
+  // answered a question and closed the tab left the file describing a previous
+  // day (measured: 946 bytes on disk vs 1405 rendered from the same database).
+  // Fire-and-forget on purpose: the write already succeeded, and the block is a
+  // derived projection -- failing to refresh it must not fail the answer.
   const guardedRuntimeStore = mergeThroughClaim(
-    withXqProbeRecording(guardedServerRuntimeStore(runtimeStore, pool), { queryable: pool }),
+    withXqProbeRecording(guardedServerRuntimeStore(runtimeStore, pool), {
+      queryable: pool,
+      onRecorded: () => {
+        void refreshLearnerStateWithConnection(pool as unknown as Queryable);
+      },
+    }),
     principal,
   );
   return createStorageHttpHandler(guardedRuntimeStore, documentStore, {

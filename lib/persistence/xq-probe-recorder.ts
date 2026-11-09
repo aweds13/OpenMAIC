@@ -84,6 +84,18 @@ export interface XqProbeRecorderDeps {
   queryable: Queryable;
   now?: () => Date;
   logFailure?: (message: string, error?: unknown) => void;
+  /**
+   * 真的写进了新事实之后叫一次。**同步、不许抛**（调用方自己兜住）。
+   *
+   * 存在的理由：学习状态块是一份**文件**，只有人主动刷新才会变。此前那唯一
+   * 的刷新点在 agent 运行开头（`runner.ts`），所以「答完题就关掉」这件事发生
+   * 之后，状态块会一直停在旧内容上 —— 实测磁盘那份 946 字节，而当时的库渲染
+   * 出来是 1405 字节（差一整节练习）。这不是缓存慢，是**没有任何人会再来写它**。
+   *
+   * 只挂钩在这里而不挂在 `appendRecord` 上：没插入新行（重复投递、没有结论）
+   * 时库没变，刷新只会白读一遍文件。
+   */
+  onRecorded?: () => void;
 }
 
 /** 一次 append 写进学情后回什么（调用方只用来打日志，不参与控制流）。 */
@@ -227,6 +239,17 @@ export async function recordProbeFromRuntimeAppend(
         `xq: failed to schedule review for ${input.stageId}/${input.sceneId}/${item.questionId}`,
         error,
       );
+    }
+  }
+
+  // 库变了，状态块就该跟着变。放最后：前面每一步都只是「这次写成功了没有」，
+  // 到这里才确定新事实真的落进去了。调用方负责兜住异常（见本文件第四节第 1 条：
+  // 学情是派生物，落不进不许让答题失败）。
+  if (result.inserted > 0) {
+    try {
+      deps.onRecorded?.();
+    } catch (error) {
+      (deps.logFailure ?? defaultLogFailure)('xq: onRecorded hook failed', error);
     }
   }
 

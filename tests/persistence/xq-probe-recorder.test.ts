@@ -433,6 +433,75 @@ describe('xq probe recorder', () => {
     });
   });
 
+  /**
+   * `onRecorded` 是「库变了，把状态块刷一遍」的唯一通知方式。
+   *
+   * 它此前不存在，而刷新点在 agent 运行开头 —— 所以答完题就关掉的人，那份
+   * 文件会一直停在旧内容上（实测磁盘 946 字节 vs 当时库渲染 1405 字节）。
+   * 下面四条钉住它的**边界**：什么时候该叫、什么时候不该叫、叫的时候炸了怎么办。
+   */
+  describe('onRecorded —— 只有库真的变了才通知', () => {
+    it('★ 真的插进新事实就通知一次', async () => {
+      let calls = 0;
+      await recordProbeFromRuntimeAppend(appendInput(), {
+        queryable: db,
+        onRecorded: () => {
+          calls += 1;
+        },
+      });
+      expect(calls).toBe(1);
+    });
+
+    it('★ 重复投递不通知 —— 库没变，刷新只会白读一遍文件', async () => {
+      let calls = 0;
+      const deps = {
+        queryable: db,
+        onRecorded: () => {
+          calls += 1;
+        },
+      };
+      await recordProbeFromRuntimeAppend(appendInput(), deps);
+      // 同一个 recordId + 同一个 createdAt ⇒ 撞唯一键，inserted 0。
+      await recordProbeFromRuntimeAppend(appendInput(), deps);
+      expect(calls).toBe(1);
+    });
+
+    it('★ 没有可判的题（`correct === null` 全跳过）时不通知', async () => {
+      let calls = 0;
+      await recordProbeFromRuntimeAppend(
+        appendInput({
+          recordId: 'rec-ungraded',
+          payload: {
+            payloadVersion: 1,
+            phase: 'reviewed',
+            answers: { q1: 'A' },
+            results: [{ questionId: 'q1', correct: null, status: 'incorrect', earned: 0 }],
+          },
+        }),
+        {
+          queryable: db,
+          onRecorded: () => {
+            calls += 1;
+          },
+        },
+      );
+      expect(calls).toBe(0);
+    });
+
+    it('★ 钩子自己炸了不许让这次 append 失败', async () => {
+      const result = await recordProbeFromRuntimeAppend(appendInput(), {
+        queryable: db,
+        onRecorded: () => {
+          throw new Error('refresh exploded');
+        },
+      });
+      // 事实已经落进去了，钩子的失败只是少刷一次文件。
+      expect(result.inserted).toBe(2);
+      const rows = await db.query<{ n: number }>('SELECT count(*)::int AS n FROM xq_probe_item');
+      expect(rows.rows[0].n).toBe(2);
+    });
+  });
+
   describe('withXqProbeRecording', () => {
     /** 一个最小的 RuntimeStore：只实现 appendRecord / getSession，其余转给 stub。 */
     const fakeStore = (
