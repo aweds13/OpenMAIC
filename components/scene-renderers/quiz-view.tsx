@@ -41,6 +41,7 @@ import {
   type QuizRuntimeGate,
   type QuizViewLifetime,
 } from '@/lib/quiz/view-state';
+import { recordAnswerAttempt, recordAnswerSubmitted } from '@/lib/learning/xq-answer-events';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -702,6 +703,12 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
   const viewLifetimeRef = useRef<QuizViewLifetime | null>(null);
   viewLifetimeRef.current ??= createQuizViewLifetime();
   const viewLifetime = viewLifetimeRef.current;
+  /**
+   * 已经记过 `answer_attempted` 的题目。幂等键在服务端也兜得住，
+   * 但每敲一个字发一个请求没有意义 —— 这件事的语义是「他动过手」，
+   * 第一次动就够了。换 attempt（重做）时随 `hydrationVersion` 一起清。
+   */
+  const attemptRecordedRef = useRef<Set<string>>(new Set());
   const runtimeWriterRef = useRef<QuizAttemptWriter | null>(null);
   runtimeWriterRef.current ??= createQuizAttemptWriter({
     onError: (error) => log.warn('Failed to persist quiz runtime:', error),
@@ -718,6 +725,9 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
     let cancelled = false;
     setRuntimeGate({ status: 'loading' });
     setRetrying(false);
+    // 换了一轮作答（首次载入 / 重做 / 另一个页签推进了）：上一轮的
+    // 「记过没记过」不再适用，否则重做后的第一次输入会被旧集合吃掉。
+    attemptRecordedRef.current = new Set();
     void loadQuizAttemptState({ stageId, sceneId })
       .then(({ attemptId: nextAttemptId, state }) => {
         if (cancelled) return;
@@ -758,6 +768,17 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
     (questionId: string, value: string | string[]) => {
       setAnswers((prev) => {
         const next = { ...prev, [questionId]: value };
+        // 「他动过手」要在**提交之前**就能落库 —— 只写了一半就卡住的人，
+        // 恰恰是最该允许提问的那类，而探针表那时候一行都还没有。
+        const nonEmpty = Array.isArray(value) ? value.length > 0 : value.trim().length > 0;
+        if (nonEmpty && !attemptRecordedRef.current.has(questionId)) {
+          attemptRecordedRef.current.add(questionId);
+          recordAnswerAttempt(
+            { stageId, sceneId, attemptId: attemptId ?? '' },
+            questionId,
+            Array.isArray(value) ? value.join('').length : value.length,
+          );
+        }
         if (attemptId) {
           writeDraftRecovery(sceneId, attemptId, next);
           runtimeWriter.scheduleDraft({
@@ -828,6 +849,12 @@ export function QuizView({ questions, sceneId, stageId }: QuizViewProps) {
         return;
       }
       if (cancelled) return;
+      // 判分完成了 —— 逐题记「交卷了」。判分服务挂掉时 `correct` 是 null
+      // （`gradeShortAnswerQuestion` 的保底半分），那时**仍然要发**：
+      // 「他交了但没判出来」是一个事实，不发就等于他没交过。
+      for (const result of ordered) {
+        recordAnswerSubmitted({ stageId, sceneId, attemptId }, result.questionId, result.correct);
+      }
       setResults(ordered);
       setPhase('reviewing');
     })();

@@ -48,6 +48,16 @@ export interface XqEventRequest {
   payload?: Record<string, unknown>;
   endReason?: string;
   /**
+   * 幂等键。不填时服务端按 `(kind, stage, scene, question, session, occurredAt)`
+   * 派生 —— 那条规则对「翻页」「开会话」够用，因为它们本来就**一次一件事**。
+   *
+   * 但「同一道题的第一次作答」不是一次性的：他会改三次答案，三次的
+   * `occurredAt` 都不同，派生出来就是三条 `answer_attempted`。而我们要的是
+   * 「这道题他动过手」这一条事实。所以这类事件由调用方给一个**与时间无关**
+   * 的键（`answer_attempted:<attemptId>:<questionId>`），重发也落在同一行。
+   */
+  dedupeKey?: string;
+  /**
    * 只在 `hint_requested` 上必填（服务端的 DDL 有 CHECK 兜着）。
    *
    * 这个字段是**必填**而不是可选：`instrumental`（问「怎么想」）与
