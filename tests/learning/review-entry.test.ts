@@ -33,6 +33,24 @@ describe('复习页有入口', () => {
     expect(block).toContain("t('review.title')");
   });
 
+  it('★ 入口上带一个到期角标，而且它挂在链接里', () => {
+    const page = read('app/page.tsx');
+    expect(page).toContain('DueReviewBadge');
+    const start = page.indexOf('data-testid="home-review-link"');
+    const end = page.indexOf('</Link>', start);
+    expect(end).toBeGreaterThan(start);
+    // 角标必须在 `<Link>` 里面 —— 挂到页面上别处就变成一个孤立的数字，
+    // 没人知道它属于哪个入口。
+    expect(page.slice(start, end)).toContain('<DueReviewBadge />');
+  });
+
+  it('★ 角标能锚在图标右上角（链接要 relative，否则它跑到页面角落）', () => {
+    const page = read('app/page.tsx');
+    const start = page.indexOf('data-testid="home-review-link"');
+    const block = page.slice(start, page.indexOf('</Link>', start));
+    expect(block).toContain('relative');
+  });
+
   it('复习页本身仍然是动态渲染（不许被静态化成一份过期列表）', () => {
     const reviewPage = read('app/review/page.tsx');
     expect(reviewPage).toContain("export const dynamic = 'force-dynamic'");

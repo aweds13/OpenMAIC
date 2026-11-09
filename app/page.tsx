@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useDeferredValue, useCallback } from 'react';
 import Link from 'next/link';
+import { DueReviewBadge } from '@/components/learning/due-review-badge';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -809,9 +810,10 @@ function HomePage() {
           data-testid="home-review-link"
           aria-label={t('review.title')}
           title={t('review.title')}
-          className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
+          className="relative p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
         >
           <CalendarCheck className="w-4 h-4" />
+          <DueReviewBadge />
         </Link>
 
         <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
