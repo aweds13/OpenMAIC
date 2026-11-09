@@ -95,10 +95,17 @@ const AI_LOG_SQL = `WITH asks AS (
   SELECT e.event_id, e.occurred_at, e.stage_id, e.scene_id, e.question_id,
          e.hint_subtype, coalesce(e.payload->>'stem', '') AS stem
     FROM xq_event e
+    -- ★ 学习日读**已经落库的那一列**，不在这里现算。
+    -- xq_session.local_day 是 localDayOf() 按 04:00 边界算好写进去的；
+    -- 在 SQL 里按日历日现算一遍，同一个 day 参数在 /xq/sessions（读 local_day）
+    -- 与这里（现算）指向不同的日期 —— 凌晨两点那一条会在会话摘要里属昨天、
+    -- 在对话日志里属今天。一条事实只许有一处投影。
+    -- ★ 这一段注释里不许出现反引号：它会终止外层的模板字符串。
+    JOIN xq_session s ON s.session_id = e.session_id
    WHERE e.kind = 'hint_requested'
      AND e.question_id IS NOT NULL
      AND e.question_id <> ''
-     AND ($1::date IS NULL OR (e.occurred_at AT TIME ZONE 'Asia/Shanghai')::date = $1::date)
+     AND ($1::date IS NULL OR s.local_day = $1::date)
    ORDER BY e.occurred_at DESC
    LIMIT $2
 ), matched AS (
@@ -201,9 +208,12 @@ function generationOf(runtimeSessionId: string): number {
  * `day` 是**学习日**（`yyyy-mm-dd`）。省略则跨全部日期 —— 省略不是「今天」，
  * 与 `digestSessions()` 同一口径。
  *
- * ★ 时区：`xq_session.local_day` 用 04:00 边界（`localDayOf()`），
- * 而这里是按 `occurred_at` 现算。两处必须同一个时区，否则同一条提问
- * 在会话摘要里属昨天、在对话日志里属今天。
+ * ★ 时区：`day` 直接读 `xq_session.local_day`（`localDayOf()` 按 04:00 边界
+ * 算好落库的那一列），**不在这里现算**。此前这里写的是
+ * `(occurred_at AT TIME ZONE 'Asia/Shanghai')::date` —— 那是**日历日**，
+ * 与 `local_day` 不是同一个概念：凌晨两点那一次在会话摘要里属昨天、
+ * 在对话日志里属今天，而同一个 `day` 参数被两个端点解释成两个答案。
+ * 判据 `tests/persistence/xq-ai-log.test.ts` 的「day 是学习日」那一条钉住它。
  *
  * 只读，不改任何行。
  */

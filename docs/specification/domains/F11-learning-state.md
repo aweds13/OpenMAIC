@@ -111,6 +111,7 @@
 
 **对话日志（2026-11-10 三续）**：`lib/persistence/xq-ai-log.ts` 的 `readAiLog()` 把「他在哪道题上问过 AI、说了什么」拼回来 —— 事实在 `xq_event`（`hint_requested` 带 `question_id` 与 `hint_subtype`），内容在 `runtime_records`（`payload.kind='chat_message'`），两边靠 `(stage_id, scene_id, question_id)` + `RuntimeRecord.subAnchor` + 5 分钟时间窗对上，端点 `GET /api/persistence/xq/ai-log`。
 ★ **两条分开存是刻意的**，也是这条规则唯一能站住的前提：内容进事件表会让「只追加的事实流」混入大对象（它带着两个索引、将来每次汇总都要扫），只留内容不留事实则「他在这道题上问过几次」变成全文扫描。
+★ **`day` 参数读的是已经落库的 `local_day`，不现算**：`xq_session.local_day` 是 `localDayOf()` 按 04:00 边界算好写进去的，而这里此前写的是 `(occurred_at AT TIME ZONE 'Asia/Shanghai')::date` —— 那是**日历日**。同一个 `day` 参数在 `GET /xq/sessions`（读 `local_day`）与 `GET /xq/ai-log`（现算）会指向不同的日期：凌晨两点那一条在会话摘要里属昨天、在对话日志里属今天。一条事实只许有一处投影，2026-11-10 改掉并加了判据（`readAiLog({ day: '2026-11-08' })` 必须读到 UTC `18:30` 那条、`'2026-11-09'` 必须读不到）。
 ★ **子锚点此前从来没被写过**：`RuntimeRecord.subAnchor` 从契约写下那天就在注释里举着「e.g. a quiz question id」，但 `ChatSession` 没有这个字段、状态 payload 没有、记录构造器不传 —— 真库 31 条 chat 记录，带锚点 **0 条**。`1046e55e` 把它逐层打通，并且**换题要开新会话**而不是改锚点：同一场对话里问两道题，事后会被一起记在第一道上，那是 AI 日志最坏的失败方式（记错了还看不出来）。
 ★ **滚动必须被读侧看穿**：一场逻辑对话超过 256 条记录会开新一代（`chat:<...>:generation:<n>`），按 `session_id` 读会**读到半场而看不出是半场** —— 不报错、不抛异常，只是少一半。判据里专门造两代数据断言读全。
 **有界面了（2026-11-10 四续）**：`/ai-log` 页（`app/ai-log/page.tsx` + `components/learning/ai-log-list.tsx` + `lib/learning/xq-ai-log-client.ts`）把这条端点画出来。三种状态分开说 —— **没读到** / 读到了但没有 / **记了问但配不到对话**；第三种画成普通记录就像「AI 什么都没说」，而它其实说明子锚点没写上或对话被滚到了别的代。代数（`generations > 1`）显示在卡片上：一场对话在库里是几行，不该是隐藏知识。页面**只读**，没有删除 —— 撤销一次提问要靠再写一条 `voided` 事件，不在界面上抹掉一行。

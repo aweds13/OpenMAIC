@@ -370,6 +370,39 @@ describe('xq ai log', () => {
     expect(await readAiLog(db, { limit: 2 })).toHaveLength(2);
   });
 
+  it('★ day 是**学习日**（04:00 边界），与 /xq/sessions 同一个口径', async () => {
+    // 凌晨 02:30（上海）= 前一天的学习日。两处端点必须给同一个答案：
+    // `/xq/sessions` 读 `xq_session.local_day`（`localDayOf()` 算好落库的），
+    // 这里若按日历日现算，同一条提问会在会话摘要里属昨天、在对话日志里属今天。
+    const sessionId = await session('2026-11-08T18:30:00.000Z');
+    const runtimeId = 'chat:late';
+    await chatRuntimeSession(runtimeId, 'stage-A');
+    await recordXqEvent(db, {
+      kind: 'hint_requested',
+      stageId: 'stage-A',
+      sceneId: 'scene-p1',
+      questionId: 'q1',
+      hintSubtype: 'instrumental',
+      sessionId,
+      occurredAt: '2026-11-08T18:30:00.000Z',
+      payload: { stem: '凌晨两点还在做题' },
+    });
+    await chatRecord({
+      runtimeSessionId: runtimeId,
+      sceneId: 'scene-p1',
+      createdAt: '2026-11-08T18:30:01.000Z',
+      role: 'user',
+      content: '这题怎么做',
+      subAnchor: 'q1',
+    });
+
+    // 学习日是 11-08（04:00 边界），日历日是 11-09。
+    const studyDay = await readAiLog(db, { day: '2026-11-08' });
+    expect(studyDay).toHaveLength(1);
+    const calendarDay = await readAiLog(db, { day: '2026-11-09' });
+    expect(calendarDay).toHaveLength(0);
+  });
+
   it('常量固定 —— 时间窗 5 分钟、上限 100 条、正文 400 字', () => {
     expect(AI_LOG_PROXIMITY_MS).toBe(5 * 60 * 1000);
     expect(AI_LOG_LIMIT).toBe(100);

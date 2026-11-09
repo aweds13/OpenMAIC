@@ -5,6 +5,7 @@ import { ensureXqLearnerSchema, XQ_LEARNER_SCHEMA } from '@/lib/persistence/xq-l
 import type { RuntimeRecord } from '@openmaic/dsl';
 import type { RuntimeStore } from '@openmaic/storage';
 
+import { localDayOf } from '@/lib/persistence/xq-event-recorder';
 import {
   isGradableQuizRecord,
   recordProbeFromRuntimeAppend,
@@ -394,6 +395,41 @@ describe('xq probe recorder', () => {
       // k 会朝错的那边动。
       expect(Number(cellAfterSecond!.n)).toBe(Number(cellAfterFirst!.n) + 1);
       expect(Number(cellAfterSecond!.k)).toBe(Number(cellAfterFirst!.k) + 0.5);
+    });
+  });
+
+  /**
+   * 「同一天」在两处各有一个定义，而它们**不是**同一个概念：
+   *
+   * - `xq_session.local_day`：学习日，04:00 边界（`localDayOf()`）。凌晨两点
+   *   还在学，那次学习属于前一天 —— 会话序号与「今天学了多久」都按它。
+   * - `xq_probe_item.counted_n`：同题重测折扣。它问的是「这两次是不是
+   *   互相独立的观测」，用的是**日历日**（`SAME_DAY_TIME_ZONE`）。
+   *
+   * 前者刻意跨午夜不切，后者刻意按午夜切 —— 两条判据分别钉住，免得
+   * 后人以为它们该统一而顺手改掉一个。
+   */
+  describe('「同一天」的两个定义各自钉住', () => {
+    it('★ 学习日跨午夜不切：23:30 与次日 01:00 是同一天', () => {
+      // 上海时间 11-08 23:30 = UTC 15:30；次日 01:00 = UTC 17:00。
+      // 日历日跨了，学习日没跨。
+      expect(localDayOf(new Date('2026-11-08T15:30:00.000Z'))).toBe('2026-11-08');
+      expect(localDayOf(new Date('2026-11-08T17:00:00.000Z'))).toBe('2026-11-08');
+    });
+
+    it('★ 重测折扣按日历日算：23:30 与次日 01:00 算两次独立观测', async () => {
+      await recordProbeFromRuntimeAppend(appendInput({ createdAt: '2026-11-08T15:30:00.000Z' }), {
+        queryable: db,
+      });
+      await recordProbeFromRuntimeAppend(
+        appendInput({ recordId: 'rec-late', createdAt: '2026-11-08T17:00:00.000Z' }),
+        { queryable: db },
+      );
+      const rows = await db.query<{ question_id: string; counted_n: string }>(
+        'SELECT question_id, counted_n::text AS counted_n FROM xq_probe_item ORDER BY id',
+      );
+      // 四条全是 1.0 —— 跨了日历日就是两次独立观测，哪怕只隔 1.5 小时。
+      expect(rows.rows.map((r) => r.counted_n)).toEqual(['1.0', '1.0', '1.0', '1.0']);
     });
   });
 
