@@ -5,7 +5,9 @@
  *   不会让任何测试红，只会让模型把「不会：循环结构」读成一条命令，或者把
  *   「这页没数据」读成「这人没学过」—— 前者会乱执行，后者会重复讲。
  *
- * 五条硬约束（见 `learner-state-render.ts` 文件头）在这里逐条钉住。
+ * 前五条硬约束（见 `learner-state-render.ts` 文件头）在这里逐条钉住；
+ * 第 6 条（**不读笔记、不写笔记**）没有可跑的行为可钉 —— 它是「这个文件不 import
+ * `lib/notes/local-kb.ts`」的结构约束，只能靠读代码守（判据在 `docs/implementation/modules.md` §四）。
  */
 import { describe, expect, it } from 'vitest';
 
