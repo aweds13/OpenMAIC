@@ -52,6 +52,7 @@ import {
   XqReviewRoundMissingError,
   XQ_REVIEW_OUTCOMES,
 } from '@/lib/persistence/xq-review-recorder';
+import { DUE_REVIEW_CARD_LIMIT, listDueReviewCards } from '@/lib/persistence/xq-review-queue';
 import {
   getServerPersistenceProvider,
   type PersistencePoolFactory,
@@ -391,6 +392,64 @@ async function handleXqReview(
     log.error(`xq review write failed: ${error instanceof Error ? error.message : String(error)}`);
     return withHeaders(
       jsonError(500, 'XQ_REVIEW_WRITE_FAILED', 'review write failed'),
+      responseHeaders,
+    );
+  }
+}
+
+/**
+ * `GET /api/persistence/xq/reviews`: the rounds that are due right now, with
+ * the page title and question stem already joined on.
+ *
+ * Same path as the write, different method. A client that can list what is due
+ * and close a round is a review surface; both halves address one resource, so
+ * they share one URL and differ by method — the same shape `learner-key` uses.
+ *
+ * `limit` is the only knob, and it is clamped rather than trusted: an
+ * unbounded list is one `?limit=100000` away from reading every due row ever
+ * scheduled. A malformed limit is not an error — it falls back to the default,
+ * because the caller asked for a list and the list is still meaningful.
+ */
+async function handleXqReviewQueue(
+  request: Request,
+  queryable: Queryable,
+  responseHeaders: Headers,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const rawLimit = url.searchParams.get('limit');
+  const parsed = rawLimit === null ? NaN : Number(rawLimit);
+  const limit =
+    Number.isFinite(parsed) && parsed > 0
+      ? Math.min(Math.trunc(parsed), DUE_REVIEW_CARD_LIMIT)
+      : undefined;
+  try {
+    const cards = await listDueReviewCards(queryable, limit === undefined ? {} : { limit });
+    return withHeaders(
+      Response.json(
+        {
+          reviews: cards.map((card) => ({
+            stageId: card.stageId,
+            sceneId: card.sceneId,
+            sceneTitle: card.sceneTitle,
+            questionId: card.questionId,
+            questionStem: card.questionStem,
+            concept: card.concept,
+            round: card.round,
+            dueAt: card.dueAt.toISOString(),
+          })),
+        },
+        // Per-owner and time-dependent: the list changes as soon as a round is
+        // closed, and a cached copy would keep offering work already done.
+        { status: 200, headers: { 'cache-control': 'private, no-store' } },
+      ),
+      responseHeaders,
+    );
+  } catch (error) {
+    log.error(
+      `xq review queue read failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return withHeaders(
+      jsonError(500, 'XQ_REVIEW_QUEUE_FAILED', 'review queue read failed'),
       responseHeaders,
     );
   }
@@ -882,9 +941,13 @@ async function handlePersistenceRequestInner(
         return await handleXqEvent(request, pool as unknown as Queryable, responseHeaders);
       }
       if (path === XQ_REVIEWS_PATH) {
+        if (request.method === 'GET') {
+          const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
+          return await handleXqReviewQueue(request, pool as unknown as Queryable, responseHeaders);
+        }
         if (request.method !== 'POST') {
           return withHeaders(
-            jsonError(405, 'METHOD_NOT_ALLOWED', 'xq/reviews accepts POST only'),
+            jsonError(405, 'METHOD_NOT_ALLOWED', 'xq/reviews accepts GET or POST'),
             responseHeaders,
           );
         }

@@ -231,11 +231,14 @@ describe('POST /api/persistence/xq/reviews', () => {
     expect(response.status).toBe(400);
   });
 
-  it('★ 非 POST 405', async () => {
+  it('★ 不是 GET 也不是 POST 就 405', async () => {
+    // GET 是读侧（到期队列，见 `xq-review-queue.test.ts`），POST 是写侧；
+    // 这个资源只有这两半。
     const handle = await bootRoute();
-    const response = await handle(request('/xq/reviews', null, 'GET'), {});
-
-    expect(response.status).toBe(405);
+    for (const method of ['PUT', 'DELETE']) {
+      const response = await handle(request('/xq/reviews', null, method), {});
+      expect(response.status).toBe(405);
+    }
   });
 
   it('★ 记完之后不再出现在「今天到期的复习」里 —— 这条路由的全部理由', async () => {
