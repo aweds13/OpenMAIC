@@ -29,6 +29,10 @@ describe('xq 学情 schema', () => {
     PRIMARY KEY (stage_id, id)
   );`;
 
+  /**
+   * 只跑版本 1 的 baseline —— 大多数判据钉的是 v1 的约束，不该被 v2 的表拖慢。
+   * 需要 v2 的用例自己再调一次 `ensureXqLearnerSchema(db)`。
+   */
   async function freshDb(): Promise<PGlite> {
     const db = new PGlite();
     await db.waitReady;
@@ -37,7 +41,7 @@ describe('xq 学情 schema', () => {
     return db;
   }
 
-  it('建出 12 张表且幂等', async () => {
+  it('建出 15 张表且幂等', async () => {
     const db = await freshDb();
     await ensureXqLearnerSchema(db);
     // 再跑一遍不该抛
@@ -56,11 +60,14 @@ describe('xq 学情 schema', () => {
       'xq_concept_edge',
       'xq_concept_external_ref',
       'xq_concept_occurrence',
+      'xq_event',
       'xq_intake_proposal',
       'xq_intake_task',
+      'xq_learner_persona',
       'xq_probe_item',
       'xq_question_concept',
       'xq_review_schedule',
+      'xq_session',
     ]);
     await db.close();
   });
@@ -365,6 +372,138 @@ describe('xq 学情 schema', () => {
     );
     expect(alias.rows[0]!.count).toBe('0');
     expect(occ.rows[0]!.count).toBe('0');
+    await db.close();
+  });
+
+  /**
+   * ★ 版本 2：迁移账本必须记两行，且重跑幂等。
+   *
+   * 判据不写在代码里也不写在文档里 —— 只信 `openmaic_schema_migrations`
+   * 这张表。一个「代码里有 v2、库里没记」的数据库，下次启动会再跑一遍
+   * v2，而 v2 的每条语句都是 IF NOT EXISTS ⇒ 表面无害，实际掩盖了
+   * 「这条迁移从来没成功过」这种事。
+   */
+  it('版本 2 记进迁移账本，且重跑不重复记账', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    await ensureXqLearnerSchema(db);
+    const { rows } = await db.query<{ version: number; name: string }>(
+      `SELECT version, name FROM openmaic_schema_migrations
+        WHERE store = 'xq-learner' ORDER BY version`,
+    );
+    expect(rows.map((r) => r.version)).toEqual([1, 2]);
+    expect(rows[1]!.name).toBe('session-and-persona');
+    await db.close();
+  });
+
+  /**
+   * ★ 会话必须有「第几次」的分母：`seq_no` 与 `local_day` 一起唯一。
+   *
+   * 没有这条唯一约束时，同一天两个并发标签页各自算「今天是第 1 次」
+   * 都会成功，于是「今天学了两次」变成两次「第 1 次」—— 序数就不再是序数。
+   */
+  it('同一本地日期的会话序号不许重号', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    const insert = (id: string) =>
+      db.query(
+        `INSERT INTO xq_session (session_id, started_at, seq_no, local_day)
+         VALUES ($1, now(), 1, DATE '2026-11-09')`,
+        [id],
+      );
+    await insert('11111111-1111-1111-1111-111111111111');
+    await expect(insert('22222222-2222-2222-2222-222222222222')).rejects.toThrow(
+      /duplicate key|unique/i,
+    );
+    await db.close();
+  });
+
+  /**
+   * ★ 事件的两种「说不通」必须被数据库挡住，而不是靠调用方自觉：
+   * ① 说了「要提示」却没说哪一类 —— 两类的折扣不同，缺了就折不出来；
+   * ② 时长为负 —— 负的停留时长会让「是不是猜的」这个诊断反过来。
+   */
+  it('提事件的提示类型与停留时长由 CHECK 兜住', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    await db.query(
+      `INSERT INTO xq_session (session_id, started_at, seq_no, local_day)
+       VALUES ('33333333-3333-3333-3333-333333333333', now(), 1, DATE '2026-11-09')`,
+    );
+    const event = (kind: string, extra: string) =>
+      db.query(
+        `INSERT INTO xq_event (event_id, session_id, occurred_at, kind, stage_id, scene_id${extra})
+         VALUES (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', now(), $1, 'stage-A', 'scene-p1'${extra.includes('hint_subtype') ? ", 'instrumental'" : extra.includes('dwell_ms') ? ', -1' : ''})`,
+        [kind],
+      );
+    await expect(event('hint_requested', '')).rejects.toThrow(/xq_event_hint_subtype_chk/i);
+    await expect(event('page_viewed', ', dwell_ms')).rejects.toThrow(/xq_event_dwell_chk/i);
+    await db.close();
+  });
+
+  /**
+   * ★ 事件不许写一个不存在的会话：会话是事件的容器，孤儿事件
+   * 在「今天学了什么」这个查询里既数不到会话里、也解释不了自己为什么存在。
+   */
+  it('事件必须挂在存在的会话上', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    await expect(
+      db.query(
+        `INSERT INTO xq_event (event_id, session_id, occurred_at, kind)
+         VALUES (gen_random_uuid(), '99999999-9999-9999-9999-999999999999', now(), 'page_viewed')`,
+      ),
+    ).rejects.toThrow(/xq_event_session_id_fkey|foreign key/i);
+    await db.close();
+  });
+
+  /**
+   * ★ 版本 2 加的四列必须真的在，而且默认值要能表达「没有证据」。
+   *
+   * `n_delayed`/`k_delayed` 默认为 0 而不是 NULL，是刻意的：0 表示
+   * 「延迟分层下一条证据也没有」，NULL 会被读成「这个量不适用」，
+   * 两者在掌握度公式里的行为完全不同（前者让 `n_delayed >= 3` 不成立）。
+   */
+  it('版本 2 的四列都在，且延迟分层默认 0 而不是 NULL', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    const cols = async (table: string) => {
+      const { rows } = await db.query<{ column_name: string; is_nullable: string }>(
+        `SELECT column_name, is_nullable FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = $1`,
+        [table],
+      );
+      return new Map(rows.map((r) => [r.column_name, r.is_nullable]));
+    };
+    expect((await cols('xq_probe_item')).get('confidence_post')).toBe('YES');
+    expect((await cols('xq_review_schedule')).get('is_variant')).toBe('NO');
+    const cells = await cols('xq_cell_state');
+    expect(cells.get('n_delayed')).toBe('NO');
+    expect(cells.get('k_delayed')).toBe('NO');
+
+    await db.query(
+      `INSERT INTO xq_cell_state (stage_id, scene_id, tri) VALUES ('stage-A', 'scene-p1', 'unknown')`,
+    );
+    const { rows } = await db.query<{ n: string; k: string; iv: string }>(
+      `SELECT n_delayed::text AS n, k_delayed::text AS k,
+              (SELECT is_variant::text FROM xq_review_schedule LIMIT 1) AS iv
+         FROM xq_cell_state WHERE stage_id = 'stage-A'`,
+    );
+    expect(rows[0]!.n).toBe('0.0');
+    expect(rows[0]!.k).toBe('0.0');
+    await db.close();
+  });
+
+  it('confidence_post 也只接受 25/50/75/95', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    await expect(
+      db.query(
+        `INSERT INTO xq_probe_item
+           (task_id, stage_id, scene_id, question_id, asked_at, correct, confidence_post, source)
+         VALUES ('t', 'stage-A', 'scene-p1', 'q1', now(), true, 60, 'existing')`,
+      ),
+    ).rejects.toThrow(/confidence_post_check/i);
     await db.close();
   });
 });

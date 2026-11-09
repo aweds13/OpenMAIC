@@ -356,9 +356,187 @@ CREATE INDEX IF NOT EXISTS xq_intake_proposal_status_idx
   ON xq_intake_proposal (status, tri);
 `;
 
+/**
+ * 版本 2：会话、事件、人写的画像，外加四列。
+ *
+ * ★ **只加不改**。版本 1 的十二张表里已经有七张有真实数据
+ * （`xq_probe_item` 56 / `xq_cell_state` 7 / `xq_concept` 104 / `xq_concept_alias` 357 /
+ * `xq_concept_external_ref` 63 / `xq_concept_occurrence` 644 / `xq_concept_edge` 105），
+ * 所以这一版里没有一处 `ALTER ... TYPE`、没有一处改约束 —— 全是
+ * `CREATE TABLE IF NOT EXISTS` 与 `ADD COLUMN IF NOT EXISTS`。
+ * 换主键那件事（`xq_concept_alias` 要从 `(alias, kind)` 变成
+ * `(alias, kind, concept_id)`，否则「构造」这种一词两义挂不上两个概念）
+ * 要迁移 357 行，留到下一版。
+ *
+ * 三张新表各自的理由：
+ *
+ * - `xq_learner_persona`：目标与无障碍偏好是**人写的**，不是推断出来的。
+ *   「这个人想干什么」无法从答题记录推出来，硬推就是编。单行表不是一个
+ *   key-value 表 —— PNP 是一份 statement（ISO/IEC 24751），拆成多行会让
+ *   「哪几行属于这个人」变成每次都要判断的问题。
+ * - `xq_session` + `xq_event`：现在没有地方回答「今天学了什么」「这次练了多久」。
+ *   为什么不能复用 `runtime_records`：那张表的时间戳是**会话创建时间**，
+ *   不是事件时刻（同一天做十轮会全部撞在一起）；逐题对错埋在无索引的 JSONB 里；
+ *   而且它属于上游包，加列要改上游的迁移集。
+ *
+ * ★ 会话与事件是**事实**，`xq_cell_state` 是**缓存** —— 掌握度不许写进这两张表，
+ *   否则每次掌握度变都要 UPDATE 会话行，只追加与双时间线立刻失效。
+ *
+ * ★ 也不建 FSRS 那三张表（`xq_grading` / `xq_card_state` / `xq_scheduler_config`）：
+ *   我方排期只有四关 1/3/7/15（`xq_review_schedule`），两套排期源并存时
+ *   「同一道错题到底哪天到期」没有答案。FSRS 至少要四档评分（Again/Hard/Good/Easy），
+ *   而现在只有 `correct boolean`；把 `correct` 硬映射成 1/3 会让
+ *   「按 rating 取不同权重」那条公式退化成两条曲线。
+ */
+export const XQ_LEARNER_V2 = `
+-- ---------------------------------------------------------------------------
+-- 十三、人写的画像：目标与无障碍偏好（一行 = 这个人）
+-- ---------------------------------------------------------------------------
+-- ★ 这张表里**不存任何推断量**：不存掌握度、不存学习风格、不存元认知分数。
+--   掌握度是会变的派生量（在 xq_cell_state），学习风格（VARK）已被证伪，
+--   元认知量表的分数在单人本地部署里没有常模可比。
+CREATE TABLE IF NOT EXISTS xq_learner_persona (
+  learner_id      text        PRIMARY KEY DEFAULT 'local-owner',
+  goal_long_term  text,
+  goal_near_term  text,
+  goal_kind       text        CHECK (goal_kind IN ('foundation', 'exam', 'project', 'unknown')),
+  native_language text,
+  pnp_font_scale  numeric(3,2),
+  pnp_read_aloud  boolean,
+  pnp_input_mode  text        CHECK (pnp_input_mode IN ('keyboard', 'voice', 'mixed')),
+  pnp_notes       text,
+  declared_at     timestamptz NOT NULL DEFAULT now(),
+  revised_at      timestamptz
+);
+
+-- ---------------------------------------------------------------------------
+-- 十四、会话：一次「坐下来学」
+-- ---------------------------------------------------------------------------
+-- ★ 为什么不是一张 learn_event：会话有跨事件的派生量（活跃时长、答了几题、
+--   看了几页）。塞进事件表就得重复存 N 遍，而且改一次要 UPDATE 历史行。
+-- ★ session_id 取本会话第一条事件的 event_id —— 不发明第二个 ID 生成器。
+-- ★ started_at / ended_at / recorded_at 三列不许合并：前两个是现实里发生的
+--   （客户端时钟，可回填），recorded_at 是服务端记账时刻，回填不许改它。
+CREATE TABLE IF NOT EXISTS xq_session (
+  session_id      uuid        PRIMARY KEY,
+  started_at      timestamptz NOT NULL,
+  ended_at        timestamptz,
+  recorded_at     timestamptz NOT NULL DEFAULT now(),
+  task_id         text        REFERENCES xq_intake_task(task_id) ON DELETE SET NULL,
+  intent          text,
+  planned_scope   jsonb       NOT NULL DEFAULT '[]'::jsonb,
+  -- 结束方式：terminated 是学习者主动结束；三个 idle_* 是不同内容形态的空闲阈值
+  -- （导航 5 分钟 / 默认 30 分钟 / 阅读 60 分钟 —— 数值来自事件间隔的双峰拟合，
+  -- 不是「学满 30 分钟才算学会」）；abandoned / crash 是我方兜底。
+  end_reason      text        CHECK (end_reason IN (
+                                'terminated', 'idle_5m', 'idle_60m', 'idle_30m',
+                                'day_boundary', 'abandoned', 'crash')),
+  event_n         integer     NOT NULL DEFAULT 0,
+  probe_n         integer     NOT NULL DEFAULT 0,
+  probe_correct_n integer     NOT NULL DEFAULT 0,
+  scene_n         integer     NOT NULL DEFAULT 0,
+  active_ms       bigint,
+  wall_ms         bigint,
+  self_report     smallint    CHECK (self_report BETWEEN 1 AND 5),
+  seq_no          integer     NOT NULL,
+  local_day       date        NOT NULL,
+  revisit_of      uuid        REFERENCES xq_session(session_id) ON DELETE SET NULL,
+  schema_ver      smallint    NOT NULL DEFAULT 1,
+  UNIQUE (local_day, seq_no)
+);
+
+CREATE INDEX IF NOT EXISTS xq_session_day_idx  ON xq_session (local_day, seq_no);
+CREATE INDEX IF NOT EXISTS xq_session_open_idx ON xq_session (started_at) WHERE ended_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- 十五、事件：这一刻发生了什么（只追加，不 UPDATE、不 DELETE）
+-- ---------------------------------------------------------------------------
+-- ★ 撤销靠再写一条 kind='voided' 的事件（voided_by 列指向它），不靠 UPDATE ——
+--   「这次提交是错的」本身也是一件发生过的事。
+-- ★ occurred_at 与 recorded_at 分列：客户端时钟可能错、可能被回填，
+--   服务端记账时刻不许改。合并成一列就再也分不清「他说他那时在看」与
+--   「我们那时收到了他说的」。
+-- ★ stage_id 必须带：实测 234 页里 35 个 scene id 跨课程复用，34 个连页类型都不同。
+--   只按 scene_id 聚会把两门课算成一门。
+-- ★ dwell_ms 只做诊断标签，**不进任何判定式**：停留时长与学习收益的相关性
+--   在多个已发表研究里都是弱或无（含一个已发表的零结果），而「活动量大 ⇒ 成绩差」
+--   也有实测样例。它的用处只有一个：说「这题答得太快，可能是猜的」。
+CREATE TABLE IF NOT EXISTS xq_event (
+  event_id      uuid        PRIMARY KEY,
+  session_id    uuid        NOT NULL REFERENCES xq_session(session_id) ON DELETE CASCADE,
+  occurred_at   timestamptz NOT NULL,
+  recorded_at   timestamptz NOT NULL DEFAULT now(),
+  kind          text        NOT NULL CHECK (kind IN (
+                              'session_started', 'session_ended', 'session_abandoned',
+                              'page_viewed', 'page_skipped', 'page_revisited', 'page_completed',
+                              'answer_submitted', 'answer_attempted',
+                              'hint_requested', 'note_written', 'search_performed',
+                              'review_due_opened', 'review_passed', 'review_failed',
+                              'voided')),
+  stage_id      text,
+  scene_id      text,
+  question_id   text,
+  concept_id    text        REFERENCES xq_concept(id) ON DELETE SET NULL,
+  dwell_ms      integer,
+  dwell_capped  boolean     NOT NULL DEFAULT false,
+  away_ms       integer,
+  content_words integer,
+  correct       boolean,
+  confidence_pre smallint   CHECK (confidence_pre IN (25, 50, 75, 95)),
+  -- 提示分两类：instrumental 是「这条提示怎么说」，executive 是「去执行这一步」。
+  -- 两者的折扣不同，所以必须分型而不是只记「用过提示」。
+  hint_subtype  text        CHECK (hint_subtype IN ('instrumental', 'executive')),
+  outcome       text        CHECK (outcome IN ('pass', 'fail', 'skip')),
+  payload       jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  dedupe_key    text        UNIQUE,
+  schema_ver    smallint    NOT NULL DEFAULT 1,
+  voided_by     uuid        REFERENCES xq_event(event_id),
+  source        text        NOT NULL DEFAULT 'self'
+                            CHECK (source IN ('self', 'model', 'system', 'import')),
+  CONSTRAINT xq_event_hint_subtype_chk
+    CHECK (kind <> 'hint_requested' OR hint_subtype IS NOT NULL),
+  CONSTRAINT xq_event_dwell_chk
+    CHECK (dwell_ms IS NULL OR dwell_ms >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS xq_event_session_idx ON xq_event (session_id, occurred_at, event_id);
+CREATE INDEX IF NOT EXISTS xq_event_kind_idx    ON xq_event (kind, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS xq_event_scene_idx   ON xq_event (stage_id, scene_id, occurred_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- 十六、四列：每列都对应一条「现在的算法拿不到这个量」
+-- ---------------------------------------------------------------------------
+-- confidence_post：答题后再问一次「你刚才有多确定」。同一个量、同一批人，
+--   做题前问与做题后问的自评准确性差一大截（r=0.33 vs r=0.53）——
+--   现有的 confidence_pre 正好是差的那一种问法。成本是一列 + 一个界面步骤。
+ALTER TABLE xq_probe_item
+  ADD COLUMN IF NOT EXISTS confidence_post smallint
+    CHECK (confidence_post IN (25, 50, 75, 95));
+
+-- is_variant：四关的全部意义是「同一知识点的**变式**题」，不是「同一道题再答一遍」。
+--   xq_review_schedule 只有 question_id，说不出第 3 天那道是不是换了题面。
+ALTER TABLE xq_review_schedule
+  ADD COLUMN IF NOT EXISTS is_variant boolean NOT NULL DEFAULT false;
+
+-- n_delayed / k_delayed：延迟之后还答对的比例 —— 这是「掌握」与「刚记住」的区别。
+--   现有 n/k 不含 Δ=now−asked_at，所以 Beta 区间统计上正确（Beta-二项共轭，
+--   下界取 5% 分位），但**构念上测的是「曾经答对的比例」，不是「隔几天还能不能取出来」**。
+--   实测的反面教材：反复测全部项 vs 答对就撤，一周后的保持率是 80% vs 33–36%，
+--   效应量 d=4.03，而且被测试者自己预测不出来。
+--   3 天的门槛不是文献值，是「四关的第 2 关就是第 3 天」。
+--   两列刻意为 0 默认：老行没有延迟分层证据，不该被当成「测过且答对」。
+ALTER TABLE xq_cell_state
+  ADD COLUMN IF NOT EXISTS n_delayed numeric(4,1) NOT NULL DEFAULT 0;
+ALTER TABLE xq_cell_state
+  ADD COLUMN IF NOT EXISTS k_delayed numeric(4,1) NOT NULL DEFAULT 0;
+`;
+
 export const XQ_LEARNER_MIGRATIONS: SchemaMigrationSet = {
   store: 'xq-learner',
-  migrations: [{ version: 1, name: 'baseline', up: XQ_LEARNER_SCHEMA, transaction: false }],
+  migrations: [
+    { version: 1, name: 'baseline', up: XQ_LEARNER_SCHEMA, transaction: false },
+    { version: 2, name: 'session-and-persona', up: XQ_LEARNER_V2, transaction: false },
+  ],
 };
 
 /** 建这组表；幂等，重跑不丢数据。 */
