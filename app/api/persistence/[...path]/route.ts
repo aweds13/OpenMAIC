@@ -37,6 +37,11 @@ import { guardedServerRuntimeStore } from '@/lib/persistence/runtime-tombstone-g
 import { withXqProbeRecording } from '@/lib/persistence/xq-probe-recorder';
 import { recordXqEvent, XQ_END_REASONS, XQ_EVENT_KINDS } from '@/lib/persistence/xq-event-recorder';
 import {
+  recordXqReview,
+  XqReviewRoundMissingError,
+  XQ_REVIEW_OUTCOMES,
+} from '@/lib/persistence/xq-review-recorder';
+import {
   getServerPersistenceProvider,
   type PersistencePoolFactory,
 } from '@/lib/persistence/server-provider';
@@ -82,6 +87,18 @@ const LEARNER_KEY_PATH = '/learner-key';
  * is a real failure and answers non-2xx.
  */
 const XQ_EVENTS_PATH = '/xq/events';
+
+/**
+ * `POST /api/persistence/xq/reviews`: one review round finished.
+ *
+ * Separate from `/xq/events` because it does more than append a fact: it also
+ * closes (or, on a failure, re-arms) the row in `xq_review_schedule`. Routing
+ * both through one endpoint keeps the order — fact first, schedule second — in
+ * one place. A caller that wrote the event by itself and then failed to touch
+ * the schedule would leave a round due forever, which is exactly the state the
+ * app was in before this route existed.
+ */
+const XQ_REVIEWS_PATH = '/xq/reviews';
 
 /**
  * The body of one learning event. Kept narrow on purpose: the writer's own
@@ -205,6 +222,122 @@ async function handleXqEvent(
     log.error(`xq event write failed: ${error instanceof Error ? error.message : String(error)}`);
     return withHeaders(
       jsonError(500, 'XQ_EVENT_WRITE_FAILED', 'learning event write failed'),
+      responseHeaders,
+    );
+  }
+}
+
+/** The body of one review outcome. Same stance as {@link XqEventBody}: narrow. */
+interface XqReviewBody {
+  stageId?: unknown;
+  sceneId?: unknown;
+  questionId?: unknown;
+  concept?: unknown;
+  round?: unknown;
+  outcome?: unknown;
+  occurredAt?: unknown;
+  sessionId?: unknown;
+}
+
+/**
+ * `POST /xq/reviews` for this app: one review round answered.
+ *
+ * A missing round answers 404 rather than 400 — the request was well formed,
+ * the thing it names is not there. That happens legitimately when a client
+ * keeps a stale list: the learner answers a card on a round this device has
+ * already reset. Answering 400 would tell it to stop retrying a shape that was
+ * never wrong; 404 tells it to reload.
+ */
+async function handleXqReview(
+  request: Request,
+  queryable: Queryable,
+  responseHeaders: Headers,
+): Promise<Response> {
+  let body: XqReviewBody;
+  try {
+    body = (await request.json()) as XqReviewBody;
+  } catch {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', 'request body must be JSON'),
+      responseHeaders,
+    );
+  }
+  if (typeof body !== 'object' || body === null) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', 'request body must be an object'),
+      responseHeaders,
+    );
+  }
+  const stageId = asOptionalString(body.stageId);
+  const sceneId = asOptionalString(body.sceneId);
+  const questionId = asOptionalString(body.questionId);
+  const occurredAt = asOptionalString(body.occurredAt);
+  const sessionId = asOptionalString(body.sessionId);
+  if (
+    stageId === undefined ||
+    sceneId === undefined ||
+    questionId === undefined ||
+    occurredAt === undefined ||
+    sessionId === undefined
+  ) {
+    return withHeaders(
+      jsonError(
+        400,
+        'VALIDATION_FAILED',
+        'stageId, sceneId, questionId, occurredAt and sessionId are required',
+      ),
+      responseHeaders,
+    );
+  }
+  const outcome = asOptionalString(body.outcome);
+  if (outcome === undefined) {
+    return withHeaders(jsonError(400, 'VALIDATION_FAILED', 'outcome is required'), responseHeaders);
+  }
+  if (!XQ_REVIEW_OUTCOMES.includes(outcome as (typeof XQ_REVIEW_OUTCOMES)[number])) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', `unknown review outcome: ${outcome}`),
+      responseHeaders,
+    );
+  }
+  const round = body.round;
+  if (typeof round !== 'number' || !Number.isInteger(round) || round < 1) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', 'round must be a positive integer'),
+      responseHeaders,
+    );
+  }
+  try {
+    const result = await recordXqReview(queryable, {
+      stageId,
+      sceneId,
+      questionId,
+      // The concept is whatever the schedule row carries; an empty string is a
+      // real value there (rounds are scheduled per question, the concept is an
+      // annotation). Defaulting it to '' rather than rejecting keeps a client
+      // that does not track concepts working.
+      concept: asOptionalString(body.concept) ?? '',
+      round,
+      outcome: outcome as (typeof XQ_REVIEW_OUTCOMES)[number],
+      occurredAt,
+      sessionId,
+    });
+    return withHeaders(
+      Response.json(
+        { recorded: result.recorded, eventId: result.eventId, duplicate: result.duplicate },
+        { status: result.duplicate ? 200 : 201 },
+      ),
+      responseHeaders,
+    );
+  } catch (error) {
+    if (error instanceof XqReviewRoundMissingError) {
+      return withHeaders(jsonError(404, 'REVIEW_ROUND_NOT_FOUND', error.message), responseHeaders);
+    }
+    if (error instanceof RangeError) {
+      return withHeaders(jsonError(400, 'VALIDATION_FAILED', error.message), responseHeaders);
+    }
+    log.error(`xq review write failed: ${error instanceof Error ? error.message : String(error)}`);
+    return withHeaders(
+      jsonError(500, 'XQ_REVIEW_WRITE_FAILED', 'review write failed'),
       responseHeaders,
     );
   }
@@ -694,6 +827,16 @@ async function handlePersistenceRequestInner(
         }
         const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
         return await handleXqEvent(request, pool as unknown as Queryable, responseHeaders);
+      }
+      if (path === XQ_REVIEWS_PATH) {
+        if (request.method !== 'POST') {
+          return withHeaders(
+            jsonError(405, 'METHOD_NOT_ALLOWED', 'xq/reviews accepts POST only'),
+            responseHeaders,
+          );
+        }
+        const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
+        return await handleXqReview(request, pool as unknown as Queryable, responseHeaders);
       }
       const action = parseDocumentAction(request.method, path);
       let access: DocumentAccess = 'allow';
