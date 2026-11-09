@@ -39,6 +39,29 @@ export const NOT_LEARNED_MAX = 0.3;
 /** 少于这个题量，任何结论都只能是 `unknown`。 */
 export const MIN_ITEMS_FOR_VERDICT = 3;
 
+/**
+ * 判「会」要求的第一条证据至少放了这么多天。
+ *
+ * ★ 3 天**不是文献值**，是「四关的第 2 关就是第 3 天」（`xq_review_schedule`
+ *   里 round 2 的 `due_at = asked_at + 3d`）。用已有排期当分界，不需要新参数。
+ *   这是「有依据的选择」不是「已优化的参数」—— 改它要重新标定。
+ *
+ * 为什么要有这一条：`n/k` 里的每一条证据都不含 `Δ = now − asked_at`，所以
+ * Beta 区间虽然统计上正确（Beta-二项共轭、下界取 20% 分位），**构念上测的是
+ * 「曾经答对的比例」，不是「隔几天还能不能取出来」**。实测的极端反例：
+ * 反复测全部项 vs 答对就撤，一周后的保持率 80% vs 33–36%（d=4.03），
+ * 而被测试者自己完全预测不出来 —— 当天答对不说明记住了。
+ */
+export const DELAYED_BUCKET_DAYS = 3;
+
+/**
+ * 延迟桶里至少要几条证据才允许判「会」。
+ *
+ * 与 `MIN_ITEMS_FOR_VERDICT` 同值但**不是同一个东西**：上面那条是「总量够不够」，
+ * 这条是「隔了几天之后还答对的那部分够不够」。两条都要满足。
+ */
+export const MIN_DELAYED_ITEMS_FOR_KNOWN = 3;
+
 export type Tri = 'known' | 'not-learned' | 'unknown';
 
 /**
@@ -53,6 +76,27 @@ export interface EvidenceItem {
   correct: boolean;
   /** 这道题的盲猜率；缺省按单选 0.25。 */
   guessRate?: number;
+  /**
+   * 这条证据是什么时候观测的（`xq_probe_item.asked_at`）。
+   *
+   * 给了才分延迟桶。**不给 = 不声称「这些证据是刚产生的」**，按「已经放够久」
+   * 处理 —— 这条缺省只为向后兼容（历史调用点与纯算术测试不传时间），
+   * 生产路径（`XqLearnerStore.recomputeCellState`）必须给。
+   */
+  askedAt?: Date | string | number;
+}
+
+/** 分延迟桶用的「现在」与阈值。`now` 不注入就取真实时钟 —— 测试与重放必须注入。 */
+export interface ClassifyOptions {
+  now?: Date | number | string;
+  /** 默认 {@link DELAYED_BUCKET_DAYS}。传它是为了让测试能钉住边界，不是给生产调的。 */
+  delayedDays?: number;
+}
+
+function toEpoch(value: Date | string | number | undefined): number | null {
+  if (value === undefined) return null;
+  const t = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(t) ? t : null;
 }
 
 export interface TriVerdict {
@@ -65,6 +109,15 @@ export interface TriVerdict {
   lb5: number | null;
   /** 掌握度的后验上界（80% 分位反解）。 */
   ub95: number | null;
+  /**
+   * 延迟桶（`Δ ≥ DELAYED_BUCKET_DAYS`）里的有效题量与答对数。
+   *
+   * 落进 `xq_cell_state.n_delayed` / `k_delayed`。`tri='known'` 只允许由这一对
+   * 推出（见 {@link classifyEvidence}），所以这两个数必须能被单独看见 ——
+   * 否则「为什么这一格明明是 8/8 却不是 known」在库里查不出来。
+   */
+  nDelayed: number;
+  kDelayed: number;
   reason?: UnknownReason;
 }
 
@@ -184,17 +237,41 @@ export function logGamma(z: number): number {
  * 但 Beta(1,1) 先验下 20% 分位只有 0.55 —— 恰好卡在门槛上。这与
  * 「n=8 需 7/8」是同一件事的两面，用区间表达才能同时解释两者。
  */
-export function classifyEvidence(items: readonly EvidenceItem[]): TriVerdict {
+export function classifyEvidence(
+  items: readonly EvidenceItem[],
+  options: ClassifyOptions = {},
+): TriVerdict {
   const effective = items.filter((item) => item.countedN > 0);
   if (effective.length === 0) {
-    return { tri: 'unknown', n: 0, k: 0, lb5: null, ub95: null, reason: 'no-quiz' };
+    return {
+      tri: 'unknown',
+      n: 0,
+      k: 0,
+      lb5: null,
+      ub95: null,
+      nDelayed: 0,
+      kDelayed: 0,
+      reason: 'no-quiz',
+    };
   }
 
   let n = 0;
   let k = 0;
+  let nDelayed = 0;
+  let kDelayed = 0;
+  // 「现在」只求一次：逐条取会把跨午夜的那一秒算成两种答案。
+  const nowMs = toEpoch(options.now) ?? Date.now();
+  const bucketMs = (options.delayedDays ?? DELAYED_BUCKET_DAYS) * 86_400_000;
   for (const item of effective) {
     n += item.countedN;
     if (item.correct) k += item.countedN;
+    // ★ 没给 `askedAt` 的条目按「已放够久」算。这是向后兼容的缺省，不是判据：
+    //   生产路径每条都带 `asked_at`（见 XqLearnerStore.recomputeCellState）。
+    const askedMs = toEpoch(item.askedAt);
+    if (askedMs === null || nowMs - askedMs >= bucketMs) {
+      nDelayed += item.countedN;
+      if (item.correct) kDelayed += item.countedN;
+    }
   }
 
   if (n < MIN_ITEMS_FOR_VERDICT) {
@@ -204,6 +281,8 @@ export function classifyEvidence(items: readonly EvidenceItem[]): TriVerdict {
       k: round1(k),
       lb5: null,
       ub95: null,
+      nDelayed: round1(nDelayed),
+      kDelayed: round1(kDelayed),
       reason: 'too-few-items',
     };
   }
@@ -224,12 +303,27 @@ export function classifyEvidence(items: readonly EvidenceItem[]): TriVerdict {
   const pHigh = betaQuantile(CONFIDENCE, alpha, beta);
   const lb5 = round3(masteryFromAccuracy(pLow, guessWeighted));
   const ub95 = round3(masteryFromAccuracy(pHigh, guessWeighted));
+  const rounded = {
+    n: round1(n),
+    k: round1(k),
+    lb5,
+    ub95,
+    nDelayed: round1(nDelayed),
+    kDelayed: round1(kDelayed),
+  };
 
-  if (lb5 >= KNOWN_MIN) return { tri: 'known', n: round1(n), k: round1(k), lb5, ub95 };
-  if (ub95 <= NOT_LEARNED_MAX) {
-    return { tri: 'not-learned', n: round1(n), k: round1(k), lb5, ub95 };
+  // ★ 「会」**只**由延迟桶推出。全量桶的 `lb5 >= KNOWN_MIN` 不再直接判 known ——
+  //   它只说明「这些题当时答对了」，不说明「隔了几天还取得出来」。
+  //   延迟桶不够时的 reason 是 `mixed`（不是 `too-few-items`）：总量是够的，
+  //   缺的是「隔了几天之后的那一次」—— 这两件事对学习者的含义完全不同。
+  if (nDelayed >= MIN_DELAYED_ITEMS_FOR_KNOWN) {
+    const dAlpha = 1 + kDelayed;
+    const dBeta = 1 + (nDelayed - kDelayed);
+    const dLow = masteryFromAccuracy(betaQuantile(1 - CONFIDENCE, dAlpha, dBeta), guessWeighted);
+    if (dLow >= KNOWN_MIN) return { tri: 'known', ...rounded };
   }
-  return { tri: 'unknown', n: round1(n), k: round1(k), lb5, ub95, reason: 'mixed' };
+  if (ub95 <= NOT_LEARNED_MAX) return { tri: 'not-learned', ...rounded };
+  return { tri: 'unknown', ...rounded, reason: 'mixed' };
 }
 
 /**

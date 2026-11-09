@@ -9,6 +9,8 @@ import {
   GUESS_RATE_MULTIPLE_MEAN,
   itemsNeededForKnown,
   KNOWN_MIN,
+  DELAYED_BUCKET_DAYS,
+  MIN_DELAYED_ITEMS_FOR_KNOWN,
   logGamma,
   masteryFromAccuracy,
   MIN_ITEMS_FOR_VERDICT,
@@ -198,6 +200,133 @@ describe('还差几题', () => {
   it('已经判会时为 0', () => {
     expect(itemsNeededForKnown({ n: 8, k: 7 })).toBe(0);
     expect(itemsNeededForKnown({ n: 8, k: 8 })).toBe(0);
+  });
+});
+
+describe('延迟桶：会 = 隔了几天还答得对', () => {
+  /**
+   * ★ 这一组钉的是 N2 §8.4 的那个洞：「n/k 里没有任何一条证据带 Δ=now−asked_at，
+   * 所以 Beta 区间统计上正确，但构念上测的是『曾经答对的比例』」。
+   * 实测反例：反复测全部项 vs 答对就撤，一周保持率 80% vs 33–36%（d=4.03），
+   * 而被测试者自己预测不出来。
+   */
+
+  const NOW = new Date('2026-11-20T00:00:00Z');
+  const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000);
+
+  /** 8 条全对，但全是今天答的 ⇒ 一条也不该进延迟桶。 */
+  it('今天答对的题不算延迟证据 —— 即使 8/8 也不判会', () => {
+    const items = Array.from({ length: 8 }, () => ({
+      countedN: 1,
+      correct: true,
+      askedAt: daysAgo(0),
+    }));
+    const verdict = classifyEvidence(items, { now: NOW });
+    expect(verdict.n).toBe(8);
+    expect(verdict.nDelayed).toBe(0);
+    expect(verdict.tri).toBe('unknown');
+    // 不是 too-few-items：总量够，缺的是「隔了几天之后的那一次」。
+    expect(verdict.reason).toBe('mixed');
+  });
+
+  it('8 条全对且都放了 3 天以上 ⇒ 判会，延迟桶等于全量桶', () => {
+    const items = Array.from({ length: 8 }, () => ({
+      countedN: 1,
+      correct: true,
+      askedAt: daysAgo(4),
+    }));
+    const verdict = classifyEvidence(items, { now: NOW });
+    expect(verdict.tri).toBe('known');
+    expect(verdict.nDelayed).toBe(8);
+    expect(verdict.kDelayed).toBe(8);
+  });
+
+  it('★ 延迟桶不足 3 条时，全量桶再漂亮也只判 unknown', () => {
+    // 10 条全对，但只有 2 条放过 3 天 —— 缺的正是「隔几天还取得出来」的证据。
+    const items = [
+      ...Array.from({ length: 2 }, () => ({ countedN: 1, correct: true, askedAt: daysAgo(5) })),
+      ...Array.from({ length: 8 }, () => ({ countedN: 1, correct: true, askedAt: daysAgo(0) })),
+    ];
+    const verdict = classifyEvidence(items, { now: NOW });
+    expect(verdict.n).toBe(10);
+    expect(verdict.nDelayed).toBe(2);
+    expect(verdict.tri).toBe('unknown');
+    expect(verdict.reason).toBe('mixed');
+    expect(MIN_DELAYED_ITEMS_FOR_KNOWN).toBe(3);
+  });
+
+  it('缺省 askedAt 的条目按「已放够久」算（向后兼容，不是判据）', () => {
+    // 老调用点与纯算术测试不传时间；把它们当成「刚答的」会让所有历史调用突然掉成 unknown。
+    const verdict = classifyEvidence(evidence(8, 8), { now: NOW });
+    expect(verdict.tri).toBe('known');
+    expect(verdict.nDelayed).toBe(8);
+  });
+
+  it('3 天是边界：2.99 天不进延迟桶，3.00 天进', () => {
+    const justUnder = [
+      ...Array.from({ length: 3 }, () => ({
+        countedN: 1,
+        correct: true,
+        askedAt: new Date(NOW.getTime() - (DELAYED_BUCKET_DAYS * 86_400_000 - 1)),
+      })),
+      ...Array.from({ length: 5 }, () => ({ countedN: 1, correct: true, askedAt: daysAgo(10) })),
+    ];
+    expect(classifyEvidence(justUnder, { now: NOW }).nDelayed).toBe(5);
+    const justOver = justUnder.map((item, i) =>
+      i < 3 ? { ...item, askedAt: daysAgo(DELAYED_BUCKET_DAYS) } : item,
+    );
+    expect(classifyEvidence(justOver, { now: NOW }).nDelayed).toBe(8);
+  });
+
+  it('阈值可注入 —— 只给测试钉边界用，不是给生产调的旋钮', () => {
+    const items = Array.from({ length: 8 }, () => ({
+      countedN: 1,
+      correct: true,
+      askedAt: daysAgo(1),
+    }));
+    expect(classifyEvidence(items, { now: NOW }).nDelayed).toBe(0);
+    expect(classifyEvidence(items, { now: NOW, delayedDays: 1 }).nDelayed).toBe(8);
+  });
+});
+
+describe('判界矩阵（钉住真实读数，不是钉住任何一份文档的说法）', () => {
+  /**
+   * ★ 这一组存在的原因是：设计文档 M §5.2 说「n=8 时两个实现巧合一致（都要 7/8），
+   * n=9 分叉（D 允许 8/9，代码要 9/9）」，而真跑出来的判界是：
+   *
+   *   n=6 → 6/6   n=7 → 6/7   n=8 → 7/8   n=9 → 8/9
+   *   n=10 → 9/10 n=11 → 9/11 n=12 → 10/12
+   *
+   * **n=9 并不分叉**（代码也允许 8/9），M 那句话与它自己那张表都不一致。
+   * 所以这里钉住代码的实测判界 —— 谁要按文档去「修正」代码，这几条会红。
+   */
+  it('判界矩阵与实测一致：n=6..12 的最小判会题数', () => {
+    const minKnown = (n: number) => {
+      for (let k = 0; k <= n; k += 1) {
+        if (classifyEvidence(evidence(n, k)).tri === 'known') return k;
+      }
+      return -1;
+    };
+    expect([6, 7, 8, 9, 10, 11, 12].map(minKnown)).toEqual([6, 6, 7, 8, 9, 9, 10]);
+    // 差的这一题就是「n=9 要 8/9」—— 与文档说的「要 9/9」不同。
+    expect(minKnown(9)).toBe(8);
+  });
+
+  /**
+   * ★ 分叉二：`not-learned` 的 `ub95 = 0` 是**截断**不是估计。
+   *
+   * `masteryFromAccuracy(p, g)` 在 `p ≤ g` 时返回 0，所以 5/0 的真实
+   * raw 概率上界 0.2353 被压成 0。语义上可辩护（答对率低于盲猜率 ⇒ 掌握度 0），
+   * 但状态块会写「不会（置信上界 0.00）」，那个 0.00 会被读成「确定不会」。
+   * 这条断言钉住「它确实是 0」，同时钉住它不是算出来的。
+   */
+  it('5/0 的 ub95 是 0 —— 这是截断，真实 raw 上界是 0.2353', () => {
+    const verdict = classifyEvidence(evidence(5, 0));
+    expect(verdict.ub95).toBe(0);
+    expect(verdict.tri).toBe('not-learned');
+    // 原始 raw 分位（不经盲猜反解）确实不是 0 —— 说明 0 来自截断。
+    const rawUpper = betaQuantile(CONFIDENCE, 1, 6);
+    expect(rawUpper).toBeCloseTo(0.2353, 4);
   });
 });
 

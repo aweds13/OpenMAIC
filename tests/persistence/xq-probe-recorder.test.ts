@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { XQ_LEARNER_SCHEMA } from '@/lib/persistence/xq-learner';
+import { ensureXqLearnerSchema, XQ_LEARNER_SCHEMA } from '@/lib/persistence/xq-learner';
 import type { RuntimeRecord } from '@openmaic/dsl';
 import type { RuntimeStore } from '@openmaic/storage';
 
@@ -40,6 +40,9 @@ describe('xq probe recorder', () => {
     await db.waitReady;
     await db.exec(DOCUMENT_SCENES_MIN);
     await db.exec(XQ_LEARNER_SCHEMA);
+    // 版本 2 给 `xq_cell_state` 加了 `n_delayed`/`k_delayed`，而 `recomputeCellState`
+    // 写的就是这两列 —— 只跑 v1 baseline 会让重算抛错（被 catch 成 `recomputed: 0`）。
+    await ensureXqLearnerSchema(db);
   });
 
   const appendInput = (overrides: Record<string, unknown> = {}) => ({

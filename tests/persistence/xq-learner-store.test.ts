@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { XQ_LEARNER_SCHEMA } from '@/lib/persistence/xq-learner';
+import { ensureXqLearnerSchema, XQ_LEARNER_SCHEMA } from '@/lib/persistence/xq-learner';
 import { XqLearnerStore, XqReviewRoundNotFoundError } from '@/lib/persistence/xq-learner-store';
 
 /**
@@ -40,8 +40,17 @@ describe('XqLearnerStore', () => {
     await db.waitReady;
     await db.exec(DOCUMENT_SCENES_MIN);
     await db.exec(XQ_LEARNER_SCHEMA);
-    store = new XqLearnerStore({ queryable: db });
+    // 版本 2 的两列（n_delayed / k_delayed）是 `recomputeCellState` 的写入目标 ——
+    // 只跑 v1 baseline 的话，重算会报 column does not exist。
+    await ensureXqLearnerSchema(db);
+    store = new XqLearnerStore({ queryable: db, now: () => NOW });
   });
+
+  /**
+   * 固定的「现在」。延迟桶按 `now − asked_at` 分档，测试里必须钉住它，
+   * 否则「昨天答的算不算延迟」会随真实钟表漂。
+   */
+  const NOW = new Date(Date.UTC(2026, 10, 20, 0, 0));
 
   const probe = (questionId: string, correct: boolean, minute = 0) => ({
     taskId: 'task-1',

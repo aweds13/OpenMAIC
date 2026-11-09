@@ -179,7 +179,7 @@ ON CONFLICT (task_id, stage_id, scene_id, question_id, asked_at) DO NOTHING
 RETURNING id
 `;
 
-const SELECT_EVIDENCE_SQL = `SELECT p.counted_n, p.correct
+const SELECT_EVIDENCE_SQL = `SELECT p.counted_n, p.correct, p.asked_at
   FROM xq_probe_item p
  WHERE p.stage_id = $1 AND p.scene_id = $2
    AND NOT EXISTS (
@@ -216,14 +216,16 @@ const DELETE_CELL_STATE_SQL = `DELETE FROM xq_cell_state WHERE stage_id = $1 AND
  * 让 `tri` 与 `n/k` 来自两次不同重算只会得到自相矛盾的一行。
  */
 const UPSERT_CELL_STATE_SQL = `INSERT INTO xq_cell_state (
-  stage_id, scene_id, tri, n, k, lb5, ub95, reason, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+  stage_id, scene_id, tri, n, k, lb5, ub95, n_delayed, k_delayed, reason, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
 ON CONFLICT (stage_id, scene_id) DO UPDATE
    SET tri = EXCLUDED.tri,
        n = EXCLUDED.n,
        k = EXCLUDED.k,
        lb5 = EXCLUDED.lb5,
        ub95 = EXCLUDED.ub95,
+       n_delayed = EXCLUDED.n_delayed,
+       k_delayed = EXCLUDED.k_delayed,
        reason = EXCLUDED.reason,
        updated_at = now()`;
 
@@ -304,6 +306,7 @@ const DUE_REVIEWS_SQL = `SELECT stage_id, scene_id, question_id, concept, round,
 interface ProbeEvidenceRow extends Record<string, unknown> {
   counted_n: string | number | null;
   correct: boolean;
+  asked_at: Date | string;
 }
 
 interface CellRow extends Record<string, unknown> {
@@ -328,9 +331,15 @@ interface DueReviewRow extends Record<string, unknown> {
  */
 export class XqLearnerStore {
   private readonly queryable: Queryable;
+  /**
+   * 注入的「现在」。**只有测试与重放会传** —— 延迟桶按 `now − asked_at` 分档，
+   * 不注入的话「同一天答对算不算延迟」会随真实钟表漂，测试就钉不住边界。
+   */
+  private readonly now?: () => Date;
 
-  constructor({ queryable }: { queryable: Queryable }) {
+  constructor({ queryable, now }: { queryable: Queryable; now?: () => Date }) {
     this.queryable = queryable;
+    this.now = now;
   }
 
   /**
@@ -396,7 +405,16 @@ export class XqLearnerStore {
     if (type !== null && type !== 'quiz') {
       // 缓存删掉，证据不动。返回 `no-quiz` 是因为这一页**确实没有题**可判。
       await this.queryable.query(DELETE_CELL_STATE_SQL, [stageId, sceneId]);
-      return { tri: 'unknown', n: 0, k: 0, lb5: null, ub95: null, reason: 'no-quiz' };
+      return {
+        tri: 'unknown',
+        n: 0,
+        k: 0,
+        lb5: null,
+        ub95: null,
+        nDelayed: 0,
+        kDelayed: 0,
+        reason: 'no-quiz',
+      };
     }
 
     const { rows } = await this.queryable.query<ProbeEvidenceRow>(SELECT_EVIDENCE_SQL, [
@@ -407,9 +425,12 @@ export class XqLearnerStore {
     const evidence: EvidenceItem[] = rows.map((row) => ({
       countedN: countedNOf(row.counted_n),
       correct: row.correct === true,
+      // ★ 每条证据都带上观测时刻 —— 延迟桶全靠它。漏掉的话所有证据都会被当成
+      //   「已经放够久」，延迟桶退化成全量桶，`known` 又变回「曾经答对过」。
+      askedAt: row.asked_at,
     }));
 
-    const verdict = classifyEvidence(evidence);
+    const verdict = classifyEvidence(evidence, { now: this.now?.() });
     await this.queryable.query(UPSERT_CELL_STATE_SQL, [
       stageId,
       sceneId,
@@ -418,6 +439,8 @@ export class XqLearnerStore {
       verdict.k,
       verdict.lb5,
       verdict.ub95,
+      verdict.nDelayed,
+      verdict.kDelayed,
       verdict.reason ?? null,
     ]);
     return verdict;
