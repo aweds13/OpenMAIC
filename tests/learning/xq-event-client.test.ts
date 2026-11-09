@@ -139,6 +139,22 @@ describe('xq event client', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it('★ 每条请求都带 keepalive —— 关标签页时普通 fetch 会被掐掉', async () => {
+    const calls: Array<{ init?: RequestInit }> = [];
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ init });
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ eventId: 'e-1', sessionId: 's-1', duplicate: false }),
+      } as unknown as Response;
+    }) as typeof fetch;
+    const client = createXqEventClient({ fetchImpl });
+    await client.viewPage('stage-a', 'scene-p1');
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) expect(call.init?.keepalive).toBe(true);
+  });
+
   it('★ 4xx 不重试 —— 请求本身不对，重发只是再错一次', async () => {
     const { calls, fetchImpl } = fakeFetch(() => ({ status: 400 }));
     const client = createXqEventClient({

@@ -179,6 +179,10 @@ export function createXqEventClient(deps: XqEventClientDeps = {}): XqEventClient
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'content-type': 'application/json' },
+          // ★ `keepalive` 是给「页面正在卸载」那一种请求用的：关标签页时
+          // 普通 fetch 会被浏览器掐掉，于是 `session_ended` 永远发不出去，
+          // 那个会话在库里就一直开着。事件体都很小，64 KB 的上限碰不到。
+          keepalive: true,
           body: JSON.stringify(body),
         });
         if (!response.ok) {

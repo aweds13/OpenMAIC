@@ -72,3 +72,44 @@ export function endXqLearningSession(stageId: string | undefined): void {
   if (stageId === undefined || stageId === '') return;
   void getXqEventClient().endSession(stageId, 'terminated');
 }
+
+/**
+ * 关标签页 / 离开这一页时把会话关掉。
+ *
+ * ## 为什么单靠 `teardown()` 不够
+ *
+ * `teardown()` 是**播放态组件卸载**时跑的：点「返回」、切到编辑态会走到它。
+ * 但一个人更常见的离开方式是**直接关掉标签页** —— 那时 React 不会有任何
+ * 卸载回调，于是那个会话在库里永远开着（`ended_at IS NULL`）。
+ *
+ * 后果不是抽象的：`/sessions` 的合计**只累加已结束的会话**（进行中那一个
+ * 的活跃毫秒只会越算越小，算进去那个数会倒退），所以「关标签页」这种最常见的
+ * 离开方式会让「今天学了多久」永远显示 0 分钟。
+ *
+ * ## 为什么只挂 `pagehide`，不挂 `visibilitychange`
+ *
+ * `visibilitychange` 在切到别的标签页时就触发 —— 那只是「手离开了」，不是
+ * 「不学了」；拿它当结束，一次学习会被切成很多段。`pagehide` 只在页面真的要
+ * 走（关闭、导航、进 bfcache）时触发，与「这一次坐下学习结束」同义。
+ *
+ * ## 为什么不是 effect cleanup
+ *
+ * 与 `endXqLearningSession` 同一条理由：StrictMode 的双挂载与热更新会让
+ * cleanup 反复跑，把「今天学了 5 次」写成 15 次。`pagehide` 是浏览器事件，
+ * 只在那一下发生。
+ *
+ * 请求本身要走 `keepalive`（`xq-event-client.ts` 的 `post()` 里带着），
+ * 否则卸载中的页面发不出去。
+ */
+export function useXqSessionLifecycle(stageId: string | undefined): void {
+  useEffect(() => {
+    if (stageId === undefined || stageId === '') return;
+    const onPageHide = () => {
+      endXqLearningSession(stageId);
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [stageId]);
+}

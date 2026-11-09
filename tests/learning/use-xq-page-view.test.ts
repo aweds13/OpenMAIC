@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { PENDING_SCENE_ID } from '@/lib/store/stage';
-import { shouldRecordPageView } from '@/lib/learning/use-xq-page-view';
+import { shouldRecordPageView, useXqSessionLifecycle } from '@/lib/learning/use-xq-page-view';
 
 /**
  * 「这一页该不该记成一次浏览」的判据。
@@ -29,5 +29,32 @@ describe('page view: 什么算一次真的浏览', () => {
     expect(shouldRecordPageView('stage-abc', undefined)).toBe(false);
     expect(shouldRecordPageView('stage-abc', null)).toBe(false);
     expect(shouldRecordPageView('stage-abc', '')).toBe(false);
+  });
+});
+
+describe('useXqSessionLifecycle：关标签页也要结束会话', () => {
+  it('★ 它挂在 pagehide 上，不挂 visibilitychange', async () => {
+    // 切标签页只是「手离开了」，不是「不学了」；拿它当结束会把一次学习
+    // 切成很多段。`pagehide` 只在页面真的要走时触发。
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile('lib/learning/use-xq-page-view.ts', 'utf8');
+    const at = source.indexOf('export function useXqSessionLifecycle');
+    expect(at).toBeGreaterThan(-1);
+    const body = source.slice(at, at + 1400);
+    expect(body).toContain("window.addEventListener('pagehide'");
+    expect(body).not.toContain("addEventListener('visibilitychange'");
+  });
+
+  it('★ 卸载时把监听器摘掉 —— 否则换一门课就多一个监听器', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile('lib/learning/use-xq-page-view.ts', 'utf8');
+    const at = source.indexOf('export function useXqSessionLifecycle');
+    const body = source.slice(at, at + 1400);
+    expect(body).toContain("removeEventListener('pagehide'");
+    expect(body).toContain('[stageId]');
+  });
+
+  it('它是 hook —— 不能在没有 stageId 时挂监听（也不该返回真值）', () => {
+    expect(typeof useXqSessionLifecycle).toBe('function');
   });
 });

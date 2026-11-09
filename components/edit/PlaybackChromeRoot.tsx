@@ -38,7 +38,11 @@ import {
   saveActionResumePosition,
 } from '@/lib/playback/action-resume';
 import { loadCursor, saveCursor, type PlaybackCursor } from '@/lib/playback/cursor';
-import { endXqLearningSession, useXqPageView } from '@/lib/learning/use-xq-page-view';
+import {
+  endXqLearningSession,
+  useXqPageView,
+  useXqSessionLifecycle,
+} from '@/lib/learning/use-xq-page-view';
 import { QuizAskProvider, type QuizAskHandle } from '@/lib/contexts/quiz-ask-context';
 import { askForHint, type XqHintSubtype } from '@/lib/learning/xq-hint';
 import { ActionEngine } from '@/lib/action/engine';
@@ -173,6 +177,10 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     // 「他翻到了哪一页」是一条学习事实，不是 UI 状态。这里跟的是结果
     // （currentSceneId 变了），所以五条翻页入口都不必各自埋点。
     useXqPageView(stage?.id, currentSceneId);
+    // 关标签页时也要把会话关掉 —— 那是最常见的离开方式，而它不会有任何
+    // React 卸载回调。合计只累加已结束的会话，漏掉这一条会让「今天学了多久」
+    // 永远显示 0 分钟。
+    useXqSessionLifecycle(stage?.id);
     const [elementPickActive, setElementPickActiveState] = useState(false);
     const elementPickActiveRef = useRef(false);
     const setElementPickActive = useCallback((next: boolean | ((active: boolean) => boolean)) => {
