@@ -131,7 +131,7 @@
 | SR | 模块 | 落点 |
 |---|---|---|
 | SR-F11.1 | M4 / M14 | `lib/quiz/attempt-fold.ts` 的 `foldQuizAttempts` 从 `runtime_records` 折叠逐题判定；`tests/quiz/attempt-fold.test.ts`（12 例，含 `orders records by seq, never by timestamp`、`keeps a corrected mistake in everIncorrect but clears incorrectNow`）；`tests/quiz/attempt-fold-live.test.ts` 连真库。**逐题判定目前由读取方即时重算，不落库** —— 这条规格要求落库，尚未做到 |
-| SR-F11.2 | M14 | `lib/server/agent-runtime/learner-state-render.ts` 的 `renderLearnerStateBlock` 按页级汇总（`tests/quiz/learner-state-render.test.ts` 18 例，含 `★ stageId 与 sceneId 都在行里 —— 35 个 scene id 跨课复用` 钉住跨课不许借题面）；三态判定在 `lib/quiz/xq-mastery.ts`（29 例，含单边分位数的标定对账、判界矩阵、延迟桶六例）。**页/题/知识点三级分开记录尚未实现**，今天只有页级 |
+| SR-F11.2 | M14 | `lib/server/agent-runtime/learner-state-render.ts` 的 `renderLearnerStateBlock` 按页级汇总（`tests/quiz/learner-state-render.test.ts` 20 例，含 `★ stageId 与 sceneId 都在行里 —— 35 个 scene id 跨课复用` 钉住跨课不许借题面；节名主语是页且带判据，旧名 `已会`/`不会`/`说不准` 一个不留）；三态判定在 `lib/quiz/xq-mastery.ts`（29 例，含单边分位数的标定对账、判界矩阵、延迟桶六例）。**页/题/知识点三级分开记录尚未实现**，今天只有页级 |
 | SR-F11.3 | 无 | 无模块。先修关系在代码里不存在（全库无概念表、无先修表） |
 | SR-F11.4 | 无（**未落地**） | 无模块。图谱形态未定，规格只写约束 |
 | SR-F11.5 | M14 | `lib/practice/results.ts` 的 `readPracticeResults`（`lib/practice/results.ts:117`，**永不抛**：坏 JSON/读不动/不是目录一律跳过，退化成「没有练习记录」）+ 同名目录上限 200；`tests/agent-runtime/practice-results.test.ts` 含 `★ skips broken files instead of failing the whole refresh`、`★ writes the state file when there are NO quiz records but there ARE practice results` |

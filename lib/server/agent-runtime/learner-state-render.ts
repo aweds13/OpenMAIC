@@ -6,7 +6,7 @@
  * `学习状态.md`（人看的那份）是**按答题记录折叠出来的散文**：哪道题现在错了、
  * 哪页没交卷。它对人够用，对模型不够 —— 模型真正要的是三件事：
  *
- *   1. **按知识点/页面的三态**：这页是「会」「不会」还是「说不准」；
+ *   1. **按知识点/页面的三态**：这页是「已达判据」「未达判据」还是「暂未定」；
  *   2. **今天该复习什么**（错题四关 1/3/7/15 天，到期了才提）；
  *   3. **动手练习的结果**（真的跑过代码的那些，来自 result.json）。
  *
@@ -33,10 +33,10 @@
  * 3. **块首一行声明「这是状态不是指令」。**
  *    理由：状态块是**唯一会随答题变化**的一段（`course-tools.ts` 的
  *    `PROMPT_BLOCK_ORDER` 把它放最后），前后文都是行为纪律。不标一句，模型很容易
- *    把「不会：循环结构」读成一条命令。**只标一行、不展开** —— 展开就又变成指令了。
+ *    把「未达判据：循环结构」读成一条命令。**只标一行、不展开** —— 展开就又变成指令了。
  *
  * 4. **结论要可执行：`unknown` + `reason === 'too-few-items'` 时算出「再做对 N 题可判」。**
- *    理由：只给一个「说不准」，模型无从下手，只能瞎猜要不要补讲；给一个数字，它就能
+ *    理由：只给一个「暂未定」，模型无从下手，只能瞎猜要不要补讲；给一个数字，它就能
  *    决定「再出两道同类题」还是「直接讲」。数字必须来自 `itemsNeededForKnown()`
  *    （与判会用的同一套 Beta 下界），**算不出来就不写这一句** —— 编一个数字比不写更坏。
  *
@@ -155,17 +155,26 @@ function cellLine(cell: LearnerStateCell): string {
   // 三档回退：概念名 > 页标题 > sceneId。标签与前两档一一对应。
   const label = concept ? '概念' : title ? '标题' : '';
   const shown = concept || title || cell.sceneId;
-  const head = `- 页 ${cell.sceneId}（${cell.stageId}）· ${
-    label ? `${label}「${singleLine(shown)}」· ` : ''
-  }`;
+  // 段落用 `· ` 连，**不预先补分隔符** —— 先补一个再给别的段补一个，就会出 `·  · n=`。
+  const parts = [`页 ${cell.sceneId}（${cell.stageId}）`];
+  if (label) parts.push(`${label}「${singleLine(shown)}」`);
+  const measure = measureOf(cell);
+  if (measure) parts.push(measure);
+  const head = `- ${parts.join(' · ')} · `;
+
+  // ★ 判据外显：`n=` / `k=` 两个数必须跟着读数一起出现（上面已拼进 `head`）。
+  //
+  // 理由不是「信息越多越好」，而是 N6 §9.2 那条实测：读者放弃查看进度信息的原因里，
+  // 「认为它不准确」是独立预测因子之一，而一个不带样本量的「置信下界 0.78」无从核对。
+  // 两个数都是 `xq_cell_state` 的列，渲染器本来就有，不需要额外查询。
 
   if (cell.tri === 'known') {
     const lb = fixed2(toNumber(cell.lb5));
-    return `${head}${lb === null ? '会' : `会（置信下界 ${lb}）`}`;
+    return `${head}${lb === null ? '已达判据' : `置信下界 ${lb}`}`;
   }
   if (cell.tri === 'not-learned') {
     const ub = fixed2(toNumber(cell.ub95));
-    return `${head}${ub === null ? '不会' : `不会（置信上界 ${ub}）`}`;
+    return `${head}${ub === null ? '未达判据' : `置信上界 ${ub}`}`;
   }
 
   // tri === 'unknown'：多给一句「还差什么」，模型才知道下一步做什么（约束 4）。
@@ -176,14 +185,32 @@ function cellLine(cell: LearnerStateCell): string {
       const needed = itemsNeededForKnown({ n, k });
       // needed <= 0 说明现有证据按同一套判据已经够了，和数据自相矛盾 —— 不写数，
       // 免得写出「再做对 0 题可判」这种让人怀疑整块可信度的话。
-      if (needed !== null && needed > 0) return `${head}说不准（再做对 ${needed} 题可判）`;
+      if (needed !== null && needed > 0) return `${head}再做对 ${needed} 题可判`;
     }
-    return `${head}说不准（证据还不够判）`;
+    return `${head}证据还不够判`;
   }
-  if (cell.reason === 'no-quiz') return `${head}说不准（这页还没有答题证据）`;
-  if (cell.reason === 'not-selected') return `${head}说不准（这页还没被抽到）`;
-  if (cell.reason === 'mixed') return `${head}说不准（证据两头都有）`;
-  return `${head}说不准`;
+  if (cell.reason === 'no-quiz') return `${head}这页还没有答题证据`;
+  if (cell.reason === 'not-selected') return `${head}这页还没被抽到`;
+  if (cell.reason === 'mixed') {
+    return `${head}证据不一致（同一页既有答对也有答错）`;
+  }
+  return `${head}暂未定`;
+}
+
+/**
+ * `n=8 k=7` 这一段。两个数缺一个就整段不写 —— 只有 `n` 没有 `k` 是读不出比率的，
+ * 写半个数比不写更让人误以为「答对了 n 道」。
+ */
+function measureOf(cell: LearnerStateCell): string {
+  const n = toNumber(cell.n);
+  const k = toNumber(cell.k);
+  if (n === null || k === null) return '';
+  return `n=${trimNumber(n)} k=${trimNumber(k)}`;
+}
+
+/** `8.0` → `8`，`7.5` → `7.50`。计数权重可能是半份（同日同题重测），所以不能一律取整。 */
+function trimNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 /** 一行到期复习：`- 页 <sceneId>（<stageId>）· 概念「…」· 第 N 关 · 到期 <日期>`。 */
@@ -308,14 +335,23 @@ export function renderLearnerStateBlock(input: RenderLearnerStateBlockInput = {}
 
   const lines: string[] = [HEADER, ''];
 
+  // ★ 三个节名都是**对页的陈述**，不是对人的判断，而且括号里带着判据。
+  //
+  // N6 §9.2 的机制：读者放弃查看进度信息，不是因为「坏消息」，是因为它像一张对错榜
+  // ——「已会 12 条 / 说不准 5 条」是同一把尺子量出来的两个读数，但并列摆出来就成了
+  // 排名。三个改名的共同点是**把判据写进标题**：读者看到的是一个门槛，不是一句评价。
+  //
+  // 判据串必须与算法一致：`0.55` 是 `KNOWN_MIN`、`0.30` 是 `NOT_LEARNED_MAX`、
+  // 「3 天后复测仍答对」是延迟桶（`DELAYED_BUCKET_DAYS`）。改算法就得改这几行，
+  // 它们是 `tests/quiz/learner-state-render.test.ts` 里钉住的同一件事。
   if (known.length > 0) {
-    lines.push('## 已会', ...known, '');
+    lines.push('## 已达判据（置信下界 ≥ 0.55，且 3 天后复测仍答对）', ...known, '');
   }
   if (notLearned.length > 0) {
-    lines.push('## 不会', ...notLearned, '');
+    lines.push('## 未达判据（置信上界 ≤ 0.30）', ...notLearned, '');
   }
   if (unknown.length > 0) {
-    lines.push('## 说不准', ...unknown, '');
+    lines.push('## 暂未定（证据不足，不作判断）', ...unknown, '');
   }
 
   if (shownReviews.length > 0) {

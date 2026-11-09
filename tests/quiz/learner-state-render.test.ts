@@ -84,12 +84,57 @@ describe('三态渲染', () => {
         cell({ sceneId: 'scene-p3', tri: 'unknown', reason: 'mixed', concept: '数组' }),
       ],
     });
-    expect(text).toContain('会（置信下界 0.60）');
-    expect(text).toContain('不会（置信上界 0.11）');
-    expect(text).toContain('说不准（证据两头都有）');
-    expect(text).toContain('## 已会');
-    expect(text).toContain('## 不会');
-    expect(text).toContain('## 说不准');
+    expect(text).toContain('置信下界 0.60');
+    expect(text).toContain('置信上界 0.11');
+    expect(text).toContain('证据不一致（同一页既有答对也有答错）');
+    // ★ 三个节名都是**对页的陈述 + 判据**，不是对人的判断。
+    expect(text).toContain('## 已达判据（置信下界 ≥ 0.55，且 3 天后复测仍答对）');
+    expect(text).toContain('## 未达判据（置信上界 ≤ 0.30）');
+    expect(text).toContain('## 暂未定（证据不足，不作判断）');
+    // 旧节名一个都不许留：并列摆出来就成了一张对错榜。
+    expect(text).not.toContain('## 已会');
+    expect(text).not.toContain('## 不会');
+    expect(text).not.toContain('## 说不准');
+  });
+
+  it('★ 每行带 n= / k= —— 不带样本量的置信区间无从核对', () => {
+    const text = renderLearnerStateBlock({
+      cells: [cell({ tri: 'known', n: 8, k: 7, lb5: '0.603', concept: '循环结构' })],
+    });
+    expect(text).toContain('n=8 k=7');
+    // 两个数缺一个就整段不写：只有 n 没有 k 读不出比率。
+    const half = renderLearnerStateBlock({
+      cells: [cell({ tri: 'known', n: 8, k: null, lb5: '0.603', concept: '循环结构' })],
+    });
+    expect(half).not.toContain('n=8');
+    // 半份权重（同日同题重测 `counted_n=0.5`）不能被取整成 1。
+    const halfWeight = renderLearnerStateBlock({
+      cells: [cell({ tri: 'known', n: 7.5, k: 7.5, lb5: '0.603' })],
+    });
+    expect(halfWeight).toContain('n=7.50 k=7.50');
+  });
+
+  it('★ 零评价词 —— 八个词一个都不许出现', () => {
+    const text = renderLearnerStateBlock({
+      cells: [
+        cell({ sceneId: 'scene-p1', tri: 'known', lb5: '0.60', concept: '循环结构' }),
+        cell({ sceneId: 'scene-p2', tri: 'not-learned', ub95: '0.11', concept: '指针' }),
+        cell({ sceneId: 'scene-p3', tri: 'unknown', reason: 'mixed', concept: '数组' }),
+      ],
+    });
+    // 这八个词都有两个共同点：主语是**人**，而且是评价。状态这条线只报读数。
+    for (const word of [
+      '掌握得不好',
+      '薄弱',
+      '欠缺',
+      '需要加强',
+      '加油',
+      '做得不错',
+      '很聪明',
+      '粗心',
+    ]) {
+      expect(text).not.toContain(word);
+    }
   });
 
   it('★ stageId 与 sceneId 都在行里 —— 35 个 scene id 跨课复用', () => {
@@ -216,7 +261,7 @@ describe('★ 标签必须跟着数据来源变（写错比不写更坏）', () 
 
   it('两者都没有 ⇒ 只有 sceneId，不带空标签', () => {
     const text = renderLearnerStateBlock({ cells: [cell({})] });
-    expect(text).toContain('- 页 scene-p1（stage-a）· ');
+    expect(text).toContain('- 页 scene-p1（stage-a） ·');
     expect(text).not.toContain('「」');
     expect(text).not.toContain('概念「');
     expect(text).not.toContain('标题「');
