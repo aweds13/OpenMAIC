@@ -113,6 +113,7 @@
 | 改复习队列（到期了显示什么） | `lib/persistence/xq-review-queue.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqReviewQueue` |
 | 改答题事件（什么时候算「动过手」） | `lib/learning/xq-answer-events.ts` + `components/scene-renderers/quiz-view.tsx` |
 | 改复习界面（到期了怎么点） | `components/learning/due-review-list.tsx` + `lib/learning/xq-review-client.ts`（页面壳在 `app/review/page.tsx`） |
+| 改复习入口（从哪点进去） | `app/page.tsx` 的 `home-top-tools` 工具条里那个 `home-review-link`（判据 `tests/learning/review-entry.test.ts`） |
 | 改提问闸（什么时候不许问） | `lib/persistence/xq-hint-gate.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqEvent` |
 | 改题库文本抽取 | `lib/quiz/page-text.ts` |
 | 改插件工具/面板 | `D:/文档/jelly_ware/_tools/dsh-plugins/openmaic-course/lib/`（**不在本仓**） |

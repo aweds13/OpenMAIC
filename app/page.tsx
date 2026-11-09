@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useDeferredValue, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -33,6 +34,7 @@ import {
   X,
   Presentation,
   Loader2,
+  CalendarCheck,
 } from 'lucide-react';
 import './home-mobile.css';
 import {
@@ -798,6 +800,22 @@ function HomePage() {
         ref={toolbarRef}
         className="home-top-tools fixed top-4 right-4 z-50 flex items-center gap-1 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md px-2 py-1.5 rounded-full border border-gray-100/50 dark:border-gray-700/50 shadow-sm"
       >
+        {/* 复习入口。★ 放在这里而不是再加一个导航栏：这一页的顶部工具条是
+            全站唯一一个「任何时候都在」的锚点（播放态与工作台都会盖掉自己的
+            顶栏），而到期复习是一件跨课的事，不能挂在某一门课里。
+            用 `<a>` 不用 `<button>`：它是导航不是动作，中键/新标签页要能开。 */}
+        <Link
+          href="/review"
+          data-testid="home-review-link"
+          aria-label={t('review.title')}
+          title={t('review.title')}
+          className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
+        >
+          <CalendarCheck className="w-4 h-4" />
+        </Link>
+
+        <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
+
         {/* Language Selector */}
         <LanguageSwitcher onOpen={() => setThemeOpen(false)} />
 
