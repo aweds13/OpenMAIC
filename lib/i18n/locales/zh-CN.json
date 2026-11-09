@@ -2631,5 +2631,16 @@
     "you": "你",
     "ai": "AI",
     "truncated": "（截断）"
+  },
+  "sessions": {
+    "title": "学习记录",
+    "loading": "正在读学习记录",
+    "readFailed": "没读到学习记录 —— 这不等于你今天没学。",
+    "retry": "重试",
+    "empty": "还没有学习记录。翻一页、答一题之后，这里会留下那一次。",
+    "total": "已结束的 {{count}} 次学习，合计 {{minutes}} 分钟",
+    "minutes": "{{minutes}} 分钟",
+    "detail": "{{events}} 条事件 · {{pages}} 页 · 交卷 {{answers}} 次 · 问方向 {{hints}} 次",
+    "open": "进行中"
   }
 }

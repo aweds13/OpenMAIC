@@ -831,6 +831,19 @@ function HomePage() {
           <MessagesSquare className="w-4 h-4" />
         </Link>
 
+        {/* 学习记录入口。★ 放在这里而不是做进某个课程页：它跨课、跨学习日，
+            而且它是唯一一处「我到底学了多久」的答案。同样没有角标 ——
+            时长不是待办，不需要被催。 */}
+        <Link
+          href="/sessions"
+          data-testid="home-sessions-link"
+          aria-label={t('sessions.title')}
+          title={t('sessions.title')}
+          className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
+        >
+          <Clock className="w-4 h-4" />
+        </Link>
+
         <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
 
         {/* Language Selector */}

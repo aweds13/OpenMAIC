@@ -2631,5 +2631,16 @@
     "you": "You",
     "ai": "AI",
     "truncated": "(truncated)"
+  },
+  "sessions": {
+    "title": "Study log",
+    "loading": "Reading your study log",
+    "readFailed": "Couldn't read the study log — this does not mean you did nothing today.",
+    "retry": "Retry",
+    "empty": "No sessions yet. View a page or answer a question and it will show up here.",
+    "total": "{{count}} finished sessions, {{minutes}} minutes in total",
+    "minutes": "{{minutes}} min",
+    "detail": "{{events}} events · {{pages}} pages · {{answers}} submitted · {{hints}} hints",
+    "open": "in progress"
   }
 }

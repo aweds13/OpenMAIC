@@ -2631,5 +2631,16 @@
     "you": "你",
     "ai": "AI",
     "truncated": "（截斷）"
+  },
+  "sessions": {
+    "title": "學習紀錄",
+    "loading": "正在讀學習紀錄",
+    "readFailed": "沒讀到學習紀錄 —— 這不等於你今天沒學。",
+    "retry": "重試",
+    "empty": "還沒有學習紀錄。翻一頁、答一題之後，這裡會留下那一次。",
+    "total": "已結束的 {{count}} 次學習，合計 {{minutes}} 分鐘",
+    "minutes": "{{minutes}} 分鐘",
+    "detail": "{{events}} 條事件 · {{pages}} 頁 · 交卷 {{answers}} 次 · 問方向 {{hints}} 次",
+    "open": "進行中"
   }
 }
