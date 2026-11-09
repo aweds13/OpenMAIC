@@ -41,7 +41,7 @@ describe('xq 学情 schema', () => {
     return db;
   }
 
-  it('建出 15 张表且幂等', async () => {
+  it('建出 16 张表且幂等', async () => {
     const db = await freshDb();
     await ensureXqLearnerSchema(db);
     // 再跑一遍不该抛
@@ -61,6 +61,7 @@ describe('xq 学情 schema', () => {
       'xq_concept_external_ref',
       'xq_concept_occurrence',
       'xq_event',
+      'xq_graph_version',
       'xq_intake_proposal',
       'xq_intake_task',
       'xq_learner_persona',
@@ -188,9 +189,7 @@ describe('xq 学情 schema', () => {
     await db.query(
       `INSERT INTO xq_concept (id, canonical_name, kind) VALUES ('c_a', 'A', 'concept')`,
     );
-    await db.query(
-      `INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', 'scene-p1')`,
-    );
+    await db.query(`INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', 'scene-p1')`);
     for (const bad of [0, 1.5]) {
       await expect(
         db.query(
@@ -356,9 +355,7 @@ describe('xq 学情 schema', () => {
     await db.query(
       `INSERT INTO xq_concept_alias (alias, kind, concept_id, source) VALUES ('a-alias', 'concept', 'c_a', 'test')`,
     );
-    await db.query(
-      `INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', 'scene-p1')`,
-    );
+    await db.query(`INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', 'scene-p1')`);
     await db.query(
       `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
        VALUES ('c_a', 'stage-A', 'scene-p1', 1.0, 'keypoint')`,
@@ -383,7 +380,7 @@ describe('xq 学情 schema', () => {
    * v2，而 v2 的每条语句都是 IF NOT EXISTS ⇒ 表面无害，实际掩盖了
    * 「这条迁移从来没成功过」这种事。
    */
-  it('版本 2 记进迁移账本，且重跑不重复记账', async () => {
+  it('版本 2..4 记进迁移账本，且重跑不重复记账', async () => {
     const db = await freshDb();
     await ensureXqLearnerSchema(db);
     await ensureXqLearnerSchema(db);
@@ -391,8 +388,13 @@ describe('xq 学情 schema', () => {
       `SELECT version, name FROM openmaic_schema_migrations
         WHERE store = 'xq-learner' ORDER BY version`,
     );
-    expect(rows.map((r) => r.version)).toEqual([1, 2]);
-    expect(rows[1]!.name).toBe('session-and-persona');
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
+    expect(rows.map((r) => r.name)).toEqual([
+      'baseline',
+      'session-and-persona',
+      'graph-version',
+      'concept-expand',
+    ]);
     await db.close();
   });
 
@@ -504,6 +506,128 @@ describe('xq 学情 schema', () => {
          VALUES ('t', 'stage-A', 'scene-p1', 'q1', now(), true, 60, 'existing')`,
       ),
     ).rejects.toThrow(/confidence_post_check/i);
+    await db.close();
+  });
+  /**
+   * ★ 图谱版本：同一时刻只能有一个「开放版本」。
+   *
+   * 这条不是风格问题。`created_in` 写的是一个**批号**，两个开放版本并存时，
+   * 「这个概念属于哪一版」在写入那一刻就有两个合法答案，事后没人能复原
+   * 它是按哪一版的判定进去的。偏索引把这个含糊变成一条硬错误。
+   */
+  it('同一时刻只允许一个开放的图谱版本', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    // v3 已经插好第 1 版且未冻结
+    await expect(
+      db.query(`INSERT INTO xq_graph_version (version, label) VALUES (2, 'next')`),
+    ).rejects.toThrow(/xq_graph_version_one_open/i);
+    // 冻结旧版之后才能开新版
+    await db.query(`UPDATE xq_graph_version SET frozen_at = now() WHERE version = 1`);
+    await db.query(`INSERT INTO xq_graph_version (version, label) VALUES (2, 'next')`);
+    // 冻结时刻不许早于创建时刻
+    await expect(
+      db.query(
+        `UPDATE xq_graph_version SET frozen_at = created_at - interval '1 hour' WHERE version = 2`,
+      ),
+    ).rejects.toThrow(/xq_graph_version_freeze_order/i);
+    await db.close();
+  });
+
+  /**
+   * ★ `created_in` 必须指向一个真实存在的版本。
+   *
+   * 没有这条外键时，`created_in = 7` 只是一串能写进去的数字，
+   * 而「第 7 版」是否存在、是否就是那次导入，只能靠人去翻日志。
+   */
+  it('概念只能标进存在的版本', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    await expect(
+      db.query(
+        `INSERT INTO xq_concept (id, canonical_name, kind, created_in)
+         VALUES ('c_000000000001', 'A', 'concept', 7)`,
+      ),
+    ).rejects.toThrow(/xq_concept_created_in_fkey|foreign key/i);
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind, created_in)
+       VALUES ('c_000000000001', 'A', 'concept', 1)`,
+    );
+    await db.close();
+  });
+
+  /**
+   * ★ 概念 id 的形状是机器保证，不是命名风格。
+   *
+   * 一旦允许「前缀拼 id」，按 id 前缀 join 就会把两门课的两个概念粘成一个 ——
+   * praxis 那次 3 行变 6 行正是这么来的。CHECK 让那条路在写入时就断掉。
+   */
+  it('概念 id 的形状与名字非空由 CHECK 兜住', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    await expect(
+      db.query(
+        `INSERT INTO xq_concept (id, canonical_name, kind) VALUES ('c_zzz', 'A', 'concept')`,
+      ),
+    ).rejects.toThrow(/xq_concept_id_shape/i);
+    await expect(
+      db.query(
+        `INSERT INTO xq_concept (id, canonical_name, kind) VALUES ('c_000000000002', '   ', 'concept')`,
+      ),
+    ).rejects.toThrow(/xq_concept_name_nonempty/i);
+    await db.close();
+  });
+
+  /**
+   * ★ 退役顺序：晚近的版本才能沉掉旧版本进来的概念。
+   *
+   * 反过来的行（`retired_in < created_in`）意味着「它在进来之前就已经沉了」，
+   * 那条记录会让「这个概念这一版还在不在」永远算错。
+   */
+  it('退役版本必须晚于进入版本', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    await db.query(`UPDATE xq_graph_version SET frozen_at = now() WHERE version = 1`);
+    await db.query(`INSERT INTO xq_graph_version (version, label) VALUES (2, 'next')`);
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind, created_in)
+       VALUES ('c_000000000003', 'A', 'concept', 1)`,
+    );
+    // 沉在进来的那一版，语义上等于「没进来过」
+    await expect(
+      db.query(`UPDATE xq_concept SET retired_in = 1 WHERE id = 'c_000000000003'`),
+    ).rejects.toThrow(/xq_concept_retire_order/i);
+    await db.query(`UPDATE xq_concept SET retired_in = 2 WHERE id = 'c_000000000003'`);
+    await db.close();
+  });
+
+  /**
+   * ★ 重测链：`retest_of` 指回上一次观测，且必须指向一条真记录。
+   *
+   * 加这一列是为了能回答「同一道题被测了几轮」。`counted_n = 0.5` 只说了
+   * 「这一条算半题」，说不出链有多长 —— 而「第几次」正是判断「他是在记答案
+   * 还是在真学」的关键。
+   */
+  it('重测链指回上一次观测，且不许指向不存在的行', async () => {
+    const db = await freshDb();
+    await ensureXqLearnerSchema(db);
+    const insert = (task: string, retestOf: string) =>
+      db.query(
+        `INSERT INTO xq_probe_item
+           (task_id, stage_id, scene_id, question_id, asked_at, correct, source${retestOf === 'null' ? '' : ', retest_of'})
+         VALUES ($1, 'stage-A', 'scene-p1', 'q1', now(), true, 'existing'${retestOf === 'null' ? '' : `, ${retestOf}`})`,
+        [task],
+      );
+    await expect(insert('t0', '999')).rejects.toThrow(/xq_probe_item_retest_of_fkey|foreign key/i);
+    await insert('t1', 'null');
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id::text AS id FROM xq_probe_item LIMIT 1`,
+    );
+    await insert('t2', rows[0]!.id);
+    const chain = await db.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM xq_probe_item WHERE retest_of IS NOT NULL`,
+    );
+    expect(chain.rows[0]!.n).toBe('1');
     await db.close();
   });
 });

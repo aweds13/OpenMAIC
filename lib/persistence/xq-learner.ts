@@ -531,11 +531,99 @@ ALTER TABLE xq_cell_state
   ADD COLUMN IF NOT EXISTS k_delayed numeric(4,1) NOT NULL DEFAULT 0;
 `;
 
+// ---------------------------------------------------------------------------
+// 十七、图谱版本：让「这个概念是哪一版进的图」成为机器能查的事实
+// ---------------------------------------------------------------------------
+// ★ 为什么不是只加一列 created_in 就完：没有版本表，created_in 只是个整数，
+//   「1」既是版本号又是裸数字，写错了没人拦。有了 xq_graph_version，才可能
+//   把「这一版冻结之后不许再往里写」变成一条**偏索引**（下面那条 one_open），
+//   而不是靠人记得。
+// ★ 版本用 integer 不用 timestamptz：时间是事实，版本是**可重放的批号**；
+//   now() 在同一事务里也不稳定 —— 两个概念在同一次导入里拿到不同秒数时，
+//   「它们同属一版」就说不清了。
+// ★ 顺序陷阱（实测）：必须先有 xq_graph_version 行，才能写 created_in，
+//   否则 xq_concept_created_in_fkey 直接拒。
+export const XQ_LEARNER_V3 = `
+CREATE TABLE IF NOT EXISTS xq_graph_version (
+  version     integer     PRIMARY KEY CHECK (version >= 1),
+  label       text        NOT NULL UNIQUE CHECK (length(btrim(label)) > 0),
+  note        text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  frozen_at   timestamptz,
+  CONSTRAINT xq_graph_version_freeze_order
+    CHECK (frozen_at IS NULL OR frozen_at >= created_at)
+);
+
+-- 同一时刻只允许一个「开放版本」：否则 created_in 写哪个都在猜。
+-- ((true)) 这个常量表达式让偏索引把「所有未冻结行」收成一组。
+CREATE UNIQUE INDEX IF NOT EXISTS xq_graph_version_one_open
+  ON xq_graph_version ((true)) WHERE frozen_at IS NULL;
+
+-- 既有 104 个概念属于第 1 版。先建版本行，再回填（见下一条迁移）。
+INSERT INTO xq_graph_version (version, label, note)
+  VALUES (1, 'baseline', '本机种子图；早于版本化之前就已存在的概念都归这一版')
+  ON CONFLICT (version) DO NOTHING;
+`;
+
+// ---------------------------------------------------------------------------
+// 十八、概念表 expand + 重测链
+// ---------------------------------------------------------------------------
+// 这张表已经在库里（6 列、104 行），所以只能 ALTER，不能 CREATE TABLE IF NOT
+// EXISTS —— 那不会补列。
+// ★ 这条迁移**不** opt out 事务：建版本行 + 补列 + 回填 + 加约束是一个整体，
+//   半途失败必须整体不生效，否则会留下「列有了但约束没上」的半截状态。
+//   它只在启动时跑一次，锁的持有时间可以接受。
+export const XQ_LEARNER_V4 = `
+ALTER TABLE xq_concept ADD COLUMN IF NOT EXISTS anchors    text[]      NOT NULL DEFAULT '{}';
+ALTER TABLE xq_concept ADD COLUMN IF NOT EXISTS created_in integer;
+ALTER TABLE xq_concept ADD COLUMN IF NOT EXISTS retired_in integer;
+ALTER TABLE xq_concept ADD COLUMN IF NOT EXISTS revived_at timestamptz;
+ALTER TABLE xq_concept ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+-- 既有行回填到第 1 版。放在加约束之前。
+UPDATE xq_concept SET created_in = 1 WHERE created_in IS NULL;
+
+-- 约束没有 ADD CONSTRAINT IF NOT EXISTS，所以用 DO 块探一次 pg_constraint。
+-- 这样这条迁移可以安全重跑（transaction 提交失败后整条会重来）。
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_concept_id_shape') THEN
+    ALTER TABLE xq_concept ADD CONSTRAINT xq_concept_id_shape
+      CHECK (id ~ '^c_[0-9a-f]{12}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_concept_name_nonempty') THEN
+    ALTER TABLE xq_concept ADD CONSTRAINT xq_concept_name_nonempty
+      CHECK (length(btrim(canonical_name)) > 0);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_concept_created_in_fkey') THEN
+    ALTER TABLE xq_concept ADD CONSTRAINT xq_concept_created_in_fkey
+      FOREIGN KEY (created_in) REFERENCES xq_graph_version(version);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_concept_retired_in_fkey') THEN
+    ALTER TABLE xq_concept ADD CONSTRAINT xq_concept_retired_in_fkey
+      FOREIGN KEY (retired_in) REFERENCES xq_graph_version(version);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_concept_retire_order') THEN
+    ALTER TABLE xq_concept ADD CONSTRAINT xq_concept_retire_order
+      CHECK (retired_in IS NULL OR (created_in IS NOT NULL AND retired_in > created_in));
+  END IF;
+END
+$do$;
+
+-- retest_of：这一次是「同一道题的又一次观测」时指回上一次。
+-- counted_n = 0.5 已经能表达「算半题」，加这一列是为了能回答「这是第几次」；
+-- 没有它，重测链路只能数总数，数不出「同一道题被测了几轮」。
+ALTER TABLE xq_probe_item
+  ADD COLUMN IF NOT EXISTS retest_of bigint REFERENCES xq_probe_item(id);
+`;
+
 export const XQ_LEARNER_MIGRATIONS: SchemaMigrationSet = {
   store: 'xq-learner',
   migrations: [
     { version: 1, name: 'baseline', up: XQ_LEARNER_SCHEMA, transaction: false },
     { version: 2, name: 'session-and-persona', up: XQ_LEARNER_V2, transaction: false },
+    { version: 3, name: 'graph-version', up: XQ_LEARNER_V3, transaction: false },
+    { version: 4, name: 'concept-expand', up: XQ_LEARNER_V4 },
   ],
 };
 
