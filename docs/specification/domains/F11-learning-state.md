@@ -116,6 +116,6 @@
 
 **违反长什么样**：排期表里的关到期后永远挂在「今天到期的复习」里，越积越多，学习者最后学会无视那一段；或者为了清掉它直接 UPDATE / DELETE 排期行 —— 「他做过这一关、做错了」这件事从此不可考；或者先改排期后写事件，事件失败时排期已经关掉，事实永久丢失。
 
-**今天到哪了（2026-11-09）**：已成立 —— `lib/persistence/xq-review-recorder.ts` 的 `recordXqReview()`（先查关在不在 → 写 `review_passed` / `review_failed` 事件 → 改排期）、`POST /api/persistence/xq/reviews` 路由、18 条判据（写入器 8 / 路由 10）。`skip` 刻意不写事件（十六个 kind 里没有 `review_skipped`）。不成立 —— 还没有任何读方把「失败次数」算成降级规则（P5），浏览器侧也还没有调用这个端点（复习界面本身不存在）。
+**今天到哪了（2026-11-09）**：已成立 —— `lib/persistence/xq-review-recorder.ts` 的 `recordXqReview()`（先查关在不在 → 写 `review_passed` / `review_failed` 事件 → 改排期）、`POST /api/persistence/xq/reviews` 路由、18 条判据（写入器 8 / 路由 10）。`skip` 刻意不写事件（十六个 kind 里没有 `review_skipped`）。不成立 —— 还没有任何读方把「失败次数」算成降级规则（P5），浏览器侧也还没有调用这个端点（复习界面本身不存在）。★ 2026-11-10 用真实库与运行中的 dev server 端到端补验过一遍（合成一道题一关，验完清掉）：`pass` → 那一关关掉且事件只 1 条，重投 200 `duplicate`，`skip` 只标关不写事件，不存在的关 404。
 
 **违反的边界**：事件只记「发生了什么」，不在这里判定掌握度 —— 掌握度是状态层从事件与探针算出来的缓存（`xq_cell_state`），不许写回事件表。
