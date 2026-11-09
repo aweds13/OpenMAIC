@@ -47,6 +47,7 @@ import {
   XQ_EVENT_KINDS,
   XQ_HINT_SUBTYPES,
 } from '@/lib/persistence/xq-event-recorder';
+import { digestSessions, SESSION_DIGEST_LIMIT } from '@/lib/persistence/xq-session-digest';
 import {
   recordXqReview,
   XqReviewRoundMissingError,
@@ -111,6 +112,25 @@ const XQ_EVENTS_PATH = '/xq/events';
  * app was in before this route existed.
  */
 const XQ_REVIEWS_PATH = '/xq/reviews';
+
+/**
+ * `GET /api/persistence/xq/sessions`: what the append-only event stream folds to.
+ *
+ * Read-only and deliberately separate from `/xq/events`: the writer never
+ * computes aggregates (see the recorder's "why not judge here" header), so the
+ * only way those numbers exist is somebody reading the stream and folding it.
+ * This is that reader. It reads `xq_event` and never writes `xq_session` —
+ * `active_ms` stays derived on demand because it changes with every new event.
+ */
+const XQ_SESSIONS_PATH = '/xq/sessions';
+
+/**
+ * A study day as `xq_session.local_day` stores it.
+ *
+ * Validated before it reaches SQL: `$1::date` on a garbage string is a driver
+ * error (500), and the caller's mistake is a 400.
+ */
+const STUDY_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * The body of one learning event. Kept narrow on purpose: the writer's own
@@ -407,6 +427,80 @@ async function handleXqReview(
     log.error(`xq review write failed: ${error instanceof Error ? error.message : String(error)}`);
     return withHeaders(
       jsonError(500, 'XQ_REVIEW_WRITE_FAILED', 'review write failed'),
+      responseHeaders,
+    );
+  }
+}
+
+/**
+ * `GET /api/persistence/xq/sessions`: the event stream folded into sessions.
+ *
+ * `day` is a **study day** (`yyyy-mm-dd`, 04:00 boundary), not a calendar date:
+ * "what did I learn today" is answered against the same boundary the writer
+ * used when it assigned `local_day`. Omitting it spans every day rather than
+ * guessing the caller's timezone — a guess would silently answer a different
+ * question than the one asked.
+ *
+ * `limit` is clamped like the review queue's: unbounded would read every
+ * session ever recorded.
+ */
+async function handleXqSessionDigest(
+  request: Request,
+  queryable: Queryable,
+  responseHeaders: Headers,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const rawDay = url.searchParams.get('day');
+  const rawLimit = url.searchParams.get('limit');
+  const parsed = rawLimit === null ? NaN : Number(rawLimit);
+  const limit =
+    Number.isFinite(parsed) && parsed > 0
+      ? Math.min(Math.trunc(parsed), SESSION_DIGEST_LIMIT)
+      : undefined;
+  // An empty `?day=` means "not given", not "the empty study day".
+  const day = rawDay === null || rawDay === '' ? undefined : rawDay;
+  // A malformed day is rejected rather than ignored. Ignoring it would widen the
+  // answer to every day — the caller asked "what did I learn on this day" and
+  // would have been handed "everything ever", which looks like an answer.
+  if (day !== undefined && !STUDY_DAY_PATTERN.test(day)) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', 'day must be a study day (yyyy-mm-dd)'),
+      responseHeaders,
+    );
+  }
+  try {
+    const sessions = await digestSessions(queryable, {
+      ...(day === undefined ? {} : { day }),
+      ...(limit === undefined ? {} : { limit }),
+    });
+    return withHeaders(
+      Response.json(
+        {
+          sessions: sessions.map((session) => ({
+            sessionId: session.sessionId,
+            startedAt: session.startedAt.toISOString(),
+            endedAt: session.endedAt === null ? null : session.endedAt.toISOString(),
+            endReason: session.endReason,
+            seqNo: session.seqNo,
+            eventCount: session.eventCount,
+            pageCount: session.pageCount,
+            activeMs: session.activeMs,
+            wallMs: session.wallMs,
+            hints: session.hints,
+            answers: session.answers,
+          })),
+        },
+        // Time-dependent and per-owner: a new event changes `activeMs` at once.
+        { status: 200, headers: { 'cache-control': 'private, no-store' } },
+      ),
+      responseHeaders,
+    );
+  } catch (error) {
+    log.error(
+      `xq session digest read failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return withHeaders(
+      jsonError(500, 'XQ_SESSION_DIGEST_FAILED', 'session digest read failed'),
       responseHeaders,
     );
   }
@@ -954,6 +1048,16 @@ async function handlePersistenceRequestInner(
         }
         const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
         return await handleXqEvent(request, pool as unknown as Queryable, responseHeaders);
+      }
+      if (path === XQ_SESSIONS_PATH) {
+        if (request.method !== 'GET') {
+          return withHeaders(
+            jsonError(405, 'METHOD_NOT_ALLOWED', 'xq/sessions accepts GET only'),
+            responseHeaders,
+          );
+        }
+        const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
+        return await handleXqSessionDigest(request, pool as unknown as Queryable, responseHeaders);
       }
       if (path === XQ_REVIEWS_PATH) {
         if (request.method === 'GET') {
