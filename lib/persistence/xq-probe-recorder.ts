@@ -51,9 +51,12 @@
  *    （失败了下次重算就好）。
  * 3. **排期也在这里做**：答错就排四关。`scheduleReviewForWrong` 自身
  *    `ON CONFLICT DO NOTHING`，重复调用不会把已过掉的关重置。
- * 4. **概念取不到就不排期**：`xq_review_schedule.concept` 默认 `''`，
- *    四关按题排、不按概念排 —— 见 `xq-learner.ts` 的第四节注释。概念为空
- *    时仍然排期（一道错题值得重练，与它挂在哪个概念上无关）。
+ * 4. **概念能取到就用**：这道题的最高档恰好只有一个概念时，四关挂到它上面；
+ *    取不到（没有题级映射、或最高档并列）就留 `''` 仍然排期 —— 一道错题值得
+ *    重练，与它挂在哪个概念上无关。判据只有一份：`XqLearnerStore.conceptForQuestion()`，
+ *    与状态块拿格子标签那套规则同源（`ties = 1`）。
+ *    ★ 不能「随便挑一个」：`xq_review_schedule` 的唯一键**含 `concept`**，
+ *    今天挑 A、明天挑 B 会把同一道错题变成两组四关。
  */
 import type { RuntimeStore } from '@openmaic/storage';
 import type { Queryable } from '@openmaic/storage/document/pg';
@@ -200,8 +203,12 @@ export async function recordProbeFromRuntimeAppend(
   for (const { result: item, correct } of graded) {
     if (correct) continue;
     try {
-      // 概念留空：四关按题排，概念是可选标注（见 xq-learner.ts 第四节）。
-      await store.scheduleReviewForWrong(input.stageId, input.sceneId, item.questionId, '');
+      // 概念：这道题的最高档恰好只有一个概念时才是它，否则留空。
+      // 取不到不是失败 —— 四关按题排，`concept` 只是可选标注
+      // （见 xq-learner.ts 第四节）。但取到了就要用：唯一键含 concept，
+      // 同一道错题今天挂 A、明天挂 B 会变成两组四关。
+      const concept = await store.conceptForQuestion(input.stageId, input.sceneId, item.questionId);
+      await store.scheduleReviewForWrong(input.stageId, input.sceneId, item.questionId, concept);
       result.scheduled += 1;
     } catch (error) {
       (deps.logFailure ?? defaultLogFailure)(

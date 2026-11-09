@@ -303,6 +303,32 @@ const DUE_REVIEWS_SQL = `SELECT stage_id, scene_id, question_id, concept, round,
  ORDER BY due_at, stage_id, scene_id, question_id, concept, round
  LIMIT $2`;
 
+/**
+ * 一道题该挂在哪个概念上：**最高档恰好只有一个概念时**才是它，否则回空串。
+ *
+ * 与状态块拿格子标签的规则是同一条（`learner-state.ts` 的 `ties = 1`），
+ * 只是粒度换成「一道题」。理由也一样：一道题在最高档上同时命中三个概念时，
+ * 挑任何一个当它的名字都错 —— 而 `xq_review_schedule` 的唯一键**含 concept**，
+ * 挑错会另起一组四关，同一道错题在错题本里出现两次。
+ *
+ * 回空串不是失败：四关按题排，`concept` 是可选标注（`xq-learner.ts` 第四节）。
+ *
+ * ★ 只认 `concept_kind='keypoint'`：`chapter-band` 是「这题大概属于这一章」
+ *   的兜底，置信度只有 0.50，拿它当知识点会把两个层级混成一个。
+ */
+const SELECT_QUESTION_CONCEPT_SQL = `SELECT concept
+  FROM (
+    SELECT concept,
+           max(confidence) AS top,
+           count(*) OVER (PARTITION BY max(confidence)) AS ties,
+           row_number() OVER (ORDER BY max(confidence) DESC, concept) AS rank
+      FROM xq_question_concept
+     WHERE stage_id = $1 AND scene_id = $2 AND question_id = $3
+       AND concept_kind = 'keypoint'
+     GROUP BY concept
+  ) ranked
+ WHERE rank = 1 AND ties = 1`;
+
 interface ProbeEvidenceRow extends Record<string, unknown> {
   counted_n: string | number | null;
   correct: boolean;
@@ -460,9 +486,10 @@ export class XqLearnerStore {
   async recomputeAllCellStates(options: { stageId?: string } = {}): Promise<{ cells: number }> {
     const stageId = options.stageId;
     const { rows } = stageId
-      ? await this.queryable.query<CellRow>(`${SELECT_CELLS_SQL} WHERE stage_id = $1 ORDER BY 1, 2`, [
-          stageId,
-        ])
+      ? await this.queryable.query<CellRow>(
+          `${SELECT_CELLS_SQL} WHERE stage_id = $1 ORDER BY 1, 2`,
+          [stageId],
+        )
       : await this.queryable.query<CellRow>(`${SELECT_CELLS_SQL} ORDER BY 1, 2`);
 
     for (const row of rows) {
@@ -523,10 +550,15 @@ export class XqLearnerStore {
       target: number;
       marked: number;
       rescheduled: number;
-    }>(
-      RECORD_OUTCOME_SQL,
-      [stageId, sceneId, questionId, concept, round, outcome, [...REVIEW_INTERVAL_DAYS]],
-    );
+    }>(RECORD_OUTCOME_SQL, [
+      stageId,
+      sceneId,
+      questionId,
+      concept,
+      round,
+      outcome,
+      [...REVIEW_INTERVAL_DAYS],
+    ]);
     const found = rows[0]?.target ?? 0;
     if (found === 0) {
       throw new XqReviewRoundNotFoundError(stageId, sceneId, questionId, concept, round);
@@ -558,6 +590,29 @@ export class XqLearnerStore {
       round: Number(row.round),
       dueAt: row.due_at instanceof Date ? row.due_at : new Date(row.due_at),
     }));
+  }
+
+  /**
+   * 一道题该挂在哪个概念上 —— 给「答错了排四关」用。
+   *
+   * 最高档只有**一个**概念时回它；最高档并列、或这道题一条题级映射都没有时
+   * 回 `''`。回空串不是失败：四关按题排，`concept` 只是可选标注
+   * （`xq-learner.ts` 第四节），状态块那一行也仍然按页给。
+   *
+   * ★ 为什么不「挑一个也行」：`xq_review_schedule` 的唯一键是
+   *   `(stage_id, scene_id, question_id, concept, round)`，**含 concept**。
+   *   今天挑「字符串」、明天挑「空安全」，同一道错题会在错题本里变成两组四关，
+   *   而两组都到期时学习者要重做两遍同一道题。
+   *
+   * 抛：驱动错误原样抛出（表不存在、连接断开）。
+   */
+  async conceptForQuestion(stageId: string, sceneId: string, questionId: string): Promise<string> {
+    const { rows } = await this.queryable.query<{ concept: string }>(SELECT_QUESTION_CONCEPT_SQL, [
+      stageId,
+      sceneId,
+      questionId,
+    ]);
+    return rows[0]?.concept ?? '';
   }
 
   /** 一批（≤500 行）一条语句写完，返回真插进去的条数。 */

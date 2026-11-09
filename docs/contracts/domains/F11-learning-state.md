@@ -36,6 +36,8 @@
 
 - **题级映射已落库，判定仍未分级**（2026-11-09）：`xq_question_concept` 71 行 / 13 页，由 `lib/concepts/question.ts` 从**题干**推出（不含选项与解析：含选项会把挂载从 71 行抬到 124 行且大量是反向噪声），强弱两档 `confidence` 0.80 / 0.50。★ 那一行概念标签的规则是**最高档恰好挂 1 个概念才给** —— 真库读数把这条逼出来的（`scene-p18` 最高档三个 0.80 全是题干里那段 `class Person { String name; … }` 带出来的），判据 `tests/agent-runtime/learner-state-concept-label.test.ts` 5 条。**标签不是知识点级结论**：它只是把页级判定那一行的人话换个主语。
 
+- **复习闭环第一次对上历史错题**（2026-11-09）：`xq_review_schedule` 建表以来一直是 0 行 —— 历史那批学情证据来自一次性探针（只调 `ingestProbeItems` 与 `recomputeCellState`，不调排期），所以「答错了要复习」只对将来的答题成立。现在生产入口 `recordProbeFromRuntimeAppend` 会排期，`scripts/backfill-review-schedule.ts` 把已有错题补上：真库 5 道错题 → **20 行**（每道 4 关，1/3/7/15 天）。★ 挂哪个概念只有一条判据 `XqLearnerStore.conceptForQuestion()`：这道题的**最高档恰好只有一个概念**时才是它，并列或没有题级映射一律留 `''`（与状态块拿格子标签同一套 `ties = 1` 规则，粒度换成一道题）。**留空不是失败** —— 四关按题排，`concept` 是可选标注；而「挑一个也行」会把唯一键里的 `concept` 换掉，同一道错题就此变成两组四关，两组都到期时要重做两遍。真库里只有 2/5 道错题有唯一概念（`scene-p18/q7 → 类与对象`、`scene-p35/q4 → setState 与状态管理`）。判据 `tests/persistence/xq-probe-recorder.test.ts` 的两条（`★ 一道题的最高档只有一个概念时，排期就用它 —— 不是恒空` / `★ 最高档并列时留空 —— 挑一个就会让同一道错题第二天变成另一组四关`）。
+
 - **「会」必须由延迟证据推出**：页级判「会」只认 `Δ = now − asked_at ≥ 3 天` 的那批证据（`n_delayed ≥ 3` 且延迟桶的下界仍达判据）。裸的 `n/k` 统计上没错，但构念上测的是「曾经答对的比例」—— 同一批题反复测与答对就撤，一周保持率 80% vs 33–36%（d=4.03），而这个差别学习者自己预测不出来。延迟桶不足时状态必须是 `unknown`（`reason='mixed'`），不是「已掌握」。3 天不是文献值，是四关排程第 2 关就是第 3 天；判据 `tests/quiz/xq-mastery.test.ts` 的 `延迟桶：会 = 隔了几天还答得对` 一组。
 
 - **两边各自要满足**：

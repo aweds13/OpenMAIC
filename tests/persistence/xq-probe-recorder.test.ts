@@ -70,6 +70,24 @@ describe('xq probe recorder', () => {
     const r = await db.query<{ n: string }>('SELECT count(*)::text AS n FROM xq_review_schedule');
     return Number(r.rows[0]!.n);
   };
+  /**
+   * 题级映射：这道题命中了哪些概念、各自多可信。
+   *
+   * 写的是真表 `xq_question_concept`（S6 落的 71 行就是这个形状），
+   * 而不是替身 —— 排期取概念的那条 SQL 就长在这个表上。
+   */
+  const seedQuestionConcepts = async (
+    rows: { questionId: string; concept: string; confidence: number }[],
+  ) => {
+    for (const row of rows) {
+      await db.query(
+        `INSERT INTO xq_question_concept
+           (stage_id, scene_id, question_id, concept, concept_kind, link, confidence)
+         VALUES ('stage-A', 'scene-p1', $1, $2, 'keypoint', 'normalized', $3)`,
+        [row.questionId, row.concept, row.confidence],
+      );
+    }
+  };
 
   describe('isGradableQuizRecord', () => {
     it('只有 reviewed 且带逐题结果才算结论', () => {
@@ -101,7 +119,35 @@ describe('xq probe recorder', () => {
       );
       expect(rows.rows.map((r) => r.question_id)).toEqual(['q2', 'q2', 'q2', 'q2']);
       expect(rows.rows.map((r) => r.round)).toEqual([1, 2, 3, 4]);
+      // 这道题没有题级映射 ⇒ 概念留空。四关按题排，`concept` 只是可选标注。
       expect(rows.rows.every((r) => r.concept === '')).toBe(true);
+    });
+
+    it('★ 一道题的最高档只有一个概念时，排期就用它 —— 不是恒空', async () => {
+      await seedQuestionConcepts([
+        { questionId: 'q2', concept: '类与对象', confidence: 0.8 },
+        { questionId: 'q2', concept: 'this 关键字', confidence: 0.5 },
+      ]);
+      await recordProbeFromRuntimeAppend(appendInput(), { queryable: db });
+      const rows = await db.query<{ concept: string }>(
+        'SELECT DISTINCT concept FROM xq_review_schedule',
+      );
+      expect(rows.rows.map((r) => r.concept)).toEqual(['类与对象']);
+    });
+
+    it('★ 最高档并列时留空 —— 挑一个就会让同一道错题第二天变成另一组四关', async () => {
+      await seedQuestionConcepts([
+        { questionId: 'q2', concept: '字符串', confidence: 0.8 },
+        { questionId: 'q2', concept: '继承', confidence: 0.8 },
+        { questionId: 'q2', concept: '类与对象', confidence: 0.5 },
+      ]);
+      await recordProbeFromRuntimeAppend(appendInput(), { queryable: db });
+      const rows = await db.query<{ concept: string }>(
+        'SELECT DISTINCT concept FROM xq_review_schedule',
+      );
+      expect(rows.rows.map((r) => r.concept)).toEqual(['']);
+      // 排期仍然要排出来 —— 概念取不到不该让复习断掉。
+      expect(await countSchedule()).toBe(4);
     });
 
     it(`task_id 带 ${RUNTIME_TASK_PREFIX} 前缀，一眼能看出证据来自哪一次 append`, async () => {

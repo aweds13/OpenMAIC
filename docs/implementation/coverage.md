@@ -111,7 +111,7 @@
 | SR | 模块 | 判据 | 落点 |
 |---|---|---|---|
 | SR-F11.1 | M4 / M14 | 松 | `tests/quiz/attempt-fold.test.ts` 12 例钉住三阶段折叠、曾错仍记、按 seq 不按时间戳、题面丢失有解释；`tests/quiz/attempt-fold-live.test.ts` 连真库。**「判分落库」这一半没有判据** —— 今天的逐题对错是读取时按题面重算的 |
-| SR-F11.2 | M14 | 松 | `tests/quiz/learner-state-render.test.ts` 的 `known 带置信下界，not-learned 带上界，unknown 带 reason 的人话`（第三态存在；节名 `## 已达判据（…）` / `## 未达判据（…）` / `## 暂未定（…）`）与 `★ stageId 与 sceneId 都在行里 —— 35 个 scene id 跨课复用`（跨课不借）、`★ 每行带 n= / k=`、`★ 零评价词`；「会只由延迟证据推出」由 `tests/quiz/xq-mastery.test.ts` 的 `延迟桶：会 = 隔了几天还答得对` 六例钉住（今天答对的 8/8 判 unknown、延迟桶 < 3 条时全量 10/10 仍 unknown）。**三级分开只有页级** —— 题级**映射**已落库（`lib/concepts/question.ts` → `xq_question_concept`，`tests/concepts/question.test.ts` 19 例；真库 71 行 / 13 页），但题级与知识点级都没有自己的三态读数 |
+| SR-F11.2 | M14 | 松 | `tests/quiz/learner-state-render.test.ts` 的 `known 带置信下界，not-learned 带上界，unknown 带 reason 的人话`（第三态存在；节名 `## 已达判据（…）` / `## 未达判据（…）` / `## 暂未定（…）`）与 `★ stageId 与 sceneId 都在行里 —— 35 个 scene id 跨课复用`（跨课不借）、`★ 每行带 n= / k=`、`★ 零评价词`；「会只由延迟证据推出」由 `tests/quiz/xq-mastery.test.ts` 的 `延迟桶：会 = 隔了几天还答得对` 六例钉住（今天答对的 8/8 判 unknown、延迟桶 < 3 条时全量 10/10 仍 unknown）。**三级分开只有页级** —— 题级**映射**已落库（`lib/concepts/question.ts` → `xq_question_concept`，`tests/concepts/question.test.ts` 19 例；真库 71 行 / 13 页），但题级与知识点级都没有自己的三态读数。题级映射的两处消费都是**标注**：状态块的一格标签、错题四关挂的概念（判据 `tests/persistence/xq-probe-recorder.test.ts` 两条：唯一则用 / 并列则留空且仍排满四关）；历史错题补排期 `scripts/backfill-review-schedule.ts` |
 | SR-F11.3 | 无 | 无 | 先修关系在代码里完全不存在（无概念表、无先修表），无判据 |
 | SR-F11.4 | 无 | 无 | **未落地**：图谱形态未定，规格只写约束 |
 | SR-F11.5 | M14 | 有 | `tests/agent-runtime/practice-results.test.ts` 六例：坏文件跳过不中断、目录不存在不抛、标明来源、文件上限、只有练习结果也写状态、两者都无则不写空文件；实现 `lib/practice/results.ts:117` 注释原文「永不抛」 |
