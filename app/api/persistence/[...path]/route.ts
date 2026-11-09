@@ -58,6 +58,17 @@ import {
 import { DUE_REVIEW_CARD_LIMIT, listDueReviewCards } from '@/lib/persistence/xq-review-queue';
 import { AI_LOG_LIMIT, readAiLog } from '@/lib/persistence/xq-ai-log';
 import {
+  DEFAULT_PREREQ_STRENGTHS,
+  PREREQ_STRENGTHS,
+  conceptReadiness,
+  directPrerequisites,
+  prerequisiteClosure,
+  prerequisiteDepth,
+  readConceptGraph,
+  resolveConcept,
+  type PrereqStrength,
+} from '@/lib/persistence/xq-concept-graph';
+import {
   getServerPersistenceProvider,
   type PersistencePoolFactory,
 } from '@/lib/persistence/server-provider';
@@ -127,6 +138,7 @@ const XQ_REVIEWS_PATH = '/xq/reviews';
  */
 const XQ_SESSIONS_PATH = '/xq/sessions';
 const XQ_AI_LOG_PATH = '/xq/ai-log';
+const XQ_CONCEPTS_PATH = '/xq/concepts';
 
 /**
  * A study day as `xq_session.local_day` stores it.
@@ -598,6 +610,148 @@ async function handleXqSessionDigest(
     );
     return withHeaders(
       jsonError(500, 'XQ_SESSION_DIGEST_FAILED', 'session digest read failed'),
+      responseHeaders,
+    );
+  }
+}
+
+/**
+ * `GET /api/persistence/xq/concepts`: what the concept graph says about one
+ * concept, or about the graph as a whole.
+ *
+ * Before this existed, `xq_concept_edge` had 94 `prereq` rows and **zero
+ * readers**. The spec freezes a line: no ordering may ship before somebody
+ * actually reads these edges. This is the reading — deliberately not the
+ * ordering. It answers "what has to come first", never "what should he learn
+ * next": the second is a product decision and belongs above this layer.
+ *
+ * `strengths` picks which evidence tiers count. It defaults to `strict` only
+ * because "can he learn this" is an interception test, and accepting
+ * `recommended` too would mark 92 of 104 concepts as "not yet" — that is not a
+ * constraint, that is a locked graph. Callers who want the looser reading ask
+ * for it explicitly.
+ *
+ * `mastered` is supplied by the caller and never derived here: today "he knows
+ * it" exists only at the page level (`xq_cell_state.tri`), and writing that
+ * judgement into this module would turn a graph reader into a judge.
+ */
+async function handleXqConcepts(
+  request: Request,
+  queryable: Queryable,
+  responseHeaders: Headers,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const rawId = url.searchParams.get('id');
+  const rawStrengths = url.searchParams.get('strengths');
+  const rawMastered = url.searchParams.get('mastered');
+
+  const strengths = new Set<PrereqStrength>(DEFAULT_PREREQ_STRENGTHS);
+  if (rawStrengths !== null && rawStrengths !== '') {
+    strengths.clear();
+    for (const part of rawStrengths.split(',')) {
+      const trimmed = part.trim();
+      if (!(PREREQ_STRENGTHS as readonly string[]).includes(trimmed)) {
+        return withHeaders(
+          jsonError(
+            400,
+            'VALIDATION_FAILED',
+            `unknown prerequisite strength: ${trimmed} (expected ${PREREQ_STRENGTHS.join(', ')})`,
+          ),
+          responseHeaders,
+        );
+      }
+      strengths.add(trimmed as PrereqStrength);
+    }
+    // An empty strength set means "no prerequisites count", which reads like a
+    // graph with no edges. Refuse it rather than hand back a quietly empty answer.
+    if (strengths.size === 0) {
+      return withHeaders(
+        jsonError(400, 'VALIDATION_FAILED', 'strengths must name at least one tier'),
+        responseHeaders,
+      );
+    }
+  }
+
+  const mastered = new Set<string>();
+  if (rawMastered !== null && rawMastered !== '') {
+    for (const part of rawMastered.split(',')) {
+      const trimmed = part.trim();
+      if (trimmed !== '') mastered.add(trimmed);
+    }
+  }
+
+  try {
+    const graph = await readConceptGraph(queryable);
+    const id = rawId === null || rawId === '' ? null : rawId;
+    const activeStrengths = [...strengths].sort();
+
+    if (id === null) {
+      const byRelation = { prereq: 0, contains: 0 };
+      const byStrength = { strict: 0, recommended: 0, helpful: 0 };
+      for (const edge of graph.edges) {
+        byRelation[edge.relation] += 1;
+        if (edge.relation === 'prereq' && edge.strength !== null) byStrength[edge.strength] += 1;
+      }
+      return withHeaders(
+        Response.json(
+          {
+            concepts: graph.nodes.size,
+            edges: graph.edges.length,
+            byRelation,
+            byStrength,
+            retired: [...graph.nodes.values()].filter((node) => node.status !== 'active').length,
+            strengths: activeStrengths,
+            // No ordering, no recommendation: the shape of the graph only.
+          },
+          { status: 200, headers: { 'cache-control': 'private, no-store' } },
+        ),
+        responseHeaders,
+      );
+    }
+
+    const resolved = resolveConcept(graph, id);
+    if (resolved === null) {
+      return withHeaders(
+        jsonError(404, 'CONCEPT_NOT_FOUND', `concept ${id} does not resolve to an active identity`),
+        responseHeaders,
+      );
+    }
+    const node = graph.nodes.get(resolved);
+    const direct = directPrerequisites(graph, resolved, strengths);
+    const closured = prerequisiteClosure(graph, resolved, strengths);
+    const readiness = conceptReadiness(graph, resolved, mastered, strengths);
+
+    return withHeaders(
+      Response.json(
+        {
+          id: resolved,
+          // A merged id still answers — but the caller must know the id it asked
+          // for is not the one the answer is about.
+          ...(resolved === id ? {} : { resolvedFrom: id }),
+          canonicalName: node?.canonicalName ?? null,
+          kind: node?.kind ?? null,
+          status: node?.status ?? null,
+          createdIn: node?.createdIn ?? null,
+          retiredIn: node?.retiredIn ?? null,
+          strengths: activeStrengths,
+          prerequisites: direct.prerequisites,
+          unresolvedPrerequisites: direct.unresolved,
+          closure: closured.closure,
+          retiredPrerequisites: closured.retired,
+          cycle: closured.cycle,
+          depth: prerequisiteDepth(graph, resolved, strengths),
+          ready: readiness.ready,
+          blockedBy: readiness.blockedBy,
+          masteredCount: [...mastered].length,
+        },
+        { status: 200, headers: { 'cache-control': 'private, no-store' } },
+      ),
+      responseHeaders,
+    );
+  } catch (error) {
+    log.error({ error }, 'xq concept graph read failed');
+    return withHeaders(
+      jsonError(500, 'XQ_CONCEPTS_FAILED', 'failed to read the concept graph'),
       responseHeaders,
     );
   }
@@ -1176,6 +1330,16 @@ async function handlePersistenceRequestInner(
         }
         const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
         return await handleXqAiLog(request, pool as unknown as Queryable, responseHeaders);
+      }
+      if (path === XQ_CONCEPTS_PATH) {
+        if (request.method !== 'GET') {
+          return withHeaders(
+            jsonError(405, 'METHOD_NOT_ALLOWED', 'xq/concepts accepts GET only'),
+            responseHeaders,
+          );
+        }
+        const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
+        return await handleXqConcepts(request, pool as unknown as Queryable, responseHeaders);
       }
       if (path === XQ_REVIEWS_PATH) {
         if (request.method === 'GET') {

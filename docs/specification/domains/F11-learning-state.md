@@ -52,7 +52,9 @@
 - 概念图五张表都在且都有数据：`xq_concept` **104 行**（不透明 id `c_`+12hex）、`xq_concept_alias` **357 行**、`xq_concept_external_ref` **63 行**、`xq_concept_edge` **105 行**（`prereq` 94 / `contains` 11）、`xq_concept_occurrence` **644 行**。
 - **版本化 2026-11-10 落地**（迁移 `3 graph-version` + `4 concept-expand`）：`xq_graph_version` 存在且已有 `1 baseline` 未冻结；`xq_concept` 补了 `anchors / created_in / retired_in / revived_at / updated_at` 五列，既有 104 行回填到第 1 版；四条约束（id 形状、名字非空、两条版本外键、退役顺序）在库上生效。同一时刻只能有一个开放版本由偏索引 `xq_graph_version_one_open ON ((true)) WHERE frozen_at IS NULL` 管住 —— 冒第二行会 `duplicate key value violates unique constraint`。
 - 但**版本的推进流程一条都没写**：没有人调「冻结旧版 + 开新版 + 给新概念写 `created_in`」，也没有导入批次与它对接（`xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表**都是 0 行**）。
-- 更关键的一条没变：**没有任何「按图谱排序」的行为上线**。`xq_concept_edge` 的 94 条 `prereq` 边今天零读方 —— 没有任何代码查它来排学习顺序。这不是漏了接线，是本节末句「在此之前不许上线」仍然生效。
+- **读侧有了（2026-11-10）**：`lib/persistence/xq-concept-graph.ts` + `GET /api/persistence/xq/concepts` 是这 94 条边**第一次**被读。它回答的是图上可算的问题 —— 直接先修、传递闭包、最长先修深度、环、退役先修、以及「按给定已掌握集合现在能不能学」——**不产出任何顺序**。
+- 更关键的一条没变：**没有任何「按图谱排序」的行为上线**。读侧存在不等于排序被允许，本节末句仍然生效。
+- 读侧实测（2026-11-10，真库 104 概念）：`GET /xq/concepts` 回 104 / 105 边，`prereq` 按强度 5 strict / 88 recommended / 1 helpful；对全部 104 个概念逐个调 `?id=` 与独立的 Kahn 最长路径比对，**深度 0 处不一致**，`notReady` 74（= 104 − 30 个无先修），环 0。
 
 
 ### SR-F11.5 练习结果必须回流进学习状态，读取失败必须表现为「没有记录」
