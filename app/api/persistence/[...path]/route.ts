@@ -54,6 +54,7 @@ import {
   XQ_REVIEW_OUTCOMES,
 } from '@/lib/persistence/xq-review-recorder';
 import { DUE_REVIEW_CARD_LIMIT, listDueReviewCards } from '@/lib/persistence/xq-review-queue';
+import { AI_LOG_LIMIT, readAiLog } from '@/lib/persistence/xq-ai-log';
 import {
   getServerPersistenceProvider,
   type PersistencePoolFactory,
@@ -123,6 +124,7 @@ const XQ_REVIEWS_PATH = '/xq/reviews';
  * `active_ms` stays derived on demand because it changes with every new event.
  */
 const XQ_SESSIONS_PATH = '/xq/sessions';
+const XQ_AI_LOG_PATH = '/xq/ai-log';
 
 /**
  * A study day as `xq_session.local_day` stores it.
@@ -444,6 +446,79 @@ async function handleXqReview(
  * `limit` is clamped like the review queue's: unbounded would read every
  * session ever recorded.
  */
+/**
+ * `GET /api/persistence/xq/ai-log`: what he asked the AI, and where those
+ * conversations are.
+ *
+ * The two halves live apart on purpose (content in `runtime_records`, the fact
+ * in `xq_event`), so this endpoint is the only place that joins them. Reading
+ * either half alone answers a different question: the fact without the content
+ * says "he asked something about q3" and cannot show what he said.
+ *
+ * `day` is a study day (`yyyy-mm-dd`, 04:00 boundary) and is validated rather
+ * than ignored, for the same reason as the session digest: silently widening to
+ * every day looks like a valid answer to a narrower question.
+ */
+async function handleXqAiLog(
+  request: Request,
+  queryable: Queryable,
+  responseHeaders: Headers,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const rawDay = url.searchParams.get('day');
+  const rawLimit = url.searchParams.get('limit');
+  const parsed = rawLimit === null ? NaN : Number(rawLimit);
+  const limit =
+    Number.isFinite(parsed) && parsed > 0 ? Math.min(Math.trunc(parsed), AI_LOG_LIMIT) : undefined;
+  const day = rawDay === null || rawDay === '' ? undefined : rawDay;
+  if (day !== undefined && !STUDY_DAY_PATTERN.test(day)) {
+    return withHeaders(
+      jsonError(400, 'VALIDATION_FAILED', 'day must be a study day (yyyy-mm-dd)'),
+      responseHeaders,
+    );
+  }
+  try {
+    const entries = await readAiLog(queryable, {
+      ...(day === undefined ? {} : { day }),
+      ...(limit === undefined ? {} : { limit }),
+    });
+    return withHeaders(
+      Response.json(
+        {
+          entries: entries.map((entry) => ({
+            eventId: entry.eventId,
+            occurredAt: entry.occurredAt.toISOString(),
+            stageId: entry.stageId,
+            sceneId: entry.sceneId,
+            questionId: entry.questionId,
+            hintSubtype: entry.hintSubtype,
+            stem: entry.stem,
+            generations: entry.generations,
+            turns: entry.turns.map((turn) => ({
+              recordId: turn.recordId,
+              runtimeSessionId: turn.runtimeSessionId,
+              generation: turn.generation,
+              createdAt: turn.createdAt.toISOString(),
+              role: turn.role,
+              text: turn.text,
+              truncated: turn.truncated,
+            })),
+          })),
+        },
+        // Per-owner and time-dependent: a new ask appears immediately.
+        { status: 200, headers: { 'cache-control': 'private, no-store' } },
+      ),
+      responseHeaders,
+    );
+  } catch (error) {
+    log.error(`xq ai log read failed: ${error instanceof Error ? error.message : String(error)}`);
+    return withHeaders(
+      jsonError(500, 'XQ_AI_LOG_FAILED', 'failed to read the conversation log'),
+      responseHeaders,
+    );
+  }
+}
+
 async function handleXqSessionDigest(
   request: Request,
   queryable: Queryable,
@@ -1058,6 +1133,16 @@ async function handlePersistenceRequestInner(
         }
         const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
         return await handleXqSessionDigest(request, pool as unknown as Queryable, responseHeaders);
+      }
+      if (path === XQ_AI_LOG_PATH) {
+        if (request.method !== 'GET') {
+          return withHeaders(
+            jsonError(405, 'METHOD_NOT_ALLOWED', 'xq/ai-log accepts GET only'),
+            responseHeaders,
+          );
+        }
+        const { pool } = await getServerPersistenceProvider(connectionString, deps.poolFactory);
+        return await handleXqAiLog(request, pool as unknown as Queryable, responseHeaders);
       }
       if (path === XQ_REVIEWS_PATH) {
         if (request.method === 'GET') {
