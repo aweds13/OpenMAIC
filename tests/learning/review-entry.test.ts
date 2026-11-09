@@ -56,3 +56,43 @@ describe('复习页有入口', () => {
     expect(reviewPage).toContain("export const dynamic = 'force-dynamic'");
   });
 });
+
+/**
+ * `/ai-log` 同样必须能从产品里点进去。
+ *
+ * 与 `/review` 那条同一类缺口、同一层判据：页面存在、路由 200、数据也对，
+ * 但只要没人链过去，用户就永远看不到。区别只有一条 —— **它不该有角标**：
+ * 日志是往回看的，不存在「今天该看几条」，加个数字只会教人去凑数。
+ */
+describe('对话日志页有入口', () => {
+  it('首页顶部工具条里有指向 /ai-log 的链接', () => {
+    const page = read('app/page.tsx');
+    expect(page).toContain('href="/ai-log"');
+    expect(page).toContain('data-testid="home-ai-log-link"');
+  });
+
+  it('★ 链接的 aria-label 来自 locale，不是硬写的中文', () => {
+    const page = read('app/page.tsx');
+    const anchor = page.slice(page.indexOf('home-ai-log-link'));
+    const block = anchor.slice(0, 600);
+    expect(block).toContain("t('aiLog.title')");
+  });
+
+  it('★ 它不带角标 —— 日志没有「今天该看几条」这回事', () => {
+    const page = read('app/page.tsx');
+    const start = page.indexOf('data-testid="home-ai-log-link"');
+    const end = page.indexOf('</Link>', start);
+    expect(end).toBeGreaterThan(start);
+    expect(page.slice(start, end)).not.toContain('Badge');
+  });
+
+  it('两个入口都在同一条工具条里', () => {
+    const page = read('app/page.tsx');
+    const tools = page.indexOf('home-top-tools');
+    const review = page.indexOf('data-testid="home-review-link"');
+    const aiLog = page.indexOf('data-testid="home-ai-log-link"');
+    expect(tools).toBeGreaterThan(-1);
+    expect(review).toBeGreaterThan(tools);
+    expect(aiLog).toBeGreaterThan(tools);
+  });
+});

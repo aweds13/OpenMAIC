@@ -113,7 +113,7 @@
 | 改复习队列（到期了显示什么） | `lib/persistence/xq-review-queue.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqReviewQueue` |
 | 改「这次学了多久」（事件流折成什么） | `lib/persistence/xq-session-digest.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqSessionDigest` |
 | 改「他问过 AI 什么」（对话日志怎么拼） | `lib/persistence/xq-ai-log.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqAiLog` |
-| 改对话日志页（翻他问过什么） | `app/ai-log/page.tsx` + `components/learning/ai-log-list.tsx` + `lib/learning/xq-ai-log-client.ts` |
+| 改对话日志页（翻他问过什么） | `app/ai-log/page.tsx` + `components/learning/ai-log-list.tsx` + `lib/learning/xq-ai-log-client.ts`（入口在 `app/page.tsx` 的 `home-ai-log-link`） |
 | 改答题事件（什么时候算「动过手」） | `lib/learning/xq-answer-events.ts` + `components/scene-renderers/quiz-view.tsx` |
 | 改「问 AI」（从做题页问一句） | `lib/learning/xq-hint.ts` + `lib/learning/xq-hint-prompt.ts` + `lib/contexts/quiz-ask-context.tsx`（按钮在 `components/scene-renderers/quiz-view.tsx` 的 `QuestionCard`，把手由 `components/edit/PlaybackChromeRoot.tsx` 提供） |
 | 改复习界面（到期了怎么点） | `components/learning/due-review-list.tsx` + `lib/learning/xq-review-client.ts`（页面壳在 `app/review/page.tsx`） |

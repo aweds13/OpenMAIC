@@ -36,6 +36,7 @@ import {
   Presentation,
   Loader2,
   CalendarCheck,
+  MessagesSquare,
 } from 'lucide-react';
 import './home-mobile.css';
 import {
@@ -814,6 +815,20 @@ function HomePage() {
         >
           <CalendarCheck className="w-4 h-4" />
           <DueReviewBadge />
+        </Link>
+
+        {/* 对话日志入口。★ 与复习入口并排、同一套理由：这一条工具条是
+            全站唯一「任何时候都在」的锚点，而「他问过 AI 什么」也是跨课的事。
+            它**没有角标** —— 日志是往回看的，没有「今天该看几条」这回事；
+            加个数字只会教人去凑数。 */}
+        <Link
+          href="/ai-log"
+          data-testid="home-ai-log-link"
+          aria-label={t('aiLog.title')}
+          title={t('aiLog.title')}
+          className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
+        >
+          <MessagesSquare className="w-4 h-4" />
         </Link>
 
         <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
