@@ -126,6 +126,19 @@ describe('GET /api/persistence/xq/concepts', () => {
     });
   });
 
+  it('★ 先修的「凭什么」也一起回 —— 来源与档位在边上，不在结论里', async () => {
+    const route = await bootRoute();
+    const response = await route.GET(request(`/xq/concepts?id=${C}`));
+    const body = (await response.json()) as Record<string, unknown>;
+    // 默认只认 strict ⇒ 只回 strict 那条依据，且带得出 source。
+    const evidence = body.prerequisiteEvidence as Array<Record<string, unknown>>;
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({ fromId: B, toId: C, strength: 'strict' });
+    expect(typeof evidence[0]?.source).toBe('string');
+    // ★ 结论与依据是两份数据：结论去重排序，依据一条边一行。
+    expect(body.prerequisites).toEqual([B]);
+  });
+
   it('★ 放宽到 recommended 时多出一条先修，但闭包不变', async () => {
     const route = await bootRoute();
     const response = await route.GET(request(`/xq/concepts?id=${C}&strengths=strict,recommended`));

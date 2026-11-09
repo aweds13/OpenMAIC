@@ -9,6 +9,7 @@ import {
   isConceptId,
   prerequisiteClosure,
   prerequisiteDepth,
+  prerequisiteEvidence,
   readConceptGraph,
   readConceptOccurrences,
   readPageTitles,
@@ -48,12 +49,31 @@ function node(id: string, overrides: Partial<ConceptNode> = {}): ConceptNode {
   };
 }
 
-function prereq(fromId: string, toId: string, strength: PrereqStrength = 'strict'): ConceptEdge {
-  return { fromId, toId, relation: 'prereq', strength };
+function prereq(
+  fromId: string,
+  toId: string,
+  strength: PrereqStrength = 'strict',
+  source: string | null = 'course-outline',
+): ConceptEdge {
+  return {
+    fromId,
+    toId,
+    relation: 'prereq',
+    strength,
+    source,
+    reason: '手搭的测试图，理由只需要非空',
+  };
 }
 
 function contains(fromId: string, toId: string): ConceptEdge {
-  return { fromId, toId, relation: 'contains', strength: null };
+  return {
+    fromId,
+    toId,
+    relation: 'contains',
+    strength: null,
+    source: 'course-outline',
+    reason: '手搭的测试图，理由只需要非空',
+  };
 }
 
 function graph(nodes: ConceptNode[], edges: ConceptEdge[]): ConceptGraph {
@@ -311,6 +331,54 @@ describe('conceptReadiness', () => {
       retired: [],
       cycle: false,
     });
+  });
+});
+
+describe('prerequisiteEvidence', () => {
+  it('★ 一条边一行，带来源与理由 —— 结论之外还要给依据', () => {
+    const g = graph([node(A), node(B)], [prereq(A, B, 'strict', 'cs2023')]);
+    expect(prerequisiteEvidence(g, B)).toEqual([
+      expect.objectContaining({ fromId: A, toId: B, strength: 'strict', source: 'cs2023' }),
+    ]);
+  });
+
+  it('★ 同一个先修由两张外部图各支持一次 = 两条证据，不是一条', () => {
+    const g = graph(
+      [node(A), node(B)],
+      [prereq(A, B, 'strict', 'cs2023'), prereq(A, B, 'recommended', 'acm-graph')],
+    );
+    // 默认只认 strict ⇒ 只出 cs2023 那条。
+    expect(prerequisiteEvidence(g, B).map((e) => e.source)).toEqual(['cs2023']);
+    // 放宽到两档 ⇒ 两条都在，且同一条 fromId。
+    expect(prerequisiteEvidence(g, B, STRICT_AND_RECOMMENDED).map((e) => e.source)).toHaveLength(2);
+  });
+
+  it('来源未知时是 null，不是空串', () => {
+    const g = graph([node(A), node(B)], [prereq(A, B, 'strict', null)]);
+    expect(prerequisiteEvidence(g, B)[0]?.source ?? null).toBeNull();
+  });
+
+  it('★ 排序用码点，不用 localeCompare —— 同一份图两台机器排一样', () => {
+    const g = graph(
+      [node(A), node(B), node('c_cccccccccccc')],
+      [prereq('c_cccccccccccc', B, 'strict', 'exercism-java'), prereq(A, B, 'strict', 'cs2023')],
+    );
+    expect(prerequisiteEvidence(g, B).map((e) => e.source)).toEqual(['cs2023', 'exercism-java']);
+  });
+
+  it('contains 不算依据；目标经合并链也认得出来', () => {
+    const g = graph(
+      [node(A), node(B), node('c_dddddddddddd', { status: 'merged', mergedInto: B })],
+      [contains(A, B), prereq(A, 'c_dddddddddddd')],
+    );
+    const evidence = prerequisiteEvidence(g, B);
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]?.toId).toBe('c_dddddddddddd');
+  });
+
+  it('解析不出身份的起点仍然是缺口，不在这里静默丢', () => {
+    const g = graph([node(B)], [prereq('c_eeeeeeeeeeee', B)]);
+    expect(prerequisiteEvidence(g, B)[0]?.fromId).toBe('c_eeeeeeeeeeee');
   });
 });
 

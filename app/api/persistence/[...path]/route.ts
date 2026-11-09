@@ -65,6 +65,7 @@ import {
   directPrerequisites,
   prerequisiteClosure,
   prerequisiteDepth,
+  prerequisiteEvidence,
   readConceptGraph,
   readConceptOccurrences,
   readPageTitles,
@@ -747,6 +748,11 @@ async function handleXqConcepts(
           retiredIn: node?.retiredIn ?? null,
           strengths: activeStrengths,
           prerequisites: direct.prerequisites,
+          // ★ 依据与结论分开回：上面那行是「所以要先学这些」（去重、已解析合并），
+          // 这一行是「凭什么这么说」（一条边一行，带来源与档位，重复保留）。
+          // SR-F11.3 要的是后者能被核对 —— 只给结论的话，「来源不明」这个判断
+          // 在调用方那里无从做出。
+          prerequisiteEvidence: prerequisiteEvidence(graph, resolved, strengths),
           unresolvedPrerequisites: direct.unresolved,
           closure: closured.closure,
           retiredPrerequisites: closured.retired,

@@ -116,6 +116,21 @@ export interface ConceptEdge {
   readonly toId: string;
   readonly relation: ConceptRelation;
   readonly strength: PrereqStrength | null;
+  /**
+   * 这条边从哪来（`course-outline` / `cs2023` / `acm-graph` / `exercism-*` /
+   * `cs-math-skill-tree`）。
+   *
+   * ★ SR-F11.3 的原话是「任何『A 应先于 B』的判断都必须带来源」。第一版读侧
+   * 只取了四列、把 `source` 丢了，于是那条规格在**读得到图的人手里**根本没法核对 ——
+   * 图上有 94 条先修边，谁也说不出哪几条是人写的、哪几条是从语料统计的。
+   *
+   * 收窄成 `string | null` 而不是白名单枚举：DDL 对 `source` **没有 CHECK**
+   * （种子图侧有 `EdgeSource` 联合类型，但库里不保证）。白名单会把将来新加的
+   * 来源读成 `null`，而 `null` 在这里的含义是「不知道谁写的」——两件事不能混。
+   */
+  readonly source: string | null;
+  /** 人写的一句理由（DDL `CHECK length(btrim(reason)) > 0`，所以不会是空白串）。 */
+  readonly reason: string | null;
 }
 
 export interface ConceptGraph {
@@ -127,7 +142,7 @@ const READ_NODES_SQL = `SELECT id, canonical_name, kind, status, merged_into, cr
   FROM xq_concept
  ORDER BY id`;
 
-const READ_EDGES_SQL = `SELECT from_id, to_id, relation, strength
+const READ_EDGES_SQL = `SELECT from_id, to_id, relation, strength, source, reason
   FROM xq_concept_edge
  ORDER BY from_id, to_id, relation`;
 
@@ -146,6 +161,8 @@ interface EdgeRow extends Record<string, unknown> {
   to_id: unknown;
   relation: unknown;
   strength: unknown;
+  source: unknown;
+  reason: unknown;
 }
 
 function asKind(value: unknown): ConceptKind | null {
@@ -168,6 +185,12 @@ function asVersion(value: unknown): number | null {
   if (typeof value === 'number' && Number.isInteger(value)) return value;
   if (typeof value === 'string' && /^\d+$/u.test(value)) return Number(value);
   return null;
+}
+
+/** 码点序比较（不用 `localeCompare`，见 `prerequisiteEvidence` 的排序注释）。 */
+function compareText(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 function asNullableText(value: unknown): string | null {
@@ -212,7 +235,14 @@ export async function readConceptGraph(queryable: Queryable): Promise<ConceptGra
     const toId = asNullableText(row.to_id);
     const relation = asRelation(row.relation);
     if (fromId === null || toId === null || relation === null) continue;
-    edges.push({ fromId, toId, relation, strength: asStrength(row.strength) });
+    edges.push({
+      fromId,
+      toId,
+      relation,
+      strength: asStrength(row.strength),
+      source: asNullableText(row.source),
+      reason: asNullableText(row.reason),
+    });
   }
 
   return { nodes, edges };
@@ -287,6 +317,59 @@ export function directPrerequisites(
     prerequisites: [...prerequisites].sort(),
     unresolved: [...unresolved].sort(),
   };
+}
+
+/**
+ * 「A 之所以要先学 B」的**证据边**本身，不是结论。
+ *
+ * ★ SR-F11.3 要求「任何『A 应先于 B』的判断都必须带三样：来源、置信度、
+ * 覆盖到哪一级」。前两样就长在边上（`source` / `strength`），第一版读侧
+ * 把它们丢了，于是 API 的调用方只能看到一串 id，看不到「凭什么」。
+ *
+ * 与 `directPrerequisites()` 的分工：那个给**结论**（去重、解析合并、排序），
+ * 这个给**依据**（一条边一行，重复保留 —— 同一个先修由两张外部图各支持一次
+ * 是两条证据，不是一条）。两者不合并：合并之后就没法回答「这条我信不信」。
+ */
+export interface PrerequisiteEvidence {
+  readonly fromId: string;
+  readonly toId: string;
+  readonly strength: PrereqStrength;
+  readonly source: string | null;
+  readonly reason: string | null;
+}
+
+export function prerequisiteEvidence(
+  graph: ConceptGraph,
+  conceptId: string,
+  strengths: ReadonlySet<PrereqStrength> = new Set(DEFAULT_PREREQ_STRENGTHS),
+): readonly PrerequisiteEvidence[] {
+  const target = resolveConcept(graph, conceptId);
+  if (target === null) return [];
+  const evidence: PrerequisiteEvidence[] = [];
+  for (const edge of graph.edges) {
+    if (edge.relation !== 'prereq') continue;
+    if (edge.strength === null || !strengths.has(edge.strength)) continue;
+    // 目标侧也过一遍合并链：`B 的先修` 写在一条指向已合并 id 的边上时，
+    // 那条边仍然是在说 B。
+    if (resolveConcept(graph, edge.toId) !== target) continue;
+    if (edge.fromId === target) continue;
+    evidence.push({
+      fromId: edge.fromId,
+      toId: edge.toId,
+      strength: edge.strength,
+      source: edge.source,
+      reason: edge.reason,
+    });
+  }
+  // 稳定排序：来源 → 档位 → 起点。同一张图两次读必须逐字节相同。
+  // ★ 用码点比较而不是 `localeCompare`：后者随 ICU 版本与系统语言变，
+  // 同一份数据在两台机器上会排出不同顺序（与 `learner-state-render` 第 5 条同一理由）。
+  return evidence.sort(
+    (a, b) =>
+      compareText(a.source ?? '', b.source ?? '') ||
+      compareText(a.strength, b.strength) ||
+      compareText(a.fromId, b.fromId),
+  );
 }
 
 export interface PrerequisiteClosure {
