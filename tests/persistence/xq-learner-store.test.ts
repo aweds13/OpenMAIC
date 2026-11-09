@@ -120,6 +120,58 @@ describe('XqLearnerStore', () => {
       expect(second).toEqual(first);
     });
 
+    it('★ 这一页明确不是 quiz 页时，这一格被删掉，证据还在', async () => {
+      // 实测原型：`stage-GYvpbYB_aN/scene-p13` 有 8 条全对的自检证据，
+      // 但那一页现在是 slide（比较运算符，order 32）—— scene id 被非 quiz 页复用了。
+      await db.query(
+        `INSERT INTO document_scenes (stage_id, id, scene_order, data) VALUES ($1, $2, $3, $4::jsonb)`,
+        ['stage-A', 'scene-p1', 32, JSON.stringify({ type: 'slide', title: '比较运算符' })],
+      );
+      await store.ingestProbeItems(
+        Array.from({ length: 8 }, (_, i) => probe(`q${i + 1}`, true, i)),
+      );
+      // 先按 quiz 页算一次，确认证据本身能判 known（证明不是「证据不够」）。
+      await db.query(`DELETE FROM document_scenes WHERE stage_id = 'stage-A' AND id = 'scene-p1'`);
+      expect((await store.recomputeCellState('stage-A', 'scene-p1')).tri).toBe('known');
+
+      // 再把这一页标成 slide，重算 ⇒ 这一格必须消失。
+      await db.query(
+        `INSERT INTO document_scenes (stage_id, id, scene_order, data) VALUES ($1, $2, $3, $4::jsonb)`,
+        ['stage-A', 'scene-p1', 32, JSON.stringify({ type: 'slide', title: '比较运算符' })],
+      );
+      const verdict = await store.recomputeCellState('stage-A', 'scene-p1');
+      expect(verdict.tri).toBe('unknown');
+      expect(verdict.reason).toBe('no-quiz');
+      const cells = await db.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM xq_cell_state WHERE stage_id = 'stage-A' AND scene_id = 'scene-p1'`,
+      );
+      expect(cells.rows[0]!.n).toBe('0');
+      // 证据一条不少 —— 缓存删得掉，事实删不掉。
+      const kept = await db.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM xq_probe_item WHERE stage_id = 'stage-A' AND scene_id = 'scene-p1'`,
+      );
+      expect(kept.rows[0]!.n).toBe('8');
+    });
+
+    it('查不到这一页时不动这一格（课程被删不代表历史记录是假的）', async () => {
+      await store.ingestProbeItems(
+        Array.from({ length: 8 }, (_, i) => probe(`q${i + 1}`, i < 7, i)),
+      );
+      const verdict = await store.recomputeCellState('stage-A', 'scene-p1');
+      expect(verdict.tri).toBe('known');
+    });
+
+    it('这一页明说是 quiz 时照常判', async () => {
+      await db.query(
+        `INSERT INTO document_scenes (stage_id, id, scene_order, data) VALUES ($1, $2, $3, $4::jsonb)`,
+        ['stage-A', 'scene-p1', 1, JSON.stringify({ type: 'quiz' })],
+      );
+      await store.ingestProbeItems(
+        Array.from({ length: 8 }, (_, i) => probe(`q${i + 1}`, i < 7, i)),
+      );
+      expect((await store.recomputeCellState('stage-A', 'scene-p1')).tri).toBe('known');
+    });
+
     it('同一 scene 在两门课里互不影响（主键带 stage_id）', async () => {
       await store.ingestProbeItems([
         probe('q1', true, 1),

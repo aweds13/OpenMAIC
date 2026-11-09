@@ -179,10 +179,37 @@ ON CONFLICT (task_id, stage_id, scene_id, question_id, asked_at) DO NOTHING
 RETURNING id
 `;
 
-const SELECT_EVIDENCE_SQL = `SELECT counted_n, correct
-  FROM xq_probe_item
- WHERE stage_id = $1 AND scene_id = $2
- ORDER BY asked_at, id`;
+const SELECT_EVIDENCE_SQL = `SELECT p.counted_n, p.correct
+  FROM xq_probe_item p
+ WHERE p.stage_id = $1 AND p.scene_id = $2
+   AND NOT EXISTS (
+         SELECT 1 FROM document_scenes s
+          WHERE s.stage_id = p.stage_id
+            AND s.id = p.scene_id
+            AND coalesce(s.data->>'type', '') <> 'quiz'
+       )
+ ORDER BY p.asked_at, p.id`;
+
+/**
+ * 这一页在 `document_scenes` 里是什么类型；查不到返回 `null`。
+ *
+ * ★ 查不到**不是**「不是 quiz 页」：课程被删、或者这一页在文档层还没写进来时，
+ *   证据仍然可能是真的（历史答题记录不会因为页面被删就变假）。所以只有
+ *   **明确查到且不是 quiz** 才拒判。
+ */
+const SELECT_PAGE_TYPE_SQL = `SELECT data->>'type' AS type
+  FROM document_scenes
+ WHERE stage_id = $1 AND id = $2`;
+
+/**
+ * 删掉一格的缓存。
+ *
+ * 只在一件事上用：这一页**明确不是** quiz 页。那时这一格永远不会产出判定，
+ * 留着它只会让状态块写出一句「这页还没有答题证据」—— 而它明明有 8 条答题证据，
+ * 只是这一页不是自检页。`xq_cell_state` 是缓存（模块头「可以整表删掉重算，
+ * 不丢任何事实」），删掉是正确动作；证据仍在 `xq_probe_item` 里。
+ */
+const DELETE_CELL_STATE_SQL = `DELETE FROM xq_cell_state WHERE stage_id = $1 AND scene_id = $2`;
 
 /**
  * 写 `xq_cell_state`。整行覆盖，不是「更新一部分」：判定是一个整体，
@@ -349,8 +376,29 @@ export class XqLearnerStore {
    * 抛：驱动错误原样抛出；`classifyEvidence()` 自身的 `RangeError`
    * （只会在分类器参数非法时出现）也原样抛出。没有证据不是错误 ——
    * 会写成 `tri='unknown', reason='no-quiz'`。
+   *
+   * ★ **这一页如果明确不是 quiz 页，这一格会被删掉**（不是写成 unknown）：
+   *   缓存里留一个「有证据但永远不会产出判定」的格子，只会让状态块说
+   *   「这页还没有答题证据」—— 它明明有，只是那一页不是自检页。
+   *   判断依据是 `document_scenes.data->>'type'`；查不到那一页时**不动**
+   *   （课程被删不代表历史答题记录是假的）。
    */
   async recomputeCellState(stageId: string, sceneId: string): Promise<TriVerdict> {
+    // ★ 第一步必须是「这一页是不是自检页」，不是「有没有证据」。
+    //   实测有一条脏格：`stage-GYvpbYB_aN/scene-p13` 挂着 8 条全对的自检证据，
+    //   但那一页现在是 `slide`（`比较运算符`，order 32）—— 那个 scene id 被非 quiz 页
+    //   复用了。不拦这一步的话，状态块会写「这页已会」，而模型会去讲一页没有题的幻灯片。
+    const pageType = await this.queryable.query<{ type: string | null }>(SELECT_PAGE_TYPE_SQL, [
+      stageId,
+      sceneId,
+    ]);
+    const type = pageType.rows[0]?.type ?? null;
+    if (type !== null && type !== 'quiz') {
+      // 缓存删掉，证据不动。返回 `no-quiz` 是因为这一页**确实没有题**可判。
+      await this.queryable.query(DELETE_CELL_STATE_SQL, [stageId, sceneId]);
+      return { tri: 'unknown', n: 0, k: 0, lb5: null, ub95: null, reason: 'no-quiz' };
+    }
+
     const { rows } = await this.queryable.query<ProbeEvidenceRow>(SELECT_EVIDENCE_SQL, [
       stageId,
       sceneId,
