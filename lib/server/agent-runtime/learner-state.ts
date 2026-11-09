@@ -103,23 +103,20 @@ export interface RefreshLearnerStateResult {
   text: string;
   /** 参与渲染的页数（三态格子数）。 */
   scenes: number;
-  /**
-   * **恒为 0**，只为兼容旧调用点保留。
-   *
-   * 这份状态已经不再折 `runtime_records` 了（三态来自 `xq_cell_state`，练习来自磁盘），
-   * 所以「折进来几条答题记录」这个读数没有来源。留着字段而不是删掉，是因为
-   * `tests/agent-runtime/practice-results.test.ts` 仍在断言它 —— 那是**下一个**要清的债。
-   */
-  records: number;
-  /** 参与渲染的格子数 —— 与 `records` 不是一回事（一格 = 一页）。 */
+  /** 参与渲染的格子数（一格 = 一页）。 */
   cells: number;
   /** 到期复习条数（`done_at IS NULL AND due_at <= now`）。 */
   reviews: number;
   /**
    * 折进来的**练习结果**条数（来自磁盘上的 `result.json`，不是数据库）。
    *
-   * ★ 与 `records` 分开计数是刻意的：这两个数字来源不同，
-   *   合并成一个就会让人以为练习结果也进了 `runtime_records`。
+   * ★ 与 `cells` 分开计数是刻意的：这两个数字来源不同（一个来自数据库里的
+   *   掌握度缓存，一个来自磁盘上的 `result.json`），合并成一个就会让人以为
+   *   练习结果也进了 `xq_cell_state`。
+   *
+   * 另：这里**曾经**有个 `records` 字段，记「折进来几条 `runtime_records`」。
+   * 三态改从 `xq_cell_state` 读、练习改从磁盘读之后，它就没有来源了，恒为 0；
+   * 留着只会让读代码的人以为还有一条没找到的取数路径。已删。
    */
   practiceResults: number;
 }
@@ -318,7 +315,6 @@ export async function refreshLearnerStateFromRuntime(
       path,
       text: '',
       scenes: 0,
-      records: 0,
       cells: 0,
       reviews: 0,
       practiceResults: practiceEntries.length,
@@ -335,7 +331,6 @@ export async function refreshLearnerStateFromRuntime(
     path,
     text,
     scenes: loaded.cells.length,
-    records: 0,
     cells: loaded.cells.length,
     reviews: reviews.length,
     practiceResults: practiceEntries.length,

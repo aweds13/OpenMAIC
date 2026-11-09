@@ -171,7 +171,8 @@ describe('★ 接线：练习结果真的进 学习状态.md', () => {
     const result = await refreshLearnerStateFromRuntime(options);
 
     expect(result).not.toBeNull();
-    expect(result?.records).toBe(0);
+    // 没有自检页 ⇒ 0 格；练习来自磁盘 ⇒ 1 条。两个数字来源不同，不许混。
+    expect(result?.cells).toBe(0);
     expect(result?.practiceResults).toBe(1);
     const written = readFileSync(options.path!, 'utf8');
     expect(written).toContain('01-两数之和');
