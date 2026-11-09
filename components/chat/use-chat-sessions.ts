@@ -162,6 +162,15 @@ export type ChatRequestTemplate = {
 export interface ChatMessageSendOptions {
   elementReference?: ElementReference;
   onResponseAccepted?: (response: Response) => void;
+  /**
+   * What below the page this message is about — for a quiz, the question id.
+   *
+   * Stamped onto the chat session (and from there onto every record it
+   * appends), so the AI log can answer "what did he ask about *this question*"
+   * rather than only "what did he ask on this page". Omitted for a lecture or a
+   * page-level question: those genuinely have no sub-anchor.
+   */
+  subAnchor?: string;
 }
 
 /**
@@ -1704,8 +1713,22 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
       // Create a new session when there's no active QA session to append to.
       // A completed session should NOT be reused — start a fresh one instead.
       const activeSession = sessionsRef.current.find((s) => s.id === sessionId);
+      // A message aimed at a *different* question than the open session is a new
+      // conversation, not a follow-up. Without this the session keeps its first
+      // anchor and every later question in it would be logged under the wrong one
+      // — the exact failure that makes an AI log worthless.
+      //
+      // Only question-scoped asks set `subAnchor` at all, so ordinary chat never
+      // trips this: its sessions have no anchor and stay reused as before.
+      const anchorChanged =
+        options.subAnchor !== undefined &&
+        activeSession?.subAnchor !== undefined &&
+        activeSession.subAnchor !== options.subAnchor;
       const needNewSession =
-        !sessionId || activeSession?.type === 'lecture' || activeSession?.status === 'completed';
+        !sessionId ||
+        activeSession?.type === 'lecture' ||
+        activeSession?.status === 'completed' ||
+        anchorChanged;
 
       if (needNewSession) {
         // End all active QA/Discussion sessions before creating new one
@@ -1763,9 +1786,17 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
       setSessions((prev) => {
         const exists = prev.some((s) => s.id === sessionId);
         if (exists) {
-          return prev.map((s) =>
-            s.id === sessionId ? resumeSoftClosingSessionForFollowUp(s, userMessage, now) : s,
-          );
+          return prev.map((s) => {
+            if (s.id !== sessionId) return s;
+            const resumed = resumeSoftClosingSessionForFollowUp(s, userMessage, now);
+            // A session opened on a page and then asked about a specific question
+            // adopts the anchor on the way in. `anchorChanged` above only splits
+            // when the open session already had a *different* one, so this fills
+            // in the empty case rather than overwriting.
+            return options.subAnchor === undefined || s.subAnchor !== undefined
+              ? resumed
+              : { ...resumed, subAnchor: options.subAnchor };
+          });
         } else {
           const newSession: ChatSession = {
             id: sessionId!,
@@ -1780,6 +1811,7 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
             toolCalls: [],
             pendingToolCalls: [],
             sceneId: currentSceneIdRef.current ?? undefined,
+            ...(options.subAnchor === undefined ? {} : { subAnchor: options.subAnchor }),
             createdAt: now,
             updatedAt: now,
           };

@@ -53,15 +53,25 @@ describe('问 AI 的接线', () => {
 
   it('★ 发出去之前先把侧栏展开 —— 回答落在一个折叠面板里等于没问成', () => {
     const source = read('components/edit/PlaybackChromeRoot.tsx');
-    const send = source.slice(
-      source.indexOf('send: (content) => {'),
-      source.indexOf('},', source.indexOf('send: (content) => {')),
-    );
+    const at = source.indexOf('send: (content) => {');
+    expect(at).toBeGreaterThan(-1);
+    // 取一个足够宽的窗口，不靠换行符定位 —— 缩进改一次就会失效。
+    const send = source.slice(at, at + 600);
     expect(send).toContain('setChatAreaCollapsed(false)');
     // 展开必须在发送之前，不能发完再补。
     expect(send.indexOf('setChatAreaCollapsed(false)')).toBeLessThan(
-      send.indexOf('sendMessageWithElementReference(content)'),
+      send.indexOf('sendMessageWithElementReference('),
     );
+  });
+
+  it('★ 提问带着题号出去 —— 只记到页就再也对不上「他在哪道题上卡住」', () => {
+    const source = read('components/edit/PlaybackChromeRoot.tsx');
+    const at = source.indexOf('send: (content) => {');
+    const send = source.slice(at, at + 600);
+
+    // 第三个参数就是子锚点。少了它，对话会话只有页面锚点，
+    // AI 日志事后只能按页归并 —— 八道题的问话混成一堆。
+    expect(send).toMatch(/sendMessageWithElementReference\(content, undefined, target\.questionId/);
   });
 
   it('★ 闸挡住的话与真失败的话不是同一条 locale 键', () => {

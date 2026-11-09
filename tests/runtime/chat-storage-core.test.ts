@@ -131,6 +131,27 @@ describe('buildChatRecordInit', () => {
 
     expect(record).toMatchObject({ sceneId: 'scene-1', actionIndex: 3 });
   });
+
+  it('★ 题号跟着记录走 —— 契约里一直允许 subAnchor，但从来没人写过', () => {
+    const chat = session({ sceneId: 'scene-1', subAnchor: 'q4' });
+    const record = buildChatRecordInit(BASE_RUNTIME_ID, messagePayload(chat), chat, 'state');
+
+    expect(record).toMatchObject({ sceneId: 'scene-1', subAnchor: 'q4' });
+  });
+
+  it('★ 空题号当作没有 —— 不许写出「锚定在空」这第四种状态', () => {
+    const chat = session({ sceneId: 'scene-1', subAnchor: '' });
+    const record = buildChatRecordInit(BASE_RUNTIME_ID, messagePayload(chat), chat, 'state');
+
+    expect(record).not.toHaveProperty('subAnchor');
+  });
+
+  it('★ 页面级提问没有子锚点 —— 不传就是没有，不是空串', () => {
+    const chat = session({ sceneId: 'scene-1' });
+    const record = buildChatRecordInit(BASE_RUNTIME_ID, messagePayload(chat), chat, 'state');
+
+    expect(record).not.toHaveProperty('subAnchor');
+  });
 });
 
 describe('planChatSync', () => {

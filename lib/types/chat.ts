@@ -60,6 +60,18 @@ export interface ChatSession {
   updatedAt: number;
   sceneId?: string;
   lastActionIndex?: number;
+  /**
+   * The finer anchor below `sceneId` — for a quiz, the question id.
+   *
+   * `RuntimeRecord` has carried `subAnchor` since the contract was written
+   * ("e.g. a quiz question id"), but no chat ever set it: the whole path
+   * dropped it. That is why a conversation had no way to say *which question*
+   * it was about, and why the AI log could only be joined to a page.
+   *
+   * Optional on purpose: a lecture or a page-level question has no sub-anchor,
+   * and an empty string would be a fourth state ("anchored to nothing").
+   */
+  subAnchor?: string;
   endReason?: string;
   /** Absolute deadline for the client-side soft-closing grace window. */
   softCloseDeadline?: number;

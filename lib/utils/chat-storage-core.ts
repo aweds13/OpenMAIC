@@ -41,6 +41,7 @@ export interface ChatSessionStatePayload extends ChatMessageSkeleton {
   updatedAt: number;
   sceneId?: string;
   lastActionIndex?: number;
+  subAnchor?: string;
 }
 
 export interface FoldedChat {
@@ -332,6 +333,9 @@ export function statePayload(session: ChatSession): ChatSessionStatePayload {
     ...(Number.isInteger(session.lastActionIndex)
       ? { lastActionIndex: session.lastActionIndex }
       : {}),
+    ...(typeof session.subAnchor === 'string' && session.subAnchor !== ''
+      ? { subAnchor: session.subAnchor }
+      : {}),
   };
 }
 
@@ -427,6 +431,9 @@ export function foldRecords(records: RuntimeRecord[]): FoldedChat {
       updatedAt: state.updatedAt,
       sceneId: state.sceneId,
       lastActionIndex: state.lastActionIndex,
+      ...(typeof state.subAnchor === 'string' && state.subAnchor !== ''
+        ? { subAnchor: state.subAnchor }
+        : {}),
     },
   };
 }
@@ -495,6 +502,13 @@ export function buildChatRecordInit(
     ...(typeof session.sceneId === 'string' ? { sceneId: session.sceneId } : {}),
     ...(Number.isInteger(actionIndex) && actionIndex !== undefined && actionIndex >= 0
       ? { actionIndex }
+      : {}),
+    // The contract has always allowed this ("e.g. a quiz question id"); nothing
+    // wrote it, so a chat could only ever say which *page* it was about. That is
+    // the difference between "he asked something on this page" and "he asked
+    // about this question" — and the AI log needs the second.
+    ...(typeof session.subAnchor === 'string' && session.subAnchor !== ''
+      ? { subAnchor: session.subAnchor }
       : {}),
     payload,
   };

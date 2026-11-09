@@ -334,13 +334,19 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
     const manualStopRef = useRef(false);
 
     const sendMessageWithElementReference = useCallback(
-      (text: string, snapshot?: ElementReferenceSendSnapshot) => {
-        return chatAreaRef.current?.sendMessage(
-          text,
-          snapshot
+      (
+        text: string,
+        snapshot?: ElementReferenceSendSnapshot,
+        // 这句话是关于「这道题」的，还是只是「这一页」的。传了它，
+        // 对话会话就带上子锚点 —— 事后能回答「他在这道题上问过什么」，
+        // 而不只是「他在这页上问过什么」。不传就是页面级，与以前一样。
+        subAnchor?: string,
+      ) => {
+        const options = {
+          ...(snapshot
             ? {
                 elementReference: snapshot.reference,
-                onResponseAccepted: (response) => {
+                onResponseAccepted: (response: Response) => {
                   const current = draftElementReferenceRef.current;
                   if (
                     !shouldClearDraftElementReference(
@@ -354,8 +360,14 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                   setDraftElementReference(null);
                 },
               }
-            : undefined,
-        );
+            : {}),
+          ...(subAnchor === undefined ? {} : { subAnchor }),
+        };
+        // 没有锚点也没有元素引用时，别塞一个空对象进去：调用方一直传
+        // `undefined`，多一个 `{}` 会让「没带任何附加信息」这条路径
+        // 变成它自己的第二种形状。
+        const hasOptions = Object.keys(options).length > 0;
+        return chatAreaRef.current?.sendMessage(text, hasOptions ? options : undefined);
       },
       [setDraftElementReference],
     );
@@ -393,7 +405,10 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
                 // 但回答落在一个折叠面板里 —— 那和没问成没区别，
                 // 学生只会以为按钮坏了再点一次。
                 setChatAreaCollapsed(false);
-                return sendMessageWithElementReference(content);
+                // ★ 子锚点就是题号：这句提问是关于这道题的。少了它，
+                // AI 日志只能记到页，事后没法把「他问过什么」和
+                // 「他在哪道题上卡住」对上。
+                return sendMessageWithElementReference(content, undefined, target.questionId);
               },
             },
           ),
