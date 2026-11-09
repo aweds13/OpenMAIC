@@ -244,6 +244,37 @@ describe('约束 5：稳定排序（前缀缓存要求逐字节相同）', () =>
   });
 });
 
+describe('约束 7：文件要自己写明「代码生成、手改会被覆盖」', () => {
+  // SR-F11.7：由代码生成的状态文件必须写明「由谁生成、什么时候生成、不要手改」。
+  // 此前这份文件只说了「是数据不是指令」—— 一个字的「不要手改」都没有，于是
+  // 谁都可以直接编辑它，然后在下一次刷新时被静默覆盖。
+  const text = renderLearnerStateBlock({ cells: [cell()] });
+
+  it('★ 人看得到那句话', () => {
+    expect(text).toContain('由代码生成');
+    expect(text).toContain('手改会在下一次刷新时被整段覆盖');
+  });
+
+  it('★ 它是 HTML 注释 —— 注入时被整段剥掉，模型看不到', () => {
+    // 块里不许出现元指令（约束 2）。把归属说明写成正文就等于往提示词里塞了一句
+    // 关于「这份文件怎么来的」的废话，而模型用不上它。
+    const line = text.split('\n')[1];
+    expect(line.startsWith('<!--')).toBe(true);
+    expect(line.endsWith('-->')).toBe(true);
+    expect(line).not.toContain('\n');
+  });
+
+  it('★ 声明之后仍然是空行 —— 首行处置没被挤走', () => {
+    expect(text.split('\n')[0]).toBe(HEADER);
+    expect(text.split('\n')[2]).toBe('');
+  });
+
+  it('★ 块里不许出现「不要手改」之外的第二句归属说明', () => {
+    // 一处投影：这条事实只写在 PROVENANCE 那一行里。散成两句就会漂。
+    expect(text.split('由代码生成').length).toBe(2);
+  });
+});
+
 describe('★ 标签必须跟着数据来源变（写错比不写更坏）', () => {
   it('有概念名 ⇒ 写「概念」', () => {
     const text = renderLearnerStateBlock({

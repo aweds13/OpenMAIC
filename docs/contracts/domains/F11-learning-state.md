@@ -115,7 +115,15 @@
 
 - **失败长什么样**：人手工在机器产物里补了一条笔记，下一轮消失且无任何提示；或者「我不会这台机器」与「这两门课你错了 4 道」同时出现在同一轮上下文里，模型随机相信一边。
 
-- **判据落点**：`tests/quiz/learner-state-render.test.ts` —— `块首第一行就是那句声明，且只出现一次`（**块自带身份声明**，这是「自证身份」的现有形态）、`★ 不写「不要念给学习者听」这类元指令`（身份声明只能标「这段是什么」，不能扩成「你该怎么用」）。生成端：`lib/server/agent-runtime/learner-state.ts:353` 的 `refreshLearnerStateBestEffort`。命令：`npx vitest run tests/quiz/learner-state-render.test.ts`。**「人改会被覆盖」这句标注今天不存在** —— 落地时要求：机器文件头两行必须含「由 … 生成」与「不要手改」，且有断言钉住。
+- **判据落点**：`tests/quiz/learner-state-render.test.ts` —— `块首第一行就是那句声明，且只出现一次`（**块自带身份声明**，这是「自证身份」的现有形态）、`★ 不写「不要念给学习者听」这类元指令`（身份声明只能标「这段是什么」，不能扩成「你该怎么用」）。生成端：`lib/server/agent-runtime/learner-state.ts:353` 的 `refreshLearnerStateBestEffort`。命令：`npx vitest run tests/quiz/learner-state-render.test.ts`。
+
+- **「不要手改」这句 2026-11-10 落地了**。渲染器在块首声明**之后**写一行 HTML 注释（`learner-state-render.ts` 的 `PROVENANCE`）：
+
+  > `<!-- 本文件由代码生成（学习状态刷新器）。手改会在下一次刷新时被整段覆盖 —— 要改判定，改库与判据，不要改这里。 -->`
+
+  选 HTML 注释不是随手：块内不许出现元指令（渲染器约束 2），而注入链路 `prompt-context-file.ts` 的 `HTML_COMMENT` 会把注释整段剥掉 —— 这句话**人打开文件看得到、模型读到的那段里一个字符都没有**。两侧都有判据：`tests/quiz/learner-state-render.test.ts` 的「约束 7」四例（人看得到 / 它是 HTML 注释 / 声明后仍是空行 / 只有一处投影）与 `tests/agent-runtime/learner-state-provenance.test.ts` 四例（含真机写入后 `readPromptContextFile` 读出来不含这句）。真机读数：磁盘文件 1405 → 1573 字节、第三行就是这句注释；注入块仍是 1405 字节、首行仍是那句声明、`<!--` 一个都不剩。
+
+  **仍不成立的两条**：① 文件里**没有**「什么时候生成」——写具体时刻会让每次刷新都变一个字节，而这一行存在的意义是「说明它会变」；精确时刻在库里。② 人写/机写的**矛盾仍不能被机器发现**：判据要写成「画像里任何一行 `X = UNKNOWN` 不得同时存在同领域 `tri != 'unknown'` 的格」，但画像里的 `Dart` 与 `Java` 在概念表里**一个都查不到**（别名 0、规范名 0），「`Dart / Flutter`」整体也对不上 `Flutter` —— 按字符串匹配写的判据在真库上会永远不红。要做这条得先有一张「画像域 → 概念 id」的人工映射表，那是新数据不是新判据。
 
 - **两边各自要满足**：
   - 生成侧：文件头必须机器可读地标注身份，不能只写在一句自然语言里。
