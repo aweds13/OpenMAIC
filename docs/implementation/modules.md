@@ -117,6 +117,7 @@
 | 改学情事件（翻页记什么） | `lib/learning/use-xq-page-view.ts` + `lib/learning/xq-event-client.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqEvent` |
 | 改复习队列（到期了显示什么） | `lib/persistence/xq-review-queue.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqReviewQueue` |
 | 改「这个概念要先垫什么」（图谱怎么读） | `lib/persistence/xq-concept-graph.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqConcepts` |
+| 改「源文件里有没有不可见字符」 | `tests/source-hygiene.test.ts`（扫字节，不扫 AST；`node_modules` 与 `.tmp` 不进） |
 | 改「这次学了多久」（事件流折成什么） | `lib/persistence/xq-session-digest.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqSessionDigest`（读之前会先跑 `lib/persistence/xq-session-sweeper.ts` 收掉死会话） |
 | 改「他问过 AI 什么」（对话日志怎么拼） | `lib/persistence/xq-ai-log.ts` + `app/api/persistence/[...path]/route.ts` 的 `handleXqAiLog` |
 | 改对话日志页（翻他问过什么） | `app/ai-log/page.tsx` + `components/learning/ai-log-list.tsx` + `lib/learning/xq-ai-log-client.ts`（入口在 `app/page.tsx` 的 `home-ai-log-link`） |

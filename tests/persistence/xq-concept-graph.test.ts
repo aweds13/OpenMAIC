@@ -464,9 +464,9 @@ describe('readPageTitles', () => {
       { stageId: 'stage-1', sceneId: 'scene-p2', title: null },
       { stageId: 'stage-1', sceneId: 'scene-gone', title: null },
     ]);
-    expect(map.get('stage-1 scene-p1')).toBe('变量知识检查');
-    expect(map.has('stage-1 scene-p2')).toBe(false);
-    expect(map.has('stage-1 scene-gone')).toBe(false);
+    expect(map.get('stage-1\u0000scene-p1')).toBe('变量知识检查');
+    expect(map.has('stage-1\u0000scene-p2')).toBe(false);
+    expect(map.has('stage-1\u0000scene-gone')).toBe(false);
   });
 
   it('★ 跨课同 scene id 不会互相覆盖', async () => {
@@ -478,8 +478,8 @@ describe('readPageTitles', () => {
       { stageId: 'stage-1', sceneId: 'scene-p1', title: null },
       { stageId: 'stage-2', sceneId: 'scene-p1', title: null },
     ]);
-    expect(map.get('stage-1 scene-p1')).toBe('变量知识检查');
-    expect(map.get('stage-2 scene-p1')).toBe('另一门课的同名页');
+    expect(map.get('stage-1\u0000scene-p1')).toBe('变量知识检查');
+    expect(map.get('stage-2\u0000scene-p1')).toBe('另一门课的同名页');
   });
 
   it('空输入回空 Map', async () => {

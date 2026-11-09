@@ -759,7 +759,7 @@ async function handleXqConcepts(
             sceneId: occurrence.sceneId,
             // 页被删/没标题时是 null —— 与「这页没有标题」分开说不了，
             // 但至少不编一个空串当标题。
-            title: titles.get(`${occurrence.stageId} ${occurrence.sceneId}`) ?? null,
+            title: titles.get(`${occurrence.stageId}\u0000${occurrence.sceneId}`) ?? null,
             weight: occurrence.weight,
             source: occurrence.source,
           })),

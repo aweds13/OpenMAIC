@@ -631,7 +631,7 @@ export async function readPageTitles(
 ): Promise<ReadonlyMap<string, string>> {
   const result = new Map<string, string>();
   const unique = new Map<string, ConceptPageRef>();
-  for (const ref of refs) unique.set(`${ref.stageId} ${ref.sceneId}`, ref);
+  for (const ref of refs) unique.set(`${ref.stageId}\u0000${ref.sceneId}`, ref);
   if (unique.size === 0) return result;
 
   const entries = [...unique.values()];
@@ -644,7 +644,7 @@ export async function readPageTitles(
     const sceneId = typeof row.id === 'string' ? row.id : null;
     const title = typeof row.title === 'string' && row.title !== '' ? row.title : null;
     if (stageId === null || sceneId === null || title === null) continue;
-    result.set(`${stageId} ${sceneId}`, title);
+    result.set(`${stageId}\u0000${sceneId}`, title);
   }
   return result;
 }
