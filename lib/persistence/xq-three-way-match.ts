@@ -19,9 +19,10 @@
  *   `xq_concept_edge` 上有 `contains` 或 `prereq` 路径；② 候选在**这门课**
  *   里已有 occurrence；③ `kind` 与 `external_kind` 一致。
  * - **C 义项锚**：候选的 `anchors` 与外来上下文里的 sense-anchor 词求交。
- *   交集非空 = 支持；**交集为空且候选有锚 = 一票否决**。
+ *   交集非空 = 支持；**交集为空、候选有锚、外来侧给了锚、且锚够厚** = 一票否决。
  *
  * ★ A 与 B 只能加分，C 能为空就否决。这是唯一能挡住「构造」的地方。
+ * ★ 但否决有四个前提，缺一个就只是「不敢判」而不是「不符」—— 见下面两节。
  *
  * ## 为什么「没标定的阈值」不许写成数字
  *
@@ -59,6 +60,15 @@
  * 这不是「谨慎」而是「拿自己的词表薄去怀疑对方」。薄锚时取消否决权，
  * 只保留「支持」的作用，并给出 `sense-too-thin` 这个理由 —— 它明确指向
  * **该去补锚词表**，而不是「这个外来概念不像」。
+ *
+ * ## ★ 「你说的正是我们登记的名字」也不算不符（2026-11-10 补）
+ *
+ * 第四个前提是**外来侧的词不等于我们自己登记的名字**。`anchors` 按定义
+ * 不许是概念名或别名（见 `xq-concept-anchors.ts` 的边界二：那是重复自己），
+ * 于是「外来侧说它在讲 `构造器`」永远不可能与 `构造方法` 的 anchors 相交 ——
+ * 而 `构造器` 正是我们给它记的别名。实测 36 个有锚概念里 **25 个**能被自己的
+ * 别名否决（85 对），`Git` 被 `版本控制` 否决、`接口` 被 `interface` 否决 ——
+ * 越是我们熟悉的概念越容易被拒。所以「命中自己的规范名/别名」也算 sense 支持。
  *
  * ## 这一版刻意不做的事
  *
@@ -393,7 +403,19 @@ function assessCandidate(
   const signals: MatchSignal[] = ['lexical'];
 
   const hits = senseHits(anchors, input.senseAnchors);
-  if (hits.length > 0) signals.push('sense');
+  // ★ 外来侧说的那个词，如果**是我们自己给这个概念登记过的名字**（规范名或
+  //   别名），也算语义对上了 —— 「它说它在讲构造器，而 `构造器` 正是我们
+  //   给 `构造方法` 记的别名」这句里没有任何分歧可判。
+  //
+  //   不加这一条会出一个很难看的自伤：`anchors` 按定义**不许**是概念名或
+  //   别名（见 `xq-concept-anchors.ts` 的边界二），于是「外来侧用的正是我们
+  //   登记的别名」永远不可能与 anchors 相交。实测 36 个有锚概念里 **25 个**
+  //   会被自己的别名否决（`Git` 被 `版本控制` 否决、`多态` 被 `动态绑定`
+  //   否决、`接口` 被 `interface` 否决）—— 越是我们熟悉的概念越容易被拒。
+  const namedByThem = input.senseAnchors.some((word) =>
+    facts.lexicalIndex.get(matchKey(word))?.includes(conceptId),
+  );
+  if (hits.length > 0 || namedByThem) signals.push('sense');
 
   // ★ 否决有三个前提，缺一不可：
   //   ① 候选**自己**有锚 —— 没锚是「我们对它一无所知」，否决等于凭沉默判罪；
@@ -403,9 +425,12 @@ function assessCandidate(
   // 在外来侧不给锚时**全部**被否决 —— 那不是谨慎，是拿信息缺失当反对证据。
   // 把③漏掉则相反：自己词表薄却去怀疑对方。实测 `构造方法` 的锚只有 ["编译"]，
   // 于是语义正确的 `构造器`/`父类`/`super` 全被否决，而错误的 `编译` 反而命中。
+  // 「交集为空」里的交集现在有两半：锚词命中，**或者**外来侧用的词是我们自己
+  // 登记的规范名/别名（上一段的 `namedByThem`）—— 后者不算「语义不符」。
   const senseAsked = input.senseAnchors.length > 0;
   const anchorsThickEnough = anchors.length >= SENSE_VETO_MIN_ANCHORS;
-  const wouldVeto = anchors.length > 0 && senseAsked && hits.length === 0;
+  const matched = hits.length > 0 || namedByThem;
+  const wouldVeto = anchors.length > 0 && senseAsked && !matched;
   const vetoed = wouldVeto && anchorsThickEnough;
   const senseTooThin = wouldVeto && !anchorsThickEnough;
 

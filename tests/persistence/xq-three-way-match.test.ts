@@ -313,6 +313,50 @@ describe('★ 判定树：字面命中之后还有三道关', () => {
     expect(result.candidates[0].senseTooThin).toBe(false);
   });
 
+  it('★★ 外来侧用的正是我们登记的别名 ⇒ 语义对上了，不许否决', () => {
+    // `anchors` 按定义不许是概念名或别名，所以「它说的是我们的别名」这条
+    // 永远不可能与 anchors 相交。不单独处理就会「越熟悉的概念越容易被拒」。
+    const facts = factsOf({
+      nodes: [node('c_git', 'Git')],
+      aliases: [{ alias: '版本控制', conceptId: 'c_git' }],
+      anchors: [['c_git', ['分支', '合并', '命令']]],
+    });
+    const result = decideThreeWay({ externalName: '版本控制', senseAnchors: ['版本控制'] }, facts);
+    expect(result.tri).toBe('hit');
+    expect(result.matchedConceptId).toBe('c_git');
+    expect(result.reason).toBe('sense-supported');
+    expect(result.candidates[0].vetoed).toBe(false);
+  });
+
+  it('★ 别名对上只在**那个**概念上生效，不会顺手救别的候选', () => {
+    const facts = factsOf({
+      nodes: [node('c_git', 'Git'), node('c_git2', 'Git 分支')],
+      aliases: [{ alias: '版本控制', conceptId: 'c_git' }],
+      anchors: [
+        ['c_git', ['分支', '合并', '命令']],
+        ['c_git2', ['切换', '检出', '合并']],
+      ],
+    });
+    const result = decideThreeWay({ externalName: '版本控制', senseAnchors: ['版本控制'] }, facts);
+    // 一个字面候选、sense 命中 ⇒ 命中；`Git 分支` 根本不是字面候选，不该跟进来。
+    expect(result.tri).toBe('hit');
+    expect(result.candidates.map((c) => c.conceptId)).toEqual(['c_git']);
+  });
+
+  it('★ 外来词与我们**无关**时照旧否决 —— 这一条不是给所有词开的后门', () => {
+    const facts = factsOf({
+      nodes: [node('c_git', 'Git')],
+      aliases: [{ alias: '版本控制', conceptId: 'c_git' }],
+      anchors: [['c_git', ['分支', '合并', '命令']]],
+    });
+    const result = decideThreeWay(
+      { externalName: '版本控制', senseAnchors: ['代数方程', '矩阵'] },
+      facts,
+    );
+    expect(result.tri).toBe('suspect');
+    expect(result.candidates[0].vetoed).toBe(true);
+  });
+
   it('★ 无锚 + 本课已有 occurrence ⇒ 命中（信号 B ②）', () => {
     const facts = factsOf({
       nodes: [node('c_1', 'Git')],
