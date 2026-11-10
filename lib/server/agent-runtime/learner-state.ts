@@ -45,10 +45,13 @@ import {
   renderLearnerStateBlock,
   type LearnerStateCell,
   type LearnerStateConcept,
+  type LearnerStateContradiction,
   type LearnerStateReview,
 } from './learner-state-render';
 import { readConceptMastery } from '@/lib/persistence/xq-concept-mastery';
 import { readPromptContextFile } from './prompt-context-file';
+import { resolveLearnerProfile } from './learner-profile';
+import { findProfileContradictions } from './profile-contradictions';
 
 const log = createLogger('LearnerState');
 
@@ -109,6 +112,13 @@ export interface RefreshLearnerStateResult {
   cells: number;
   /** 到期复习条数（`done_at IS NULL AND due_at <= now`）。 */
   reviews: number;
+  /**
+   * 画像与状态打架的处数（`findProfileContradictions()` 折出来的）。
+   *
+   * ★ 正常该是 0。不是 0 时机器分不出是画像过期还是状态算错 —— 所以这里只报数，
+   *   判定留给人。它不参与任何判定式，只让矛盾在块里可见。
+   */
+  contradictions: number;
   /**
    * 折进来的知识点级读数条数（跨页跨课合并后的概念数）。
    *
@@ -301,6 +311,30 @@ async function loadConcepts(db: Queryable): Promise<LearnerStateConcept[]> {
   }
 }
 
+/**
+ * 画像与状态的矛盾（`findProfileContradictions()` 折出来的）。
+ *
+ * ★ 与 `loadConcepts` 同一套降级：读不动画像时回 `[]` 而不是抛 —— 那一节是
+ *   「这份状态里有个地方值得看一眼」，读不到画像只是**没法比**，不是没有矛盾。
+ *   `findProfileContradictions` 只在两侧都有内容时才可能产出东西，所以这里
+ *   不需要额外的「画像为空」分支。
+ */
+function contradictionsOf(cells: readonly LearnerStateCell[]): LearnerStateContradiction[] {
+  try {
+    const profile = resolveLearnerProfile();
+    if (!profile) return [];
+    // `findProfileContradictions` 只回非 `unknown` 的格，所以这里只剩 known /
+    // not-learned 两种；收窄成 `Tri` 是为了让渲染器不必再处理第三种。
+    return findProfileContradictions({ profile, cells }).map((item) => ({
+      ...item,
+      tri: item.tri === 'known' ? ('known' as const) : ('not-learned' as const),
+    }));
+  } catch (error) {
+    log.debug?.({ error: String(error) }, 'learner-state contradictions unavailable');
+    return [];
+  }
+}
+
 /** 到期复习：`done_at IS NULL AND due_at <= now`。 */
 async function loadDueReviews(db: Queryable, now: Date): Promise<LearnerStateReview[]> {
   try {
@@ -371,10 +405,15 @@ export async function refreshLearnerStateFromRuntime(
   const loaded = db ? await loadCells(db) : { cells: [] as LearnerStateCell[], complete: false };
   const reviews = db ? await loadDueReviews(db, now) : [];
   const concepts = db ? await loadConcepts(db) : [];
+  // 画像与状态的矛盾。画像读不到（没配路径 / 文件坏了）时退化成空 —— 那不是
+  // "没有矛盾"，是"没法比"，而报 0 条矛盾比报一堆假矛盾好（`findProfileContradictions`
+  // 只在两侧都有内容时才可能产出东西）。
+  const contradictions = contradictionsOf(loaded.cells);
 
   const text = renderLearnerStateBlock({
     cells: loaded.cells,
     concepts,
+    contradictions,
     reviews,
     practiceText,
     now,
@@ -388,6 +427,7 @@ export async function refreshLearnerStateFromRuntime(
       scenes: 0,
       cells: 0,
       reviews: 0,
+      contradictions: contradictions.length,
       concepts: 0,
       practiceResults: practiceEntries.length,
     };
@@ -405,6 +445,7 @@ export async function refreshLearnerStateFromRuntime(
     scenes: loaded.cells.length,
     cells: loaded.cells.length,
     reviews: reviews.length,
+    contradictions: contradictions.length,
     concepts: concepts.length,
     practiceResults: practiceEntries.length,
   };

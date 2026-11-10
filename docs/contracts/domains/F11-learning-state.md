@@ -123,7 +123,15 @@
 
   选 HTML 注释不是随手：块内不许出现元指令（渲染器约束 2），而注入链路 `prompt-context-file.ts` 的 `HTML_COMMENT` 会把注释整段剥掉 —— 这句话**人打开文件看得到、模型读到的那段里一个字符都没有**。两侧都有判据：`tests/quiz/learner-state-render.test.ts` 的「约束 7」四例（人看得到 / 它是 HTML 注释 / 声明后仍是空行 / 只有一处投影）与 `tests/agent-runtime/learner-state-provenance.test.ts` 四例（含真机写入后 `readPromptContextFile` 读出来不含这句）。真机读数：磁盘文件 1405 → 1573 字节、第三行就是这句注释；注入块仍是 1405 字节、首行仍是那句声明、`<!--` 一个都不剩。
 
-  **仍不成立的两条**：① 文件里**没有**「什么时候生成」——写具体时刻会让每次刷新都变一个字节，而这一行存在的意义是「说明它会变」；精确时刻在库里。② 人写/机写的**矛盾仍不能被机器发现**：判据要写成「画像里任何一行 `X = UNKNOWN` 不得同时存在同领域 `tri != 'unknown'` 的格」，但画像里的 `Dart` 与 `Java` 在概念表里**一个都查不到**（别名 0、规范名 0），「`Dart / Flutter`」整体也对不上 `Flutter` —— 按字符串匹配写的判据在真库上会永远不红。要做这条得先有一张「画像域 → 概念 id」的人工映射表，那是新数据不是新判据。
+  **矛盾检出落地（2026-11-10）**
+
+- 入口：`lib/server/agent-runtime/profile-contradictions.ts` 的 `parseUnknownDomains()` / `domainTokens()` / `findProfileContradictions()`；接线在 `lib/server/agent-runtime/learner-state.ts` 的 `contradictionsOf()`（读不动画像回 `[]`，绝不抛）。
+- 判据为什么不是「域 → 概念」：`SELECT … FROM xq_concept WHERE canonical_name = 'Dart'` 与 `… FROM xq_concept_alias WHERE alias = 'Dart'` 在真库上都是 0 行；`Java`、`程序设计基础` 同样 0 行。按字符串精确匹配写的判据会永远不红。
+- 判据落点：`tests/agent-runtime/profile-contradictions.test.ts` **20 例**（只认知识状态表整格 `UNKNOWN`、合称要拆、单字丢弃、`unknown` 的格不算矛盾、`not-learned` 也算、无标题跳过、大小写不敏感、排序稳定、同域多页一条不少）+ `tests/quiz/learner-state-render.test.ts` **8 例**（措辞非判决书、排在所有节之前、带标题也带 stage/scene、两档说法不同、无矛盾时不出现、只有矛盾也不许返回空串、排序稳定、标题换行被压平）。
+- 期望：`RefreshLearnerStateResult.contradictions` 是处数；渲染器输出里这一节的标题是 `## 画像与状态不一致（两份输入打架 —— 以画像为准，但这几处要问）`，且**位于所有其他节之前**。
+- 失败长什么样：这一节写成「画像已过期，应改为…」—— 那是机器替人裁决，违反「矛盾时以人写为准」。判据：`text` 不含 `错误` / `画像过期` / `应改为`。
+
+**仍不成立的两条**：① 文件里**没有**「什么时候生成」——写具体时刻会让每次刷新都变一个字节，而这一行存在的意义是「说明它会变」；精确时刻在库里。② 人写/机写的**矛盾仍不能被机器发现**：判据要写成「画像里任何一行 `X = UNKNOWN` 不得同时存在同领域 `tri != 'unknown'` 的格」，但画像里的 `Dart` 与 `Java` 在概念表里**一个都查不到**（别名 0、规范名 0），「`Dart / Flutter`」整体也对不上 `Flutter` —— 按字符串匹配写的判据在真库上会永远不红。要做这条得先有一张「画像域 → 概念 id」的人工映射表，那是新数据不是新判据。
 
 - **两边各自要满足**：
   - 生成侧：文件头必须机器可读地标注身份，不能只写在一句自然语言里。

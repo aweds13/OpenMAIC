@@ -111,6 +111,25 @@ export interface LearnerStateConcept {
   questions?: number | string | null;
 }
 
+/**
+ * 一条**画像与状态的矛盾**：画像把人写成「不知道」，库里却判出来了。
+ *
+ * ★ 这一层只负责「让矛盾可见」，不负责裁决。规格已经把优先级写死
+ *   （矛盾时以人写的那份为准并显式说明），所以块里那一节的措辞必须是
+ *   「画像说 X，状态说 Y」，而不是「X 是错的」—— 后者是模型替人做决定。
+ */
+export interface LearnerStateContradiction {
+  /** 画像里那一行的领域名（可能是「Dart / Flutter」这种合称）。 */
+  domain: string;
+  /** 标题里真正命中的那个词。 */
+  token: string;
+  stageId: string;
+  sceneId: string;
+  title: string;
+  /** 库里的结论：`known` 或 `not-learned`。 */
+  tri: Tri;
+}
+
 export interface RenderLearnerStateBlockInput {
   /** 三态格子（`xq_cell_state`）。传进来之前应当已按 owner 圈好。 */
   cells?: readonly LearnerStateCell[];
@@ -128,6 +147,14 @@ export interface RenderLearnerStateBlockInput {
    * 反过来，一旦某个知识点真的判出来了，它就是比任何单页都强的陈述，该进块。
    */
   concepts?: readonly LearnerStateConcept[];
+  /**
+   * 画像与状态的矛盾（`findProfileContradictions()` 的产出）。
+   *
+   * ★ 它是**唯一**一节写「两份文件打架」的地方。为什么值得占预算：两份都被
+   *   注入同一次运行、都标着「当作事实」，而人不会同时读两遍 —— 没有这一节，
+   *   矛盾的唯一发现方式就是有人碰巧注意到。
+   */
+  contradictions?: readonly LearnerStateContradiction[];
   /**
    * 练习结果，**原样**是 `formatPracticeResultsForState()` 的输出。
    *
@@ -299,6 +326,24 @@ function conceptLine(concept: LearnerStateConcept): string {
   return parts.join(' · ');
 }
 
+/**
+ * 一行矛盾：`- 画像「Dart / Flutter」标着 UNKNOWN，但「自检：Dart 进阶八道题」已达判据`。
+ *
+ * ★ 措辞是「画像说 X，状态说 Y」，**不是**「X 是错的」：规格给了优先级
+ *   （矛盾时以人写为准），但裁决这件事不该由状态块替模型做完 —— 它只该让
+ *   矛盾不可忽略。写成判决书，模型就会把画像里那句人写的判断当作过期数据覆盖掉，
+ *   而那正是「人写为准」要防的。
+ *
+ * ★ 为什么带页标题也带 stage/scene：标题让人认得出是哪一页；id 让人查得到。
+ *   只有标题时两门课可能都有「自检：Dart 八道题」，只有 id 时人读不懂。
+ */
+function contradictionLine(item: LearnerStateContradiction): string {
+  const domain = singleLine(item.domain);
+  const title = singleLine(item.title);
+  const verdict = item.tri === 'known' ? '已达判据' : '未达判据';
+  return `- 画像「${domain}」标着 UNKNOWN，但「${title}」（${item.stageId}/${item.sceneId}）${verdict}`;
+}
+
 /** 一行到期复习：`- 页 <sceneId>（<stageId>）· 概念「…」· 第 N 关 · 到期 <日期>`。 */
 function reviewLine(review: LearnerStateReview): string {
   const concept = (review.concept ?? '').trim();
@@ -367,10 +412,12 @@ export function renderLearnerStateBlock(input: RenderLearnerStateBlockInput = {}
   const concepts = (input.concepts ?? []).filter(
     (concept) => concept.tri === 'known' || concept.tri === 'not-learned',
   );
+  const contradictions = input.contradictions ?? [];
 
   if (
     cells.length === 0 &&
     concepts.length === 0 &&
+    contradictions.length === 0 &&
     reviews.length === 0 &&
     practiceText.length === 0
   ) {
@@ -442,6 +489,28 @@ export function renderLearnerStateBlock(input: RenderLearnerStateBlockInput = {}
   const shownReviews = uniqueReviews.slice(0, maxReviews);
 
   const lines: string[] = [HEADER, PROVENANCE, ''];
+
+  // ★ 矛盾排在**所有节之前**，包括知识点与页级。
+  //
+  //   理由不是「重要」这种含糊话：别的节都是「关于这个学习者的陈述」，只有这一节是
+  //   「这次运行拿到的两份输入互相打架」。模型读到一节关于页的陈述，与读到一句
+  //   「你的两份输入不一致」，该触发的是两种不同的反应；排在后面它就只是又一条数据。
+  //
+  //   ★ 也不写成「以人写为准，请忽略状态」：那句判断在规格里，这里只把两份并列
+  //     摆出来。让状态块替模型裁决，等于把「人写的可以被机器悄悄推翻」制度化。
+  if (contradictions.length > 0) {
+    const sorted = [...contradictions].sort(
+      (a, b) =>
+        byCodePoint(a.domain, b.domain) ||
+        byCodePoint(a.stageId, b.stageId) ||
+        byCodePoint(a.sceneId, b.sceneId),
+    );
+    lines.push(
+      '## 画像与状态不一致（两份输入打架 —— 以画像为准，但这几处要问）',
+      ...sorted.map(contradictionLine),
+      '',
+    );
+  }
 
   // ★ 三个节名都是**对页的陈述**，不是对人的判断，而且括号里带着判据。
   //
