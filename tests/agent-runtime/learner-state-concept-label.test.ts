@@ -22,7 +22,14 @@ import { ensureXqLearnerSchema } from '@/lib/persistence/xq-learner';
  */
 
 /** `document_scenes` 的最小版本 —— 上游表，只建本组判据要用的列。 */
-const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_scenes (
+const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_stages (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    created_at double precision NOT NULL,
+    updated_at double precision NOT NULL,
+    data jsonb NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS document_scenes (
   stage_id    text NOT NULL,
   id          text NOT NULL,
   scene_order double precision,

@@ -75,6 +75,16 @@
 
 - **判据落点（版本推进那一小段，2026-11-10 有了）**：`tests/persistence/xq-graph-version.test.ts`（17 例）—— `★ 冻结旧版与开新版是同一次`（中间不存在「没有开放版本」的时刻）、`★ 比较并交换`（`from` 不是当前开放版就整条不生效）、`★ 中间版本不许被跳过`、`★ 只写 created_in IS NULL 的行`、`★ 幂等`（同一批重跑写 0 行）、`★ 库里不存在的概念如实报 missing`、`★ 往已冻结的版本里塞新概念要拒`、空 label / 非正整数 `from` 抛 `RangeError`、label 重复被 UNIQUE 挡。实现：`lib/persistence/xq-graph-version.ts`（`readGraphVersions` / `openGraphVersion` / `advanceGraphVersion` / `assignConceptsToVersion`），入口 `scripts/advance-graph-version.ts`。★ 推进**故意不是 HTTP 路由**：它是一次导入的边界，失败模式是「另一个窗口先推进了」，需要人看一眼。真机（2026-11-10，跑完已还原）：`--dry-run` 回 `1 版 / v1 open / concepts=104`，`--label v2` 真跑后 `v1 frozen 104 / v2 open 0`，重跑回 `already-frozen`（退出码 2）与 `--from 2` 回 `not-found`（退出码 2）。命令：`npx vitest run tests/persistence/xq-graph-version.test.ts`。
 
+- **判据落点（导入批次，2026-11-10 有了）**：`lib/persistence/xq-import-batch.ts` + `tests/persistence/xq-import-batch.test.ts` 34 例。
+  · 开批幂等：同一份内容 + 同一抽取器 + 同一版图开两次 ⇒ 第二次 `created: false` 且 `batchId` 相同、全库仍 1 行。
+  · 四个维度各自能分出新批：内容变（换 `contentHash`）/ 换抽取器 / 跨版图（换 `graphVersion`）/ 换课（换 `stageId`）。
+  · ★ `source_graph` 为 NULL 也参与唯一性（`NULLS NOT DISTINCT`）—— 少了这条，自有课程每导一次都会新开一批。
+  · 内容哈希：输入顺序不影响（按 `scene_order` 排）、**页序变了哈希就变**、内容改了哈希就变、**键序不影响**（jsonb 往返会重排键）、空课也有哈希。
+  · 状态机：`applied` 写上 `applied_at`、**重复落定不重写时刻**、**已落定的不许被改成 `abandoned`**、不存在的批次回 `ok: false` 而不抛。
+  · 库侧双向约束：手写一行 `status='applied'` 但 `applied_at IS NULL` 被 `xq_import_batch_applied_pair` 拒；手写 `origin='own-course'` 却带 `source_graph` 被 `xq_import_batch_origin_graph` 拒。
+  · 形状校验：`contentHash` 不是 64 位小写十六进制、`stageId` / `extractor` 空、`graphVersion` 非正整数、`external-graph` 不带 `sourceGraph` —— 全部抛 `RangeError` 且**一行都不写**。
+  · 期望读数：`npx vitest run tests/persistence/xq-import-batch.test.ts` → 34 passed。
+  · 失败长什么样：把 `UNIQUE NULLS NOT DISTINCT` 写成普通 `UNIQUE`，那条「NULL 也参与唯一性」会红；把 `canonicalJson` 换成 `JSON.stringify`，「键序不影响哈希」会红。
 - **判据落点（种子图进库那一跳，2026-11-10 有了）**：`tests/persistence/xq-seed-sync.test.ts`（14 例）—— `★ 库里已有的概念保留它原来的 id`（换 id 会把 644 条出现记录与 71 条题级映射指空）、`★ 退役或合并过的概念照样认领 id，但不写别名`、`★ 外部 id 已指向别的概念时不改方向，只报冲突`、`★ 别名已被别的概念占用时跳过并记一条问题`（其余别名照写，一条冲突不把整批停下）、`★ strength 或 reason 变了就更新，并计入 updated`、`★ 空库上跑真种子图：104 概念 / 357 别名 / 63 外部引用 / 105 边`、`★ 真种子图也是幂等的：第二次全部 0`、不传 `execute` 时只报告（库里一行都没有）、新概念归到当前开放的图谱版本、端点不在种子图里的边整条跳过并报出来。实现：`lib/persistence/xq-seed-sync.ts`（`syncSeedGraph` / `aliasFormsOf`），入口 `scripts/seed-concept-graph.ts`。
 - **判据落点（出现记录的写入方，2026-11-10 有了）**：`tests/persistence/xq-concept-occurrence-sync.test.ts`（21 例）—— `★ 一条大纲对多页：两页都拿到要点（单值 Map 会漏后一页）`、`★ 正文口径只有一份：staticPageText()`（逐字比对，钉的是裁决不是行为）、`★ interactive 带 widgetConfig 时读 widget 字段，不只看外壳 HTML`、`同一页同一概念只留最高档 —— keyPoint 压过正文`、`★ 没有大纲的页只靠标题与正文（真库 96 页属于这一类）`、`跨课同名 scene id 各算各的`、`不传 execute 时一行都不写，但报告照给`、`重跑一次全部计数为 0`、`★ 页改了标题，旧那一行被删、新那一行被写`、`★ manual 行一行都不许删`、`概念在库里没有行就报出来，不顺手新造`。
   **入口**：`npx tsx --conditions=import --env-file-if-exists=.env.local scripts/backfill-concept-occurrences.ts [--execute]`。

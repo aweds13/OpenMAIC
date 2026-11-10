@@ -81,7 +81,9 @@
 
 **种子图进库这一跳也补齐了（2026-11-10）**：`lib/persistence/xq-seed-sync.ts` 的 `syncSeedGraph()` 把 `buildSeedGraph()` 一次写进四张表（概念 / 别名 / 外部引用 / 边），入口是脚本 `scripts/seed-concept-graph.ts`（**默认只报告**，写库要 `--execute`）。在这之前，「种子图 → 库」这条链**根本不在仓里** —— 库里那 104/357/63/105 是 2026-11-09 用一个已不在盘上的 `.tmp` 脚本灌的，换台机器或重建一个库就再也做不出来。同步器**以 `canonical_name` 认领已有行并保留原 id**（`xq_concept_occurrence` 644 行、`xq_question_concept` 71 行全按 id 外键，换 id 就把它们指空）；退役/合并过的概念只认领 id，不写别名、外部引用与边。★ 在真库上跑 `--execute` 的读数是「认领 104 / 新增 0 / 跳过 357 与 63 / 边新增 0 更新 0 未变 105」—— 与那次历史导入**逐一吻合**，正好充当一次反向验证（同步器的归一化规则与认领规则没漂）。判据 `tests/persistence/xq-seed-sync.test.ts` 14 条，含「换 id 会把出现记录指空」「真种子图 104/357/63/105」「真种子图也幂等」。
 
-**仍不成立**：版本推进有了入口，但**没有任何导入批次会真的调用它** —— `xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表仍是 0 行，`created_in` 也没有第三个值出现过（104 个概念全在第 1 版）。所以「版本化」今天是**可用的能力**，不是**在用的机制**。
+**导入批次的单位也有了（2026-11-10）**：`lib/persistence/xq-import-batch.ts` 把「一次导入」变成库里可以指着说的一行 —— `(stage_id, source_graph, content_hash, extractor, graph_version)` 五键 `UNIQUE NULLS NOT DISTINCT`，状态 `open` / `applied` / `abandoned`，`xq_import_batch_applied_pair` 双向约束钉住「落定才有时刻」。在这之前，图谱版本能从 1 推进到 2，但库里没有任何一行说得出这次涨版是因为哪个文件、哪个抽取器、哪一门课 —— 而「重导会不会重复」这个问题根本没有地方承载。★ 它测的是**逐课**哈希：改 3 页整门课的哈希就变，所以判为新批次（这是想要的）；「这两批里有多少页一样」不是它的问题，那个靠逐页 `pageHashOf()`。判据 `tests/persistence/xq-import-batch.test.ts` 34 条。
+
+**仍不成立**：批次的表与函数都在了，但**还没有任何导入器去调它** —— `xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表仍是 0 行，`created_in` 也没有第三个值出现过（104 个概念全在第 1 版），种子图同步器与出现记录同步器**都不写 `batch_id` 与 `page_hash`**（那两列是 V5 才加的，两个同步器还没有接）。所以「版本化」今天是**可用的能力**，不是**在用的机制**。
 
 **在有人真的按 `prereq` 边排出顺序之前，任何「按图谱排序」的行为都不许上线。**（原句写的是「形态还没定」，2026-11-10 更正：形态已经定了，缺的是用它的那一步。）
 
@@ -90,7 +92,7 @@
 **今天到哪了（2026-11-10）**：**结构齐了，使用没有**。
 - 概念图五张表都在且都有数据：`xq_concept` **104 行**（不透明 id `c_`+12hex）、`xq_concept_alias` **357 行**、`xq_concept_external_ref` **63 行**、`xq_concept_edge` **105 行**（`prereq` 94 / `contains` 11）、`xq_concept_occurrence` **644 行**。
 - **版本化 2026-11-10 落地**（迁移 `3 graph-version` + `4 concept-expand`）：`xq_graph_version` 存在且已有 `1 baseline` 未冻结；`xq_concept` 补了 `anchors / created_in / retired_in / revived_at / updated_at` 五列，既有 104 行回填到第 1 版；四条约束（id 形状、名字非空、两条版本外键、退役顺序）在库上生效。同一时刻只能有一个开放版本由偏索引 `xq_graph_version_one_open ON ((true)) WHERE frozen_at IS NULL` 管住 —— 冒第二行会 `duplicate key value violates unique constraint`。
-- **版本的推进流程与种子图进库都写了（2026-11-10）**：`advanceGraphVersion()` 冻结旧版并开出新版（带 `from` 的比较并交换）、`assignConceptsToVersion()` 只写 `created_in IS NULL` 的行；`syncSeedGraph()` 让「那 104 个概念从哪来」变成可再生的一步。**但没有任何导入批次会调用它们**（`xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表**都是 0 行**，`created_in` 也没有第三个值）。
+- **版本的推进流程与种子图进库都写了（2026-11-10）**：`advanceGraphVersion()` 冻结旧版并开出新版（带 `from` 的比较并交换）、`assignConceptsToVersion()` 只写 `created_in IS NULL` 的行；`syncSeedGraph()` 让「那 104 个概念从哪来」变成可再生的一步。**但没有任何导入器会调用它们**（`xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表**都是 0 行**，`created_in` 也没有第三个值；`xq_import_batch` 表建好了、函数齐了，但种子图与出现记录两个同步器都还没写 `batch_id` 与 `page_hash`）。
 - **读侧有了（2026-11-10）**：`lib/persistence/xq-concept-graph.ts` + `GET /api/persistence/xq/concepts` 是这 94 条边**第一次**被读。它回答的是图上可算的问题 —— 直接先修、传递闭包、最长先修深度、环、退役先修、以及「按给定已掌握集合现在能不能学」——**不产出任何顺序**。
 - 更关键的一条没变：**没有任何「按图谱排序」的行为上线**。读侧存在不等于排序被允许，本节末句仍然生效。
 - 读侧实测（2026-11-10，真库 104 概念）：`GET /xq/concepts` 回 104 / 105 边，`prereq` 按强度 5 strict / 88 recommended / 1 helpful；对全部 104 个概念逐个调 `?id=` 与独立的 Kahn 最长路径比对，**深度 0 处不一致**，`notReady` 74（= 104 − 30 个无先修），环 0。

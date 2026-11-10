@@ -617,6 +617,120 @@ ALTER TABLE xq_probe_item
   ADD COLUMN IF NOT EXISTS retest_of bigint REFERENCES xq_probe_item(id);
 `;
 
+// ---------------------------------------------------------------------------
+// 十九、导入批次 + 提案裁决 + 出现记录的证据基础
+// ---------------------------------------------------------------------------
+// 这一版补的是「一次导入」这个单位。在它之前，`xq_graph_version` 只能被人
+// 手动推进（`scripts/advance-graph-version.ts`），推进与「导入了什么」之间没有
+// 任何连接 —— 版本号涨了，但没人说得出是哪个文件、哪次抽取、哪一门课。
+//
+// `xq_import_batch` 就是那条连接：一次导入 = 一批 = 一个内容哈希 + 一个抽取器 +
+// 一个图谱版本。它同时回答了「重导会不会重复」：同一份内容、同一个抽取器、
+// 同一个版本 ⇒ 主键约束挡住，不新开批。
+//
+// 三个容易写错的地方：
+//
+// ★ `UNIQUE NULLS NOT DISTINCT`（PG 15+）。`source_graph` 对自有课程是 NULL，
+//   而 PG 默认把 NULL 视为互不相等 ⇒ 不加这条，自有课程每导一次都会新开一批。
+//
+// ★ `content_hash` 与 `extractor` 都是 NOT NULL 且不许空白。缺一个是「不知道
+//   这份内容是什么」，缺另一个是「不知道谁抽的」—— 两者都会让幂等失效，而
+//   失效的表现是「静默多出一批」，不是报错。
+//
+// ★ 提案表的 `decision_pair` 是**双向**的：裁了就必须有裁决人和时间，没裁就
+//   不许有。单向约束（只写「accepted 必须有裁决人」）挡不住「status 还是
+//   proposed 但已经填了 decided_at」那种半截状态。
+export const XQ_LEARNER_V5 = `
+CREATE TABLE IF NOT EXISTS xq_import_batch (
+  batch_id      uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  stage_id      text        NOT NULL REFERENCES document_stages(id) ON DELETE CASCADE,
+  origin        text        NOT NULL CHECK (origin IN ('own-course', 'foreign-course', 'material', 'external-graph')),
+  source_graph  text,
+  source_ref    text,
+  content_hash  text        NOT NULL CHECK (content_hash ~ '^[0-9a-f]{64}$'),
+  extractor     text        NOT NULL CHECK (length(btrim(extractor)) > 0),
+  graph_version integer     NOT NULL REFERENCES xq_graph_version(version),
+  status        text        NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'applied', 'abandoned')),
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  applied_at    timestamptz,
+  CONSTRAINT xq_import_batch_origin_graph
+    CHECK ((origin = 'external-graph') = (source_graph IS NOT NULL)),
+  CONSTRAINT xq_import_batch_applied_pair
+    CHECK ((status = 'applied') = (applied_at IS NOT NULL)),
+  CONSTRAINT xq_import_batch_applied_order
+    CHECK (applied_at IS NULL OR applied_at >= created_at),
+  UNIQUE NULLS NOT DISTINCT (stage_id, source_graph, content_hash, extractor, graph_version)
+);
+
+CREATE INDEX IF NOT EXISTS xq_import_batch_stage_idx
+  ON xq_import_batch (stage_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS xq_import_batch_version_idx
+  ON xq_import_batch (graph_version);
+
+ALTER TABLE xq_concept_occurrence
+  ADD COLUMN IF NOT EXISTS batch_id      uuid REFERENCES xq_import_batch(batch_id) ON DELETE SET NULL;
+ALTER TABLE xq_concept_occurrence
+  ADD COLUMN IF NOT EXISTS page_hash     text CHECK (page_hash IS NULL OR page_hash ~ '^[0-9a-f]{64}$');
+ALTER TABLE xq_concept_occurrence
+  ADD COLUMN IF NOT EXISTS outline_order integer;
+ALTER TABLE xq_concept_occurrence
+  ADD COLUMN IF NOT EXISTS stale_since   timestamptz;
+ALTER TABLE xq_concept_occurrence
+  ADD COLUMN IF NOT EXISTS first_seen_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE xq_concept_occurrence
+  ADD COLUMN IF NOT EXISTS last_seen_at  timestamptz NOT NULL DEFAULT now();
+
+ALTER TABLE xq_intake_proposal
+  ADD COLUMN IF NOT EXISTS accepted_concept_id text REFERENCES xq_concept(id) ON DELETE SET NULL;
+ALTER TABLE xq_intake_proposal
+  ADD COLUMN IF NOT EXISTS signals jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE xq_intake_proposal
+  ADD COLUMN IF NOT EXISTS first_seen_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE xq_intake_proposal
+  ADD COLUMN IF NOT EXISTS last_seen_at  timestamptz NOT NULL DEFAULT now();
+ALTER TABLE xq_intake_proposal
+  ADD COLUMN IF NOT EXISTS seen_count    integer NOT NULL DEFAULT 1 CHECK (seen_count >= 1);
+ALTER TABLE xq_intake_proposal
+  ADD COLUMN IF NOT EXISTS decision_note text;
+
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_intake_proposal_decision_pair') THEN
+    ALTER TABLE xq_intake_proposal ADD CONSTRAINT xq_intake_proposal_decision_pair
+      CHECK ((status = 'proposed') = (decided_at IS NULL AND decided_by IS NULL));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_intake_proposal_accepted_target') THEN
+    ALTER TABLE xq_intake_proposal ADD CONSTRAINT xq_intake_proposal_accepted_target
+      CHECK (status <> 'accepted' OR accepted_concept_id IS NOT NULL);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_intake_proposal_hit_target') THEN
+    ALTER TABLE xq_intake_proposal ADD CONSTRAINT xq_intake_proposal_hit_target
+      CHECK (tri <> 'hit' OR matched_concept_id IS NOT NULL);
+  END IF;
+END
+$do$;
+
+ALTER TABLE xq_concept_edge
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';
+ALTER TABLE xq_concept_edge
+  ADD COLUMN IF NOT EXISTS created_in integer REFERENCES xq_graph_version(version);
+ALTER TABLE xq_concept_edge
+  ADD COLUMN IF NOT EXISTS retired_in integer REFERENCES xq_graph_version(version);
+
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_concept_edge_status') THEN
+    ALTER TABLE xq_concept_edge ADD CONSTRAINT xq_concept_edge_status
+      CHECK (status IN ('active', 'proposed', 'rejected'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'xq_concept_edge_active_needs_strength') THEN
+    ALTER TABLE xq_concept_edge ADD CONSTRAINT xq_concept_edge_active_needs_strength
+      CHECK (status <> 'active' OR strength IS NOT NULL);
+  END IF;
+END
+$do$;
+`;
+
 export const XQ_LEARNER_MIGRATIONS: SchemaMigrationSet = {
   store: 'xq-learner',
   migrations: [
@@ -624,6 +738,7 @@ export const XQ_LEARNER_MIGRATIONS: SchemaMigrationSet = {
     { version: 2, name: 'session-and-persona', up: XQ_LEARNER_V2, transaction: false },
     { version: 3, name: 'graph-version', up: XQ_LEARNER_V3, transaction: false },
     { version: 4, name: 'concept-expand', up: XQ_LEARNER_V4 },
+    { version: 5, name: 'import-batch', up: XQ_LEARNER_V5 },
   ],
 };
 

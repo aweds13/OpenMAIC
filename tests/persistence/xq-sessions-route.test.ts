@@ -30,7 +30,14 @@ vi.mock('@/lib/persistence/server-provider', () => ({
  *    一个「上次有人读时是多少」的数。
  */
 
-const DOCUMENT_SCENES_MIN = `
+const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_stages (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    created_at double precision NOT NULL,
+    updated_at double precision NOT NULL,
+    data jsonb NOT NULL
+  );
+  
 CREATE TABLE IF NOT EXISTS document_scenes (
   stage_id text NOT NULL,
   id text NOT NULL,

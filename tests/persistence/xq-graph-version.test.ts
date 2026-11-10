@@ -18,7 +18,14 @@ import {
  *   · 往已冻结的版本里塞新概念要拒（与「冻结」自相矛盾）
  */
 
-const DOCUMENT_SCENES_MIN = `
+const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_stages (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    created_at double precision NOT NULL,
+    updated_at double precision NOT NULL,
+    data jsonb NOT NULL
+  );
+  
 CREATE TABLE IF NOT EXISTS document_scenes (
   stage_id text NOT NULL,
   id text NOT NULL,

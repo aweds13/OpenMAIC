@@ -31,7 +31,14 @@ describe('xq review recorder', () => {
   let sessionId: string;
 
   /** `xq_concept_occurrence` 有复合外键指向文档库的 `document_scenes`，给最小形状。 */
-  const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_scenes (
+  const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_stages (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    created_at double precision NOT NULL,
+    updated_at double precision NOT NULL,
+    data jsonb NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS document_scenes (
     stage_id    text NOT NULL,
     id          text NOT NULL,
     scene_order double precision,

@@ -21,7 +21,14 @@ describe('xq 学情 schema', () => {
    * 那是上游 document store 的表，不属这组 DDL。这里建一个最小版本，
    * 只为让外键能落地；列与真实表一致（真实表还有 scene_order / data）。
    */
-  const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_scenes (
+  const DOCUMENT_SCENES_MIN = `CREATE TABLE IF NOT EXISTS document_stages (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    created_at double precision NOT NULL,
+    updated_at double precision NOT NULL,
+    data jsonb NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS document_scenes (
     stage_id    text NOT NULL,
     id          text NOT NULL,
     scene_order double precision,
@@ -41,7 +48,7 @@ describe('xq 学情 schema', () => {
     return db;
   }
 
-  it('建出 16 张表且幂等', async () => {
+  it('建出 17 张表且幂等', async () => {
     const db = await freshDb();
     await ensureXqLearnerSchema(db);
     // 再跑一遍不该抛
@@ -62,6 +69,7 @@ describe('xq 学情 schema', () => {
       'xq_concept_occurrence',
       'xq_event',
       'xq_graph_version',
+      'xq_import_batch',
       'xq_intake_proposal',
       'xq_intake_task',
       'xq_learner_persona',
@@ -373,14 +381,14 @@ describe('xq 学情 schema', () => {
   });
 
   /**
-   * ★ 版本 2：迁移账本必须记两行，且重跑幂等。
+   * ★ 版本 2..5：迁移账本必须逐行记上，且重跑幂等。
    *
    * 判据不写在代码里也不写在文档里 —— 只信 `openmaic_schema_migrations`
    * 这张表。一个「代码里有 v2、库里没记」的数据库，下次启动会再跑一遍
    * v2，而 v2 的每条语句都是 IF NOT EXISTS ⇒ 表面无害，实际掩盖了
    * 「这条迁移从来没成功过」这种事。
    */
-  it('版本 2..4 记进迁移账本，且重跑不重复记账', async () => {
+  it('版本 2..5 记进迁移账本，且重跑不重复记账', async () => {
     const db = await freshDb();
     await ensureXqLearnerSchema(db);
     await ensureXqLearnerSchema(db);
@@ -388,12 +396,13 @@ describe('xq 学情 schema', () => {
       `SELECT version, name FROM openmaic_schema_migrations
         WHERE store = 'xq-learner' ORDER BY version`,
     );
-    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
     expect(rows.map((r) => r.name)).toEqual([
       'baseline',
       'session-and-persona',
       'graph-version',
       'concept-expand',
+      'import-batch',
     ]);
     await db.close();
   });
