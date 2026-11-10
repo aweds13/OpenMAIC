@@ -186,6 +186,60 @@ describe('recordProposal', () => {
     ).rejects.toThrow(RangeError);
   });
 
+  it('★ 提案挂得上任务 —— 「这批提案是为了什么导进来的」只有这一列能回答', async () => {
+    const db = await freshDb();
+    const withTask = await recordProposal(db, {
+      taskId: 't_aaaaaaaaaaaa',
+      externalSource: 'acm-graph',
+      externalName: '构造',
+      tri: 'miss',
+    });
+    expect(withTask.created).toBe(true);
+    const stored = await db.query<{ task_id: string | null }>(
+      `SELECT task_id FROM xq_intake_proposal WHERE id = $1`,
+      [withTask.id],
+    );
+    expect(stored.rows[0]!.task_id).toBe('t_aaaaaaaaaaaa');
+
+    // 不给就是 NULL，不是空串 —— 「没说要它来干什么」与「说了，内容是空」不同。
+    const withoutTask = await recordProposal(db, {
+      externalSource: 'acm-graph',
+      externalName: '递推',
+      tri: 'miss',
+    });
+    const bare = await db.query<{ task_id: string | null }>(
+      `SELECT task_id FROM xq_intake_proposal WHERE id = $1`,
+      [withoutTask.id],
+    );
+    expect(bare.rows[0]!.task_id).toBeNull();
+  });
+
+  it('★ 同一个词被第二次导入再看到时，任务留在第一次那条上 —— 唯一的行只能挂一个来历', async () => {
+    const db = await freshDb();
+    const first = await recordProposal(db, {
+      taskId: 't_aaaaaaaaaaaa',
+      externalSource: 'acm-graph',
+      externalName: '构造',
+      tri: 'miss',
+    });
+    await recordProposal(db, {
+      taskId: 't_bbbbbbbbbbbb',
+      externalSource: 'acm-graph',
+      externalName: '构造',
+      tri: 'suspect',
+    });
+    const rows = await db.query<{ task_id: string | null; tri: string; seen: string }>(
+      `SELECT task_id, tri, seen_count::text AS seen FROM xq_intake_proposal`,
+    );
+    expect(rows.rows).toHaveLength(1);
+    // ★ 两条都是真的：行还是那一行（唯一键不含 taskId），`tri` 被新证据改写，
+    //   而 `task_id` 保留第一次那个 —— 它回答的是「第一次是为了什么收它」。
+    expect(rows.rows[0]!.task_id).toBe('t_aaaaaaaaaaaa');
+    expect(rows.rows[0]!.tri).toBe('suspect');
+    expect(rows.rows[0]!.seen).toBe('2');
+    expect(first.seenCount).toBe(1);
+  });
+
   it('★ 同一份材料再来一次：还是一行，seen_count 涨到 2', async () => {
     const db = await freshDb();
     await recordProposal(db, {

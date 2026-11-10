@@ -29,8 +29,29 @@
  *
  * ## 它不会做的事
  *
- * 不写 occurrence、不写 proposal、不建概念。这三件事在 J §3.5 里各自有
- * 明确的前置条件，而这个脚本连事务都不开。
+ * 不写 occurrence、不建概念。这两件事在 J §3.5 里各自有前置条件，且都需要
+ * 人先批过 —— 匹配器自己不落一行。
+ *
+ * ## `--enqueue`：把报告变成一条待裁的提案
+ *
+ * 只有 `--enqueue` 才会写 `xq_intake_proposal`，而且还要 `--execute`。
+ *
+ * - `--task <taskId>` 必填：挂在哪个任务下。**这里不新建任务** —— 任务要带
+ *   `goal` 与一批对齐单元，而「只有任务没有单元」与「单元还没算」在库里长得
+ *   一模一样（见 `xq-intake-task.ts` 文件头）。任务该由 `scripts/intake-begin.ts`
+ *   开，它是唯一知道「这次导入为了什么」的地方。
+ * - `--source <graph>` 必填：`xq_intake_proposal` 的唯一键是
+ *   `(external_source, external_name, external_kind)`。给一个默认值等于把两门
+ *   不同课的同名概念混成一条提案，而它们的证据完全不是一回事。
+ *
+ * ★ **证据页留空**：这份清单里只有名字，没有外来课程的页。J §4.1 要求
+ * `signals` 带页证据，这里如实写 `[]` —— 于是人批了之后 `promoteProposal`
+ * 写 0 行出现记录（它会照实报 `occurrences: 0`）。要给证据就得先有外来课的
+ * 页，那是导入器的事，不是这个脚本能编的。
+ *
+ * ★ **提案行上只留 `tri`，不留 `reason`**：`reason` 里有
+ * `bigram-uncalibrated` 这种「等 τ 标定完就会消失」的值，存进库会让同一列在
+ * 两个时期表示两件事。它是给人当场看的，不是给库看的。
  */
 
 import * as nodeModule from 'node:module';
@@ -75,19 +96,40 @@ interface Options {
   stage: string | null;
   json: boolean;
   limit: number;
+  enqueue: boolean;
+  execute: boolean;
+  task: string | null;
+  source: string | null;
 }
 
 function parseOptions(argv: readonly string[]): Options {
-  const options: Options = { names: null, stage: null, json: false, limit: 200 };
+  const options: Options = {
+    names: null,
+    stage: null,
+    json: false,
+    limit: 200,
+    enqueue: false,
+    execute: false,
+    task: null,
+    source: null,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--names') options.names = argv[index + 1] ?? null;
     else if (arg === '--stage') options.stage = argv[index + 1] ?? null;
     else if (arg === '--limit') options.limit = Number(argv[index + 1] ?? '200');
     else if (arg === '--json') options.json = true;
+    else if (arg === '--enqueue') options.enqueue = true;
+    else if (arg === '--execute') options.execute = true;
+    else if (arg === '--task') options.task = argv[index + 1] ?? null;
+    else if (arg === '--source') options.source = argv[index + 1] ?? null;
     else if (arg === '--help' || arg === '-h') {
       console.log(
-        '用法：tsx scripts/match-external-names.ts --names names.json [--stage stage-xxx] [--limit N] [--json]',
+        [
+          '用法：tsx scripts/match-external-names.ts --names names.json',
+          '[--stage stage-xxx] [--limit N] [--json]',
+          '--enqueue --task <taskId> --source <graph> [--execute]   # 把结果写成待裁提案',
+        ].join(' '),
       );
       process.exit(0);
     } else if (arg.startsWith('--')) {
@@ -145,6 +187,22 @@ async function main(): Promise<number> {
 
   if (inputs.length === 0) {
     console.error('清单里没有一条带 name 的。');
+    return 2;
+  }
+
+  // ★ `--enqueue` 的两个必填参数在这里拦，不留到 SQL 层 —— 唯一键是
+  //   `(external_source, external_name, external_kind)`，`external_source`
+  //   给个默认值会把两门课的同名概念并成一条，而这件事不报错、只是少一条。
+  if (options.enqueue && (options.task === null || options.task.trim() === '')) {
+    console.error('--enqueue 需要 --task <taskId>（任务由 scripts/intake-begin.ts 开）。');
+    return 2;
+  }
+  if (options.enqueue && (options.source === null || options.source.trim() === '')) {
+    console.error('--enqueue 需要 --source <graph>（同一名字来自两门课是两条提案）。');
+    return 2;
+  }
+  if (!options.enqueue && (options.task !== null || options.source !== null)) {
+    console.error('--task / --source 只在 --enqueue 时有意义。');
     return 2;
   }
 
@@ -245,7 +303,65 @@ async function main(): Promise<number> {
           .map(([reason, count]) => `${reason} ${count}`)
           .join('，')}）`,
     );
-    console.log('只是报告：一行都没写（写 occurrence / proposal 在 J §3.5 另有前置）。');
+    if (!options.enqueue) {
+      console.log(
+        '只是报告：一行都没写（加 --enqueue --task <id> --source <graph> 才进提案队列）。',
+      );
+      return 0;
+    }
+
+    // ---- 进队 ----
+    const { recordProposal } = await import('../lib/persistence/xq-intake-proposal');
+    const evidenceOf = (item: (typeof results)[number]) =>
+      item.result.candidates.length === 0
+        ? []
+        : [
+            {
+              // 只有名字、没有页：证据页留空是**如实**，不是遗漏。
+              stageId: '',
+              sceneId: '',
+              pageHash: null,
+              quote: `${item.input.name} → ${item.result.candidates
+                .map((candidate) => candidate.canonicalName)
+                .join(' / ')}`,
+              anchorsHit: item.input.senseAnchors,
+            },
+          ];
+
+    if (!options.execute) {
+      console.log('');
+      console.log(
+        `没加 --execute：一行都没写。本来会进队 ${results.length} 条` +
+          `（hit ${tally.hit} / suspect ${tally.suspect} / miss ${tally.miss}，` +
+          `来源 ${options.source}，任务 ${options.task}）。`,
+      );
+      return 0;
+    }
+
+    const queued: Record<string, number> = { created: 0, seen: 0, accepted: 0 };
+    for (const item of results) {
+      const outcome = await recordProposal(pool as never, {
+        taskId: options.task ?? undefined,
+        externalSource: options.source ?? '',
+        externalName: item.input.name,
+        externalKind: item.input.kind ?? 'concept',
+        tri: item.result.tri,
+        matchedConceptId: item.result.matchedConceptId ?? undefined,
+        signals: evidenceOf(item),
+      });
+      if (outcome.created) queued.created += 1;
+      else queued.seen += 1;
+      if (outcome.status === 'accepted') queued.accepted += 1;
+    }
+
+    console.log('');
+    console.log(
+      `进队完成：新建 ${queued.created} 条 / 已存在又见一次 ${queued.seen} 条` +
+        `（其中 hit 自动归并 ${queued.accepted} 条，不需要人裁）。`,
+    );
+    console.log(
+      `按 ${options.task} 与 ${options.source} 记；下一步：scripts/review-intake-proposals.ts --tri suspect`,
+    );
     return 0;
   } finally {
     await pool.end();
