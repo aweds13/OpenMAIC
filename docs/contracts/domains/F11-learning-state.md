@@ -73,7 +73,9 @@
 
 - **判据落点（结构那一半，2026-11-10 有了）**：`tests/persistence/xq-learner-schema.test.ts` —— `★ 同一时刻只允许一个开放的图谱版本`（冒第二行 `duplicate key value violates unique constraint "xq_graph_version_one_open"`；冻结旧版之后才能开新版；`frozen_at` 早于 `created_at` 被 `xq_graph_version_freeze_order` 挡）、`★ 概念只能标进存在的版本`（`xq_concept_created_in_fkey`）、`★ 概念 id 的形状与名字非空由 CHECK 兜住`（`xq_concept_id_shape` / `xq_concept_name_nonempty`）、`★ 退役版本必须晚于进入版本`（`xq_concept_retire_order`）、`★ 重测链指回上一次观测，且不许指向不存在的行`（`xq_probe_item_retest_of`）。实现：迁移 `3 graph-version` + `4 concept-expand`（`lib/persistence/xq-learner.ts` 的 `XQ_LEARNER_V3` / `XQ_LEARNER_V4`）。命令：`npx vitest run tests/persistence/xq-learner-schema.test.ts`（26 例）。
 
-- **判据落点（**五种变更**那一半地还没有）**：新增 / 修改 / 改名 / 删除 / 开新版五种变更**各自跑一遍**的验收还不存在 —— 今天只有结构能挡住「写进一个不存在的版本」「退役早于进入」「两个开放版本」，挡不住「一次迁移把老课的挂载全指到新概念上」。这一半仍然只有**约束**：不得出现半迁移态、必须留墓碑、必须原地改名。
+- **判据落点（版本推进那一小段，2026-11-10 有了）**：`tests/persistence/xq-graph-version.test.ts`（17 例）—— `★ 冻结旧版与开新版是同一次`（中间不存在「没有开放版本」的时刻）、`★ 比较并交换`（`from` 不是当前开放版就整条不生效）、`★ 中间版本不许被跳过`、`★ 只写 created_in IS NULL 的行`、`★ 幂等`（同一批重跑写 0 行）、`★ 库里不存在的概念如实报 missing`、`★ 往已冻结的版本里塞新概念要拒`、空 label / 非正整数 `from` 抛 `RangeError`、label 重复被 UNIQUE 挡。实现：`lib/persistence/xq-graph-version.ts`（`readGraphVersions` / `openGraphVersion` / `advanceGraphVersion` / `assignConceptsToVersion`），入口 `scripts/advance-graph-version.ts`。★ 推进**故意不是 HTTP 路由**：它是一次导入的边界，失败模式是「另一个窗口先推进了」，需要人看一眼。真机（2026-11-10，跑完已还原）：`--dry-run` 回 `1 版 / v1 open / concepts=104`，`--label v2` 真跑后 `v1 frozen 104 / v2 open 0`，重跑回 `already-frozen`（退出码 2）与 `--from 2` 回 `not-found`（退出码 2）。命令：`npx vitest run tests/persistence/xq-graph-version.test.ts`。
+
+- **判据落点（**五种变更**那一半地还没有）**：新增 / 修改 / 改名 / 删除 / 开新版五种变更**各自跑一遍**的验收还不存在 —— 今天只有结构能挡住「写进一个不存在的版本」「退役早于进入」「两个开放版本」，挡不住「一次迁移把老课的挂载全指到新概念上」。这一半仍然只有**约束**：不得出现半迁移态、必须留墓碑、必须原地改名。★ 另外两条也仍空：**没有任何导入批次会调用推进流程**（`xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三表 0 行、104 个概念全在 `created_in = 1`），以及**按 `prereq` 排序**明确不许上线。所以版本化今天是「可用的能力」，不是「在用的机制」。
 
 - **两边各自要满足**：
   - 存储侧：图谱的版本标识必须出现在每一次挂载记录上（否则「老课保留旧图」无从实现）。
