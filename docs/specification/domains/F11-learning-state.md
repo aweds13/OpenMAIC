@@ -94,7 +94,8 @@
 - **读侧有了（2026-11-10）**：`lib/persistence/xq-concept-graph.ts` + `GET /api/persistence/xq/concepts` 是这 94 条边**第一次**被读。它回答的是图上可算的问题 —— 直接先修、传递闭包、最长先修深度、环、退役先修、以及「按给定已掌握集合现在能不能学」——**不产出任何顺序**。
 - 更关键的一条没变：**没有任何「按图谱排序」的行为上线**。读侧存在不等于排序被允许，本节末句仍然生效。
 - 读侧实测（2026-11-10，真库 104 概念）：`GET /xq/concepts` 回 104 / 105 边，`prereq` 按强度 5 strict / 88 recommended / 1 helpful；对全部 104 个概念逐个调 `?id=` 与独立的 Kahn 最长路径比对，**深度 0 处不一致**，`notReady` 74（= 104 − 30 个无先修），环 0。
-- **出现记录也一起读了**：`xq_concept_occurrence` 644 行（keypoint 17 / title 127 / body 500）此前同样零生产读方，现在随 `?id=` 一并回「这个概念出现在哪些页、页标题、权重、命中层级」。75 个概念有出现记录，**29 个一条也没有** —— 如实回空数组。真库直读：`类与对象` 58 条、按 `weight DESC` 排在 `keypoint(1.0)` → `title(0.6)` → `body(0.4)`，标题 58/58 全部解析出来。
+- **出现记录也一起读了**：`xq_concept_occurrence` **645 行**（keypoint 19 / title 126 / body 500，209 页）此前同样零生产读方，现在随 `?id=` 一并回「这个概念出现在哪些页、页标题、权重、命中层级」。75 个概念有出现记录，**29 个一条也没有** —— 如实回空数组。真库直读：`类与对象` 58 条、按 `weight DESC` 排在 `keypoint(1.0)` → `title(0.6)` → `body(0.4)`，标题 58/58 全部解析出来。
+- **出现记录的写入方也补齐了（2026-11-10）**：`lib/persistence/xq-concept-occurrence-sync.ts` 的 `syncConceptOccurrences()` + `scripts/backfill-concept-occurrences.ts`。此前 `deriveOccurrencesFromOutlines()` **零生产调用方**（只有测试），那 644 行是 2026-11-09 一个已不在盘上的 `.tmp` 脚本灌的 —— 新课生成之后没有任何代码会把它的页挂到概念上。三条判据写进代码：① 关联靠 `document_scenes.data->>'outlineId'`，且**一条大纲可以对应多页**（单值 Map 会让后一页顶掉前一页的要点，实测 96 页因此拿不到 keyPoints）② 正文口径**必须**复用 `staticPageText()` —— 它是本仓「这一页学生能看到哪些字」的唯一定义，另写一个摊平函数等于造第二个单位（第一版自己摊算出 674 行 / body 529，看着与当时库对上 95.2%，实际是把 interactive 外壳 HTML 里的词当正文、又漏掉 48 个带 `widgetConfig` 的页；换成 `staticPageText()` 后 body 落回 **500**、页数落回 **209**，与历史那份 `body 500 / 209 页` 逐栏对上）③ **`source = 'manual'` 的行一行都不许删**（那是人挂的判断），判据写在 `syncConceptOccurrences` 里不靠调用方自觉。默认只报告，写库要 `--execute`；真库执行前后 644 → **645 行**、页 209 → 209，重跑 `新增 0 / 未变 645`。判据 21 条。
 
 
 ### SR-F11.5 练习结果必须回流进学习状态，读取失败必须表现为「没有记录」
