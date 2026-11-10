@@ -194,13 +194,29 @@
 
 ★ 反过来，代码里「本模块**生成**了哪些来源」那个常量（`GENERATED_SOURCES`，删行的判据）**不许**跟着扩：外来行来自另一条链路（三段匹配 + 人裁决），把它算成派生行，下一次重算就会静默删掉别人写的东西。这两件事长得像，判据必须分开。
 
-不成立 —— 三条还没做：
-- **提案裁决（P4）一行未写**：`xq_intake_proposal` 与 `xq_intake_task` 仍是 0 行。晋升五步事务（插概念 → 改提案状态 → 把 `signals` 展开成 `foreign-body` 的出现记录 → 同义提案一并指向 → 外部图先修边只准 `proposed`）与「拒绝之后不再问」都还没有代码；落库这一侧刚刚能写了，裁决本身还不能。
+**提案裁决也落地了（2026-11-10 同日）**：`lib/persistence/xq-intake-proposal.ts` 把 J §4.1–§4.4 的四件事都写成了代码 —— `recordProposal`（幂等进队，`ON CONFLICT (external_source, external_name, external_kind) DO UPDATE SET seen_count = seen_count + 1`）、`promoteProposal`（晋升五步，**必须给事务**）、`rejectProposal`（留痕不删行）、`readProposals`（默认只读 `proposed` 的队列）。裁判台是 `scripts/review-intake-proposals.ts`：不带参数列队列，`--accept <id> --operator <who>` 走晋升，`--reject <id> --operator <who> --why '…'` 走拒绝。
+
+★ 四处刻意的判决：
+
+- **提案不是概念的一种 `status`**。`xq_concept.status` 三档（`active` / `merged` / `retired`）说的都是「它曾经是什么」，而提案从来没有过概念身份 —— 它的 `id` 是 `bigserial` 不是 `c_` + 12 位十六进制。混进概念表就要给每个未确认的词编一个**假 id**，那个 id 会顺着外键爬进出现记录与排期。
+- **`hit` 自动归并，`suspect` / `miss` 只能人裁**。`hit` 的 `decided_by` 写的是 `auto:three-way-hit` 这个**非人名**常量 —— 写成 `'system'` 会让「谁批的」永远查不清，而写成某个人的名字是把机器的判断记在人头上；两种都错。
+- **晋升第 ③ 步 `ON CONFLICT DO NOTHING` 而不是 `DO UPDATE`**。新概念的出现记录写 `weight 0.8`（J §3.3 的外来上限），而我们自己抽的同一页可能有 `keypoint 1.0`。覆盖等于用一条较弱的证据顶掉较强的证据，而这件事不会报错。
+- **第 ⑤ 步的外来先修边只准 `status='proposed'`**。批一个概念不等于批它和别的概念的先后关系 —— 后者是教学顺序，错一条会让整门课的顺序都歪，而它长得就像一条普通的边。
+
+★ 第 ② 步判「此刻有没有开放版本」、第 ④ 步查「同名 `active` 概念是否已存在」都是**在同一事务里**做的：`xq_concept` 没有 `canonical_name` 唯一约束（只有普通索引 `xq_concept_name_idx`），所以并发晋升同名概念时库不会替我们挡，只能靠「先查后插 + 事务」。
+
+真机验过两遍（验完全部清掉，库回到 104 概念 / 645 出现记录 / 0 提案）：`--accept 1` → 概念 `c_ff00ff1cdeed`、2 行 `foreign-body` `weight 0.80`、提案 `decided_by='owner'`；拒绝路径从「全新一条 → `proposed` → `rejected` → 再导一次 `seen_count 2` 而状态仍 `rejected`」走了一遍，**再 reject 一次回 `not-proposed`**（已决的不许被覆盖，理由不被改写）。
+
+★ 验收时撞到的一条真约束（不是缺陷，是数据库在替我们守）：`xq_intake_proposal.accepted_concept_id` 是 `ON DELETE SET NULL`，而 V5 的 `xq_intake_proposal_accepted_target` 又要求 `status='accepted'` 的行必须有它。所以清库的顺序只能是**先删提案、再删概念** —— 反过来会让 `accepted` 行的外键置空、直接撞 CHECK。生产上这意味着「删一个被批过的概念」这件事本身就要先想清楚它与提案的关系。
+
+不成立 —— 两条还没做：
+- **`xq_intake_task` 仍是 0 行**：一次导入的「意图」（`goal` / `kind` / `source_refs` / `confidence`）今天没有任何写入方。提案的 `task_id` 列在（无外键），但没人填。这意味着还回答不了「这批提案是为了什么导进来的」。
+- **裁判台是命令行，不是界面**：一次只裁一条，`--operator` 要手打。批量裁决（一次收 20 条 `miss`）与「按页看证据」都还没有。
 - **`bigram τ` 仍未标定**：J §3.3 里唯一读数是页级 `meanP=1.000 / meanR=0.658`，那是**页**的指标，不能直接套到概念名上。`τ` 不定，`miss` 与 `suspect` 的边界就定不下来 —— 今天所有「有一点重叠但没到别名级」的都判存疑，方向是安全的（漏判多问人一次），但永远判不出 `miss`。
 - **锚词表是「可用的燃料」，不是「校好的词表」**：`构造方法` 只抽出一个 `编译`（「编译」不是 OOP 义项标）；`路由与页面跳转` 抽到 `关掉 / 跳到 / 按钮 / 界面 / 固定 / 命名`（后三个偏噪声）；`布局 Row / Column / Container` 只有一个 `界面`。J §8 第 4 条要求的「人工校 top-N」还没做 —— 在那之前，锚只能当**否决**用（不相交就不许判命中），不能当**确认**用（相交了也不足以判命中）。
 - **没有任何外来课程被导入过**：九门课全是自己生成的，`xq_import_batch` 里九批全是 `origin='own-course'`。匹配器**没有生产调用方**，只有一个报告脚本（`scripts/match-external-names.ts`，不写库）。真机上拿 104 个种子名当外来名跑一遍：`suspect 104`，理由全 `lexical-only` —— 正确（同一张图自己对自己，只剩字面），也说明它没有被任何真实外来名单验过。
 
-判据 `tests/persistence/xq-concept-anchors.test.ts` 20 条（切词 6 / 算锚 7 / 落库 7）+ `tests/persistence/xq-three-way-match.test.ts` 24 条（归一与索引 3 / 两个度量 3 / 判定树 12 / 路径判定 2 / 从库里读事实 4）+ 真机读数。★ 一条实测限制写进注释：`Intl.Segmenter` 对**没有分隔符的连写**并不总能切对（「构造方法里用 super 调用父类构造器」只切出 `构造` / `方法`，`父类` 被切成 `父` + `类` 后被长度过滤掉）；真实页面有标点与空格，所以可用，但别指望它切任何一个词都对。
+判据 `tests/persistence/xq-intake-proposal.test.ts` 17 条（进队 6 / 晋升 8 / 队列 3）+ `tests/persistence/xq-concept-anchors.test.ts` 20 条（切词 6 / 算锚 7 / 落库 7）+ `tests/persistence/xq-three-way-match.test.ts` 24 条（归一与索引 3 / 两个度量 3 / 判定树 12 / 路径判定 2 / 从库里读事实 4）+ 真机读数。★ 一条实测限制写进注释：`Intl.Segmenter` 对**没有分隔符的连写**并不总能切对（「构造方法里用 super 调用父类构造器」只切出 `构造` / `方法`，`父类` 被切成 `父` + `类` 后被长度过滤掉）；真实页面有标点与空格，所以可用，但别指望它切任何一个词都对。
 
 ### SR-F11.10 学习行为必须留下只追加的事件流，会话是事件的包络
 

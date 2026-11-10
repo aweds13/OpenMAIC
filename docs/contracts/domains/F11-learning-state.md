@@ -197,6 +197,35 @@
   - 匹配侧：字面相似只能产生候选，不能产生命中；必须能输出「为什么判成这一段」（哪些信号、各是什么值）。**信号 C（义项锚）今天有了数据**：36/104 有锚，且锚是「相对全库的富集」不是词频 —— 所以它能当**否决**用（锚不相交 ⇒ 不许判命中），不能当**确认**用（相交了也不足以判命中，那是 `J` §3.3「独立信号 ≥2」的活）。
   - 排序侧：学习顺序的输入只接受已确认概念，提案在类型上就不该出现在那条查询的结果集里（不是靠调用方记得过滤）。
 
+### SR-F11.9 的提案裁决（2026-11-10 落地）
+
+**输入**：一条待裁提案的编号，加一个署名的人。
+
+```
+tsx scripts/review-intake-proposals.ts --accept 12 --operator owner
+tsx scripts/review-intake-proposals.ts --reject 12 --operator owner --why '这是构造题，不是构造方法'
+```
+
+**期望**：
+
+| 动作 | 期望 |
+|---|---|
+| `--accept` | 新增一个 `xq_concept`（`status='active'`、`created_in` = 当前开放版、`anchors` 为空）；提案变 `accepted` 且 `accepted_concept_id` 指向它；`signals` 展开成 `source='foreign-body'`、`weight=0.80` 的出现记录；给 `prereqEdges` 时边落 `status='proposed'` |
+| `--reject` | 提案变 `rejected`、记 `decided_by` 与 `decision_note`；**行不删**、`signals` 保留；同一名字再导入时 `seen_count` 涨而状态不变 |
+| 不带参数 | 只列 `status='proposed'` 的队列（最多 20 条），每条带 `tri`、来源、见过几次、前 3 条页证据 |
+
+**失败长什么样**：
+
+- 同名 `active` 概念已存在 ⇒ `name-taken`，**不插第二行**（判据：`xq_concept` 里叫那个名字的仍只有 1 行）。
+- 没有开放的图谱版本 ⇒ `no-open-version`（`created_in` 不许指向一个不存在的版本）。
+- 提案已被别人裁过 ⇒ `not-proposed`（`UPDATE … WHERE status='proposed'` 回 0 行）。
+- 晋升中途任何一步失败 ⇒ **整条事务回滚**：概念、提案状态、出现记录一样都不留（判据：拿一个不存在的 `fromId` 造先修边，让最后一步撞外键，然后断言三张表的行数全回到原值）。
+- 缺 `--operator` ⇒ 脚本退 2；库里那条 `decision_pair` 约束也会把空署名当成「没裁过」。
+
+**判据落点**：`tests/persistence/xq-intake-proposal.test.ts` 17 条 —— 进队 6 条（`miss` 不进概念表 / `hit` 自动归并且 `decided_by` 是非人名常量 / `hit` 缺概念在发 SQL 前抛 / 空名空来源抛 / 重复导入仍 1 行 `seen_count 2` / 拒绝后再导入状态与判定都不被改写）、晋升 8 条（五步全落 / 页不存在时跳过并报数 / 同页重复只 1 行 / 外来边 `status='proposed'` / `name-taken` / 三种失败原因分开 / `no-open-version` / 中途失败整条回滚）、队列 3 条（默认只读待裁 / 按 `tri` 筛且 `limit` 非正回空 / 页证据读得回）。
+
+★ 两条不许动的地方：**`hit` 的 `decided_by` 是 `auto:three-way-hit` 而不是人名**（机器判的不许记在人头上）；**晋升第 ③ 步是 `DO NOTHING` 而不是 `DO UPDATE`**（外来证据 `0.80` 不许顶掉我们自己抽的 `1.0`，而这件事不会报错）。
+
 ### SR-F11.10 学习行为必须留下只追加的事件流，会话是事件的包络（2026-11-09 落地）
 
 - **输入**：一串学习行为 —— 会话开始、翻到某页、交了某道题、结束会话。同一件事可能重发（网络重试、页面刷新、三个页签同开）。
