@@ -85,7 +85,7 @@
 
 **出现记录先接上了（2026-11-10）**：`scripts/backfill-concept-occurrences.ts --execute --batch` 按课各开一批（九门课九批，五键幂等，同一份内容重跑「命中」同一批）→ 同步器按 `stage → batchId` 把归属写进每一行 → 全部写成功才 `applyImportBatch()` 落定。真库读数：`xq_import_batch` 9 行全 `applied`、`xq_concept_occurrence` **645 行全部带 `batch_id` 与 `page_hash`**（9 个不同批次）、`first_seen_at` / `last_seen_at` 各 645 行、`stale_since` 0 行；重跑「命中」九批、`新增 0 更新 0 未变 645`、`落定 0 / 9`（幂等）。★ `--dry-run` **不真开批** —— 开批自己就是一次 INSERT，`--dry-run --batch` 只打印「不真开批次」。
 
-**仍不成立**：出现记录这一条接了，但**还没有导入器把整门课当一次导入来做** —— `xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表仍是 0 行，`created_in` 也没有第三个值出现过（104 个概念全在第 1 版），种子图同步器仍不写 `batch_id`（概念不是按课导的，没有 `stage_id` 可挂）。所以「版本化」今天是**可用的能力**，不是**在用的机制**。
+**仍不成立**：出现记录这一条接了，但**还没有导入器把整门课当一次导入来做** —— `xq_intake_task` 与 `xq_alignment_unit` 在 2026-11-10 之前一直是 0 行（现在有写入方了，见 SR-F11.9），`created_in` 也没有第三个值出现过（104 个概念全在第 1 版），种子图同步器仍不写 `batch_id`（概念不是按课导的，没有 `stage_id` 可挂）。所以「版本化」今天是**可用的能力**，不是**在用的机制**。
 
 **在有人真的按 `prereq` 边排出顺序之前，任何「按图谱排序」的行为都不许上线。**（原句写的是「形态还没定」，2026-11-10 更正：形态已经定了，缺的是用它的那一步。）
 
@@ -94,7 +94,7 @@
 **今天到哪了（2026-11-10）**：**结构齐了，使用没有**。
 - 概念图五张表都在且都有数据：`xq_concept` **104 行**（不透明 id `c_`+12hex）、`xq_concept_alias` **357 行**、`xq_concept_external_ref` **63 行**、`xq_concept_edge` **105 行**（`prereq` 94 / `contains` 11）、`xq_concept_occurrence` **644 行**。
 - **版本化 2026-11-10 落地**（迁移 `3 graph-version` + `4 concept-expand`）：`xq_graph_version` 存在且已有 `1 baseline` 未冻结；`xq_concept` 补了 `anchors / created_in / retired_in / revived_at / updated_at` 五列，既有 104 行回填到第 1 版；四条约束（id 形状、名字非空、两条版本外键、退役顺序）在库上生效。同一时刻只能有一个开放版本由偏索引 `xq_graph_version_one_open ON ((true)) WHERE frozen_at IS NULL` 管住 —— 冒第二行会 `duplicate key value violates unique constraint`。
-- **版本的推进流程与种子图进库都写了（2026-11-10）**：`advanceGraphVersion()` 冻结旧版并开出新版（带 `from` 的比较并交换）、`assignConceptsToVersion()` 只写 `created_in IS NULL` 的行；`syncSeedGraph()` 让「那 104 个概念从哪来」变成可再生的一步。**但没有任何导入器会调用它们**（`xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表**都是 0 行**，`created_in` 也没有第三个值；`xq_import_batch` 表建好了、函数齐了，但种子图与出现记录两个同步器都还没写 `batch_id` 与 `page_hash`）。
+- **版本的推进流程与种子图进库都写了（2026-11-10）**：`advanceGraphVersion()` 冻结旧版并开出新版（带 `from` 的比较并交换）、`assignConceptsToVersion()` 只写 `created_in IS NULL` 的行；`syncSeedGraph()` 让「那 104 个概念从哪来」变成可再生的一步。**但没有任何导入器会调用它们**（任务与单元两张表在 2026-11-10 之前**都是 0 行**，现在由 `scripts/intake-begin.ts` 填；`created_in` 仍没有第三个值；`xq_import_batch` 表建好了、函数齐了，出现记录已接上 `batch_id` 与 `page_hash`，种子图同步器仍不写 —— 概念不按课导，没有 `stage_id` 可挂）。
 - **读侧有了（2026-11-10）**：`lib/persistence/xq-concept-graph.ts` + `GET /api/persistence/xq/concepts` 是这 94 条边**第一次**被读。它回答的是图上可算的问题 —— 直接先修、传递闭包、最长先修深度、环、退役先修、以及「按给定已掌握集合现在能不能学」——**不产出任何顺序**。
 - 更关键的一条没变：**没有任何「按图谱排序」的行为上线**。读侧存在不等于排序被允许，本节末句仍然生效。
 - 读侧实测（2026-11-10，真库 104 概念）：`GET /xq/concepts` 回 104 / 105 边，`prereq` 按强度 5 strict / 88 recommended / 1 helpful；对全部 104 个概念逐个调 `?id=` 与独立的 Kahn 最长路径比对，**深度 0 处不一致**，`notReady` 74（= 104 − 30 个无先修），环 0。
@@ -178,7 +178,7 @@
 
 **抽不出锚是正常的，不是失败**：`类与对象`（58 页）、`字符串`（56 页）、`变量与类型`（33 页）、`方法与字段`（25 页）、`继承`（23 页）、`循环结构`（22 页）、`集合框架`（22 页）、`分支结构`（20 页）**一个锚都没有** —— 它们没有专属上下文，全库处处都在讲。这正是 J §3.2 里「`anchors` 为空 ⇒ 只靠字面 ⇒ 降级成 `suspect`」那条分支存在的原因：**抽不出锚的概念本来就该走存疑**，不是给它们硬凑一个词。
 
-**三段匹配器有了（2026-11-10 同日）**：`lib/persistence/xq-three-way-match.ts` 把 J §3.2 的判定树写成纯函数 `decideThreeWay(input, facts)`，库事实由 `loadMatchFacts()` 一次读齐（别名表 / 锚 / 页分布 / 图）。它**不写库**：`xq_intake_proposal` 与 `xq_intake_task` 仍是 0 行，因为「谁来批」还没有人。
+**三段匹配器有了（2026-11-10 同日）**：`lib/persistence/xq-three-way-match.ts` 把 J §3.2 的判定树写成纯函数 `decideThreeWay(input, facts)`，库事实由 `loadMatchFacts()` 一次读齐（别名表 / 锚 / 页分布 / 图）。它**不写库**：匹配器只回判定结果，写 `xq_intake_proposal` 是 `recordProposal()` 的事、写任务与对齐单元是 `beginIntake()` 的事（2026-11-10 都有代码了），匹配器自己不落一行。
 
 ★ 写这个匹配器时被实测咬出的五处判定错，都是**同一个毛病：把「我们没说话」当成「它不符合」**：
 
@@ -212,7 +212,7 @@
 ★ 验收时撞到的一条真约束（不是缺陷，是数据库在替我们守）：`xq_intake_proposal.accepted_concept_id` 是 `ON DELETE SET NULL`，而 V5 的 `xq_intake_proposal_accepted_target` 又要求 `status='accepted'` 的行必须有它。所以清库的顺序只能是**先删提案、再删概念** —— 反过来会让 `accepted` 行的外键置空、直接撞 CHECK。生产上这意味着「删一个被批过的概念」这件事本身就要先想清楚它与提案的关系。
 
 不成立 —— 两条还没做：
-- **`xq_intake_task` 仍是 0 行**：一次导入的「意图」（`goal` / `kind` / `source_refs` / `confidence`）今天没有任何写入方。提案的 `task_id` 列在（无外键），但没人填。这意味着还回答不了「这批提案是为了什么导进来的」。
+- **`xq_intake_task` 有写入方了，但提案的 `task_id` 仍没人填**（2026-11-10 补）：`lib/persistence/xq-intake-task.ts` 把一次导入的「意图」与「对齐单元」落成两张表的行 —— `beginIntake()` 必须给事务（只有任务没有单元，与「单元还没算」长得一模一样）、`confidence` 是**三步纯规则**算出来的而不是模型说的（`probe-backed` 要 ≥2 个非代理的 `known`/`not-learned`；`band-only` 要 `chapterVoteRatio ≥ 1.5`；其余 `guess`）、`proxy` 落进列且 `known`/`not-learned` 不许来自代理证据（写之前就抛）。入口是 `scripts/intake-begin.ts`（默认只报告，`--execute` 才写）。★ **仍不成立的一条**：`recordProposal()` 有 `taskId?` 字段但**没有任何调用方填它** —— 所以「这批提案是为了什么导进来的」这个问题，在提案行上仍然回答不了。
 - **裁判台是命令行，不是界面**：一次只裁一条，`--operator` 要手打。批量裁决（一次收 20 条 `miss`）与「按页看证据」都还没有。
 - **`bigram τ` 仍未标定**：J §3.3 里唯一读数是页级 `meanP=1.000 / meanR=0.658`，那是**页**的指标，不能直接套到概念名上。`τ` 不定，`miss` 与 `suspect` 的边界就定不下来 —— 今天所有「有一点重叠但没到别名级」的都判存疑，方向是安全的（漏判多问人一次），但永远判不出 `miss`。
 - **锚词表是「可用的燃料」，不是「校好的词表」**：`构造方法` 只抽出一个 `编译`（「编译」不是 OOP 义项标）；`路由与页面跳转` 抽到 `关掉 / 跳到 / 按钮 / 界面 / 固定 / 命名`（后三个偏噪声）；`布局 Row / Column / Container` 只有一个 `界面`。J §8 第 4 条要求的「人工校 top-N」还没做 —— 在那之前，锚只能当**否决**用（不相交就不许判命中），不能当**确认**用（相交了也不足以判命中）。
