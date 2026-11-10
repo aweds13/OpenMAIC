@@ -106,6 +106,7 @@ interface Counts extends Record<string, unknown> {
   total: string;
   manual: string;
   generated: string;
+  foreign: string;
   pages: string;
 }
 
@@ -115,7 +116,10 @@ async function readCounts(pool: {
   const result = await pool.query<Counts>(
     `SELECT (SELECT count(*) FROM xq_concept_occurrence)::text AS total,
             (SELECT count(*) FROM xq_concept_occurrence WHERE source = 'manual')::text AS manual,
-            (SELECT count(*) FROM xq_concept_occurrence WHERE source <> 'manual')::text AS generated,
+            (SELECT count(*) FROM xq_concept_occurrence
+              WHERE source IN ('keypoint', 'title', 'body'))::text AS generated,
+            (SELECT count(*) FROM xq_concept_occurrence
+              WHERE source LIKE 'foreign-%')::text AS foreign,
             (SELECT count(DISTINCT (stage_id, scene_id)) FROM xq_concept_occurrence)::text AS pages`,
   );
   return result.rows[0];
@@ -204,7 +208,8 @@ async function main(): Promise<number> {
     console.log('与库比对：');
     console.log(
       `  新增 ${report.insert}，更新 ${report.update}，未变 ${report.unchanged}，` +
-        `库里多出来要删 ${report.stale}（manual ${report.manual} 行不动）`,
+        `库里多出来要删 ${report.stale}（manual ${report.manual} 行、` +
+        `foreign ${report.foreign} 行都不动）`,
     );
 
     if (report.problems.length > 0) {
@@ -221,7 +226,8 @@ async function main(): Promise<number> {
     console.log(
       `写库前后：行 ${before.total} → ${after.total}，` +
         `覆盖页 ${before.pages} → ${after.pages}，` +
-        `其中 manual ${before.manual} → ${after.manual}`,
+        `其中 manual ${before.manual} → ${after.manual}、` +
+        `foreign ${before.foreign} → ${after.foreign}`,
     );
 
     // ── 落定批次 ─────────────────────────────────────────────────

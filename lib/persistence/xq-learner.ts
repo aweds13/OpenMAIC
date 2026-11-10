@@ -731,6 +731,51 @@ END
 $do$;
 `;
 
+// ---------------------------------------------------------------------------
+// 二十、外来来源单独一档
+// ---------------------------------------------------------------------------
+// 基线里 `xq_concept_occurrence.source` 只有四档（keypoint / title / body /
+// manual），全部是「我们自己从课程大纲与页正文算出来的」。外面那门课接进来时，
+// 它带来的页证据也要落成 occurrence（`weight` 0.8），而那一行必须能与我们自己
+// 抽的区分开 —— 否则「这个外部课程抽得不准，把它带来的挂载全撤掉」这件事
+// 只能一行行认。
+//
+// ★ 为什么不复用 `body`：`source` 不是给读方看的标签，是**删得掉的依据**。
+//   `DELETE … WHERE source LIKE 'foreign-%' AND batch_id = $1` 一句撤干净的前提，
+//   是外来行有自己的名字。混进 body 之后，「撤掉那一门外来课」就变成「删掉所有
+//   挂在这几页上的 body 行」，会连我们自己抽的一起删。
+//
+// ★ 为什么代码里的 `GENERATED_SOURCES` 不跟着扩（那份在
+//   `xq-concept-occurrence-sync.ts`）：那个常量回答的是「本模块**生成**了哪些
+//   来源」，重算时它会删掉这些来源里多出来的行。把 foreign-* 加进去，下一次
+//   重算就会把外来课挂的证据当成自己的派生行删掉 —— 而它们来自另一套判断。
+//
+// 约束先 `DROP … IF EXISTS` 再 `ADD`：`ADD CONSTRAINT` 没有 `IF NOT EXISTS`，
+// 而在账本缺失的历史库上 `ensureXqLearnerSchema` 仍会逐条重放，要能重跑。
+//
+// ★ 顺手修 v5 那条过严的边约束：v5 写的是「active 边必须有 strength」，
+//   但 `contains`（单元包含成员）在三份源图里都是没有强弱之分的 —— 归属要么
+//   成立要么不成立。基线 DDL 允许 `contains` 的 `strength` 为 NULL，v5 那条
+//   约束把它判成非法，于是一条合法数据在 v5 之后写不进去了（判据
+//   `tests/persistence/xq-concept-graph.test.ts` 里 `contains` + NULL 的那条
+//   一直红着）。这里把 `relation = 'contains'` 放行，只对 `prereq` 要求强弱。
+export const XQ_LEARNER_V6 = `
+ALTER TABLE xq_concept_occurrence
+  DROP CONSTRAINT IF EXISTS xq_concept_occurrence_source_check;
+
+ALTER TABLE xq_concept_occurrence
+  ADD CONSTRAINT xq_concept_occurrence_source_check
+  CHECK (source IN ('keypoint', 'title', 'body', 'manual',
+                    'foreign-keypoint', 'foreign-body', 'foreign-title'));
+
+ALTER TABLE xq_concept_edge
+  DROP CONSTRAINT IF EXISTS xq_concept_edge_active_needs_strength;
+
+ALTER TABLE xq_concept_edge
+  ADD CONSTRAINT xq_concept_edge_active_needs_strength
+  CHECK (status <> 'active' OR relation = 'contains' OR strength IS NOT NULL);
+`;
+
 export const XQ_LEARNER_MIGRATIONS: SchemaMigrationSet = {
   store: 'xq-learner',
   migrations: [
@@ -739,6 +784,7 @@ export const XQ_LEARNER_MIGRATIONS: SchemaMigrationSet = {
     { version: 3, name: 'graph-version', up: XQ_LEARNER_V3, transaction: false },
     { version: 4, name: 'concept-expand', up: XQ_LEARNER_V4 },
     { version: 5, name: 'import-batch', up: XQ_LEARNER_V5 },
+    { version: 6, name: 'foreign-source', up: XQ_LEARNER_V6 },
   ],
 };
 

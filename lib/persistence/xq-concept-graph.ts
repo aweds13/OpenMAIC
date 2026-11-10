@@ -608,8 +608,22 @@ export function conceptReadiness(
   };
 }
 
-/** `xq_concept_occurrence.source` 的四种取值。 */
-export const OCCURRENCE_SOURCES = ['keypoint', 'title', 'body', 'manual'] as const;
+/**
+ * `xq_concept_occurrence.source` 的七种取值（与迁移 v6 的 CHECK 逐字一致）。
+ *
+ * 前四档是我们自己算的（大纲要点 / 页标题 / 页正文 / 人工挂），后三档是
+ * **外来课程**带进来的页证据。分档不是因为读方要区分，是因为「撤掉那一门外来
+ * 课带来的挂载」要能一句 SQL 做完而不误伤自己抽的行。
+ */
+export const OCCURRENCE_SOURCES = [
+  'keypoint',
+  'title',
+  'body',
+  'manual',
+  'foreign-keypoint',
+  'foreign-body',
+  'foreign-title',
+] as const;
 
 export type OccurrenceSource = (typeof OCCURRENCE_SOURCES)[number];
 

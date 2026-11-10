@@ -88,10 +88,29 @@ import {
 import { staticPageText } from '@/lib/quiz/page-text';
 import { pageHashOf } from '@/lib/persistence/xq-import-batch';
 
-/** `xq_concept_occurrence.source` 的取值域（与 DDL 的 CHECK 逐字一致）。 */
-export const OCCURRENCE_SOURCES = ['keypoint', 'title', 'body', 'manual'] as const;
+/**
+ * `xq_concept_occurrence.source` 的取值域（与迁移 v6 的 CHECK 逐字一致）。
+ *
+ * 比本模块用得着的三档多了 `manual` 与三档 `foreign-*`：这一列是读方要解释
+ * 「这条挂载凭什么存在」时唯一的依据，取值域必须完整，哪怕本模块只写三档。
+ */
+export const OCCURRENCE_SOURCES = [
+  'keypoint',
+  'title',
+  'body',
+  'manual',
+  'foreign-keypoint',
+  'foreign-body',
+  'foreign-title',
+] as const;
 
-/** 本模块**会生成**的来源。`manual` 不在其中 —— 它只能由人写。 */
+/**
+ * 本模块**会生成**的来源。`manual` 不在其中 —— 它只能由人写。
+ *
+ * ★ `foreign-*` 三档也**不许**加进来。这个常量是删行的判据（重算后不再成立
+ * 的行会被删），而外来课程挂的证据来自另一套判断（三段匹配 + 人裁决）。
+ * 把它们算成「本模块的派生行」，下一次重算就会静默删掉别的链路写的东西。
+ */
 export const GENERATED_SOURCES = ['keypoint', 'title', 'body'] as const;
 
 /** 一页的抽取结果，交给 `deriveOccurrencesFromOutlines`。 */
@@ -196,6 +215,8 @@ export interface OccurrenceSyncReport {
   stale: number;
   /** 库里 `manual` 行 —— 一行都不动，只报数。 */
   manual: number;
+  /** 库里 `foreign-*` 行 —— 外来课程挂的证据，本模块也不动，只报数。 */
+  foreign: number;
   /** 认领不了的概念（种子图里有、库里没有）与其它异常。 */
   problems: string[];
   /** 这批挂上了多少个批次（一问一课一个批次；0 表示调用方没传 `batchIds`）。 */
@@ -259,6 +280,7 @@ export async function syncConceptOccurrences(
     unchanged: 0,
     stale: 0,
     manual: 0,
+    foreign: 0,
     problems: [],
     batches: batchIds === undefined ? 0 : batchIds.size,
     written: execute,
@@ -357,7 +379,11 @@ export async function syncConceptOccurrences(
   for (const row of existingRows.rows) {
     const key = rowKey(row.concept_id, row.stage_id, row.scene_id);
     existing.set(key, row);
-    if (!(GENERATED_SOURCES as readonly string[]).includes(row.source)) report.manual += 1;
+    if ((GENERATED_SOURCES as readonly string[]).includes(row.source)) continue;
+    // `manual` 与 `foreign-*` 都不是本模块的派生行，但原因不同，分开报数：
+    // 前者是人挂的，后者来自另一条链路（三段匹配 + 人裁决）。
+    if (row.source === 'manual') report.manual += 1;
+    else report.foreign += 1;
   }
 
   type Entry = {
@@ -461,7 +487,7 @@ export async function syncConceptOccurrences(
     await queryable.query(
       `DELETE FROM xq_concept_occurrence
         WHERE concept_id = $1 AND stage_id = $2 AND scene_id = $3
-          AND source <> 'manual'`,
+          AND source IN ('keypoint', 'title', 'body')`,
       [row.concept_id, row.stage_id, row.scene_id],
     );
   }

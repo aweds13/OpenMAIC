@@ -214,6 +214,56 @@ describe('xq 学情 schema', () => {
     await db.close();
   });
 
+  /**
+   * ★ 迁移 v6：`source` 从四档扩到七档，且外来三档**单独**一档。
+   *
+   * 为什么这一列值得一条独立判据：它是「这条挂载凭什么存在」的唯一依据，
+   * 也是「撤掉那一门外来课」时唯一能用的过滤条件。混进 `body` 之后，
+   * `DELETE … WHERE source = 'body' AND batch_id = $1` 会连我们自己抽的
+   * 一起删 —— 而那种删除不会报错，只会让覆盖率第二天悄悄变小。
+   */
+  it('出现记录的 source 收七档，外来来源单独一档', async () => {
+    const db = await freshDb();
+    // v4 之后概念 id 有形状约束（`c_` + 12 位十六进制），`c_a` 在这里插不进去。
+    await ensureXqLearnerSchema(db);
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind)
+       VALUES ('c_aaaaaaaaaaaa', 'A', 'concept')`,
+    );
+    await db.query(`INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', 'scene-p1')`);
+    // 一档一页：主键是 `(concept_id, stage_id, scene_id)`，同一页写七次只会撞主键。
+    const sources = [
+      'keypoint',
+      'title',
+      'body',
+      'manual',
+      'foreign-keypoint',
+      'foreign-body',
+      'foreign-title',
+    ];
+    for (const [index, good] of sources.entries()) {
+      const sceneId = `scene-s${index}`;
+      await db.query(`INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', $1)`, [sceneId]);
+      await db.query(
+        `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
+         VALUES ('c_aaaaaaaaaaaa', 'stage-A', $1, 0.8, $2)`,
+        [sceneId, good],
+      );
+    }
+    const { rows: accepted } = await db.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM xq_concept_occurrence`,
+    );
+    expect(accepted[0]!.n).toBe(String(sources.length));
+    // 拼错的一档要被库拒掉，而不是静默落成一行读方解释不了的记录。
+    await expect(
+      db.query(
+        `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
+         VALUES ('c_aaaaaaaaaaaa', 'stage-A', 'scene-p1', 0.8, 'foreign')`,
+      ),
+    ).rejects.toThrow(/source_check|check constraint/i);
+    await db.close();
+  });
+
   it('错题四关只接受第 1..4 关', async () => {
     const db = await freshDb();
     for (const bad of [0, 5]) {
@@ -388,7 +438,7 @@ describe('xq 学情 schema', () => {
    * v2，而 v2 的每条语句都是 IF NOT EXISTS ⇒ 表面无害，实际掩盖了
    * 「这条迁移从来没成功过」这种事。
    */
-  it('版本 2..5 记进迁移账本，且重跑不重复记账', async () => {
+  it('版本 2..6 记进迁移账本，且重跑不重复记账', async () => {
     const db = await freshDb();
     await ensureXqLearnerSchema(db);
     await ensureXqLearnerSchema(db);
@@ -396,13 +446,14 @@ describe('xq 学情 schema', () => {
       `SELECT version, name FROM openmaic_schema_migrations
         WHERE store = 'xq-learner' ORDER BY version`,
     );
-    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(rows.map((r) => r.name)).toEqual([
       'baseline',
       'session-and-persona',
       'graph-version',
       'concept-expand',
       'import-batch',
+      'foreign-source',
     ]);
     await db.close();
   });
