@@ -75,6 +75,9 @@
 
 - **判据落点（版本推进那一小段，2026-11-10 有了）**：`tests/persistence/xq-graph-version.test.ts`（17 例）—— `★ 冻结旧版与开新版是同一次`（中间不存在「没有开放版本」的时刻）、`★ 比较并交换`（`from` 不是当前开放版就整条不生效）、`★ 中间版本不许被跳过`、`★ 只写 created_in IS NULL 的行`、`★ 幂等`（同一批重跑写 0 行）、`★ 库里不存在的概念如实报 missing`、`★ 往已冻结的版本里塞新概念要拒`、空 label / 非正整数 `from` 抛 `RangeError`、label 重复被 UNIQUE 挡。实现：`lib/persistence/xq-graph-version.ts`（`readGraphVersions` / `openGraphVersion` / `advanceGraphVersion` / `assignConceptsToVersion`），入口 `scripts/advance-graph-version.ts`。★ 推进**故意不是 HTTP 路由**：它是一次导入的边界，失败模式是「另一个窗口先推进了」，需要人看一眼。真机（2026-11-10，跑完已还原）：`--dry-run` 回 `1 版 / v1 open / concepts=104`，`--label v2` 真跑后 `v1 frozen 104 / v2 open 0`，重跑回 `already-frozen`（退出码 2）与 `--from 2` 回 `not-found`（退出码 2）。命令：`npx vitest run tests/persistence/xq-graph-version.test.ts`。
 
+- **判据落点（出现记录带上批次，2026-11-10 有了）**：`scripts/backfill-concept-occurrences.ts --execute --batch`（按课各开一批 → 同步器按 `stage → batchId` 写归属 → 全成功才落定）。判据在 `tests/persistence/xq-concept-occurrence-sync.test.ts` 26 例里新增五条：传 `batchIds` 时行上带批次与页指纹 / 不传时 `batch_id` 留空而 `page_hash` 照写（指纹是页的属性，不依赖谁知道自己是哪一批）/ 换一批重算时**内容没变也要更新归属**（一行必须指得出最近一次确认它的导入）/ 同一批再跑是「未变」不刷全表 / 页改了 `page_hash` 跟着变。
+  · 期望读数：真库 `xq_import_batch` 9 行全 `applied`，`xq_concept_occurrence` 645 行全带 `batch_id`（9 个不同批次）与 `page_hash`，`first_seen_at` / `last_seen_at` 各 645 行，`stale_since` 0 行；重跑「命中」九批、`新增 0 更新 0 未变 645`、`落定 0 / 9`。
+  · 失败长什么样：`--dry-run --batch` 真去开批（开批自己就是一次 INSERT）—— 那条守卫写在脚本里，`--dry-run` 只打印「不真开批次」。
 - **判据落点（导入批次，2026-11-10 有了）**：`lib/persistence/xq-import-batch.ts` + `tests/persistence/xq-import-batch.test.ts` 34 例。
   · 开批幂等：同一份内容 + 同一抽取器 + 同一版图开两次 ⇒ 第二次 `created: false` 且 `batchId` 相同、全库仍 1 行。
   · 四个维度各自能分出新批：内容变（换 `contentHash`）/ 换抽取器 / 跨版图（换 `graphVersion`）/ 换课（换 `stageId`）。

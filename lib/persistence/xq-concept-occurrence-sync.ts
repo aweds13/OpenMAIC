@@ -86,6 +86,7 @@ import {
   type SeedGraph,
 } from '@/lib/concepts';
 import { staticPageText } from '@/lib/quiz/page-text';
+import { pageHashOf } from '@/lib/persistence/xq-import-batch';
 
 /** `xq_concept_occurrence.source` 的取值域（与 DDL 的 CHECK 逐字一致）。 */
 export const OCCURRENCE_SOURCES = ['keypoint', 'title', 'body', 'manual'] as const;
@@ -197,6 +198,8 @@ export interface OccurrenceSyncReport {
   manual: number;
   /** 认领不了的概念（种子图里有、库里没有）与其它异常。 */
   problems: string[];
+  /** 这批挂上了多少个批次（一问一课一个批次；0 表示调用方没传 `batchIds`）。 */
+  batches: number;
   written: boolean;
 }
 
@@ -212,6 +215,8 @@ interface OccurrenceRow extends Record<string, unknown> {
   scene_id: string;
   weight: string | number;
   source: string;
+  batch_id: string | null;
+  page_hash: string | null;
 }
 
 function rowKey(conceptId: string, stageId: string, sceneId: string): string {
@@ -229,10 +234,20 @@ function sameWeight(left: string | number, right: number): boolean {
  */
 export async function syncConceptOccurrences(
   queryable: Queryable,
-  options: { graph?: SeedGraph; execute?: boolean } = {},
+  options: {
+    graph?: SeedGraph;
+    execute?: boolean;
+    /**
+     * 课 → 批次 id。**一问一课一批**（`xq_import_batch.stage_id` 非空且有外键），
+     * 所以这里是一张表而不是一个值：一次重算可以覆盖多门课，每门课各属各的批。
+     * 不传就没有批次归属（老调用、单元测试走这条），行上那两列保持原样不动。
+     */
+    batchIds?: ReadonlyMap<string, string>;
+  } = {},
 ): Promise<OccurrenceSyncReport> {
   const graph = options.graph ?? buildSeedGraph();
   const execute = options.execute === true;
+  const batchIds = options.batchIds;
 
   const report: OccurrenceSyncReport = {
     pages: 0,
@@ -245,6 +260,7 @@ export async function syncConceptOccurrences(
     stale: 0,
     manual: 0,
     problems: [],
+    batches: batchIds === undefined ? 0 : batchIds.size,
     written: execute,
   };
 
@@ -293,7 +309,10 @@ export async function syncConceptOccurrences(
   );
 
   // ── 3. 算挂载 ─────────────────────────────────────────────────
-  const desired = new Map<string, { draft: OccurrenceDraft; conceptId: string }>();
+  const desired = new Map<
+    string,
+    { draft: OccurrenceDraft; conceptId: string; pageHash: string; batchId: string | null }
+  >();
   for (const scene of sceneRows.rows) {
     report.pages += 1;
     const oid = scene.outline_id ?? '';
@@ -301,6 +320,10 @@ export async function syncConceptOccurrences(
     const keyPoints = buckets === undefined ? [] : buckets.flat();
     if (buckets !== undefined) report.pagesWithOutline += 1;
 
+    // ★ 页指纹必须覆盖**整页的 data**（不只是喂进匹配的那串正文），否则
+    // 「页改了但正文没变」会被判成同一页 —— 而那种改动照样让旧证据过期。
+    const pageHash = pageHashOf(scene.data);
+    const batchId = batchIds?.get(scene.stage_id) ?? null;
     const input: PageOccurrenceInput = {
       stageId: scene.stage_id,
       sceneId: scene.id,
@@ -316,7 +339,7 @@ export async function syncConceptOccurrences(
       // 同一页同一个概念只留最高档 —— `deriveOccurrencesFromOutlines` 已经做了，
       // 这里再兜一次是因为一页可能命中同一 oid 的多条大纲。
       if (previous !== undefined && previous.draft.weight >= draft.weight) continue;
-      desired.set(key, { draft, conceptId });
+      desired.set(key, { draft, conceptId, pageHash, batchId });
     }
   }
 
@@ -327,7 +350,7 @@ export async function syncConceptOccurrences(
 
   // ── 4. 与库比对 ───────────────────────────────────────────────
   const existingRows = await queryable.query<OccurrenceRow>(
-    `SELECT concept_id, stage_id, scene_id, weight, source
+    `SELECT concept_id, stage_id, scene_id, weight, source, batch_id::text AS batch_id, page_hash
        FROM xq_concept_occurrence`,
   );
   const existing = new Map<string, OccurrenceRow>();
@@ -337,15 +360,30 @@ export async function syncConceptOccurrences(
     if (!(GENERATED_SOURCES as readonly string[]).includes(row.source)) report.manual += 1;
   }
 
-  const toInsert: { conceptId: string; draft: OccurrenceDraft }[] = [];
-  const toUpdate: { conceptId: string; draft: OccurrenceDraft }[] = [];
+  type Entry = {
+    conceptId: string;
+    draft: OccurrenceDraft;
+    pageHash: string;
+    batchId: string | null;
+  };
+  const toInsert: Entry[] = [];
+  const toUpdate: Entry[] = [];
   for (const [key, entry] of desired) {
     const hit = existing.get(key);
     if (hit === undefined) {
       toInsert.push(entry);
       continue;
     }
-    if (hit.source === entry.draft.source && sameWeight(hit.weight, entry.draft.weight)) {
+    const sameContent =
+      hit.source === entry.draft.source && sameWeight(hit.weight, entry.draft.weight);
+    // ★ 内容一样但「是哪一批拍的」不一样时也要更新：一行必须指得出最近一次
+    // 确认它的导入。不传 batchIds 的调用（老脚本、测试）不去动 `batch_id` ——
+    // 它们不知道自己是哪一批，硬写会把已有归属抹掉。`page_hash` 不受影响：
+    // 它是**页自身的属性**，谁算都一样。
+    const sameBatch =
+      entry.batchId === null ||
+      (hit.batch_id === entry.batchId && hit.page_hash === entry.pageHash);
+    if (sameContent && sameBatch) {
       report.unchanged += 1;
       continue;
     }
@@ -374,23 +412,37 @@ export async function syncConceptOccurrences(
   // 短暂为空 —— 而读方（知识点级读数、复习卡）随时可能在读。
   for (const entry of toInsert) {
     await queryable.query(
-      `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO xq_concept_occurrence
+         (concept_id, stage_id, scene_id, weight, source, batch_id, page_hash,
+          first_seen_at, last_seen_at, stale_since)
+       VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, now(), now(), NULL)
        ON CONFLICT (concept_id, stage_id, scene_id)
-       DO UPDATE SET weight = EXCLUDED.weight, source = EXCLUDED.source`,
+       DO UPDATE SET weight = EXCLUDED.weight,
+                     source = EXCLUDED.source,
+                     batch_id = coalesce(EXCLUDED.batch_id, xq_concept_occurrence.batch_id),
+                     page_hash = coalesce(EXCLUDED.page_hash, xq_concept_occurrence.page_hash),
+                     last_seen_at = now(),
+                     stale_since = NULL`,
       [
         entry.conceptId,
         entry.draft.stageId,
         entry.draft.sceneId,
         entry.draft.weight,
         entry.draft.source,
+        entry.batchId,
+        entry.pageHash,
       ],
     );
   }
   for (const entry of toUpdate) {
     await queryable.query(
       `UPDATE xq_concept_occurrence
-          SET weight = $4, source = $5
+          SET weight = $4,
+              source = $5,
+              batch_id = coalesce($6::uuid, batch_id),
+              page_hash = coalesce($7, page_hash),
+              last_seen_at = now(),
+              stale_since = NULL
         WHERE concept_id = $1 AND stage_id = $2 AND scene_id = $3`,
       [
         entry.conceptId,
@@ -398,6 +450,8 @@ export async function syncConceptOccurrences(
         entry.draft.sceneId,
         entry.draft.weight,
         entry.draft.source,
+        entry.batchId,
+        entry.pageHash,
       ],
     );
   }

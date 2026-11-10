@@ -8,6 +8,7 @@ import {
   syncConceptOccurrences,
 } from '@/lib/persistence/xq-concept-occurrence-sync';
 import { staticPageText } from '@/lib/quiz/page-text';
+import { contentHashOfPages, openImportBatch } from '@/lib/persistence/xq-import-batch';
 import { buildSeedGraph, type SeedGraph } from '@/lib/concepts';
 
 /**
@@ -406,5 +407,133 @@ describe('★ 真种子图上的读数（真库 2026-11-10）', () => {
     // 「`buildSeedGraph()` 的 104 个概念在真库里有行时，抽取器能跑通」这一点。
     const graph = buildSeedGraph();
     expect(graph.concepts.length).toBe(104);
+  });
+});
+
+describe('★ 批次归属：每一行都要指得出「哪次导进来的」', () => {
+  /** 建一门课 + 页 + 开一批，返回 batchId。 */
+  async function openBatchFor(db: PGlite, stageId: string): Promise<string> {
+    await db.query(
+      `INSERT INTO document_stages (id, name, created_at, updated_at, data)
+       VALUES ($1, $1, 0, 0, '{}'::jsonb) ON CONFLICT (id) DO NOTHING`,
+      [stageId],
+    );
+    const pages = await db.query<{ sceneId: string; sceneOrder: number; data: unknown }>(
+      `SELECT id AS "sceneId", coalesce(scene_order, 0) AS "sceneOrder", data
+         FROM document_scenes WHERE stage_id = $1`,
+      [stageId],
+    );
+    const result = await openImportBatch(db, {
+      stageId,
+      origin: 'own-course',
+      contentHash: contentHashOfPages(pages.rows),
+      extractor: 'test/occurrence@1',
+      graphVersion: 1,
+    });
+    return result.batch.batchId;
+  }
+
+  async function batchOf(
+    db: PGlite,
+  ): Promise<{ batch_id: string | null; page_hash: string | null }[]> {
+    const result = await db.query<{ batch_id: string | null; page_hash: string | null }>(
+      'SELECT batch_id::text AS batch_id, page_hash FROM xq_concept_occurrence',
+    );
+    return result.rows;
+  }
+
+  it('★ 传了 batchIds，写进去的行带上批次与页指纹', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    await seedScene(db, { sceneId: 'scene-p1', title: '顺序结构' });
+    const batchId = await openBatchFor(db, 'stage-A');
+    const report = await syncConceptOccurrences(db, {
+      graph: tinyGraph(),
+      execute: true,
+      batchIds: new Map([['stage-A', batchId]]),
+    });
+    expect(report.batches).toBe(1);
+    const rows = await batchOf(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].batch_id).toBe(batchId);
+    expect(rows[0].page_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('★ 不传 batchIds 时批次留空、页指纹照写 —— 指纹是页的属性，不依赖谁知道自己是哪一批', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    await seedScene(db, { sceneId: 'scene-p1', title: '顺序结构' });
+    await syncConceptOccurrences(db, { graph: tinyGraph(), execute: true });
+    const rows = await batchOf(db);
+    expect(rows[0].batch_id).toBeNull();
+    expect(rows[0].page_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('★ 第二次用另一批重算：内容没变也要更新归属（这一行最近由谁确认）', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    await seedScene(db, { sceneId: 'scene-p1', title: '顺序结构' });
+    const firstBatch = await openBatchFor(db, 'stage-A');
+    await syncConceptOccurrences(db, {
+      graph: tinyGraph(),
+      execute: true,
+      batchIds: new Map([['stage-A', firstBatch]]),
+    });
+
+    // 换一个抽取器 ⇒ 新一批（同一份内容）
+    const pages = await db.query<{ sceneId: string; sceneOrder: number; data: unknown }>(
+      `SELECT id AS "sceneId", coalesce(scene_order, 0) AS "sceneOrder", data
+         FROM document_scenes WHERE stage_id = 'stage-A'`,
+    );
+    const second = await openImportBatch(db, {
+      stageId: 'stage-A',
+      origin: 'own-course',
+      contentHash: contentHashOfPages(pages.rows),
+      extractor: 'test/occurrence@2',
+      graphVersion: 1,
+    });
+    const report = await syncConceptOccurrences(db, {
+      graph: tinyGraph(),
+      execute: true,
+      batchIds: new Map([['stage-A', second.batch.batchId]]),
+    });
+    expect(report.update).toBe(1);
+    expect(report.unchanged).toBe(0);
+    expect((await batchOf(db))[0].batch_id).toBe(second.batch.batchId);
+  });
+
+  it('★ 同一批再跑一次是「未变」，不会因为来源比对把整表刷一遍', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    await seedScene(db, { sceneId: 'scene-p1', title: '顺序结构' });
+    const batchId = await openBatchFor(db, 'stage-A');
+    const ids = new Map([['stage-A', batchId]]);
+    await syncConceptOccurrences(db, { graph: tinyGraph(), execute: true, batchIds: ids });
+    const again = await syncConceptOccurrences(db, {
+      graph: tinyGraph(),
+      execute: true,
+      batchIds: ids,
+    });
+    expect(again.update).toBe(0);
+    expect(again.unchanged).toBe(1);
+  });
+
+  it('★ 页被改过之后 page_hash 跟着变（否则「页变了」永远判不出来）', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    await seedScene(db, { sceneId: 'scene-p1', title: '顺序结构' });
+    const batchId = await openBatchFor(db, 'stage-A');
+    const ids = new Map([['stage-A', batchId]]);
+    await syncConceptOccurrences(db, { graph: tinyGraph(), execute: true, batchIds: ids });
+    const before = (await batchOf(db))[0].page_hash;
+
+    await db.query(
+      `UPDATE document_scenes SET data = jsonb_set(data, '{content}', '"改过的正文"'::jsonb)
+        WHERE stage_id = 'stage-A' AND id = 'scene-p1'`,
+    );
+    await syncConceptOccurrences(db, { graph: tinyGraph(), execute: true, batchIds: ids });
+    const after = (await batchOf(db))[0].page_hash;
+    expect(after).not.toBe(before);
+    expect(after).toMatch(/^[0-9a-f]{64}$/);
   });
 });

@@ -83,7 +83,9 @@
 
 **导入批次的单位也有了（2026-11-10）**：`lib/persistence/xq-import-batch.ts` 把「一次导入」变成库里可以指着说的一行 —— `(stage_id, source_graph, content_hash, extractor, graph_version)` 五键 `UNIQUE NULLS NOT DISTINCT`，状态 `open` / `applied` / `abandoned`，`xq_import_batch_applied_pair` 双向约束钉住「落定才有时刻」。在这之前，图谱版本能从 1 推进到 2，但库里没有任何一行说得出这次涨版是因为哪个文件、哪个抽取器、哪一门课 —— 而「重导会不会重复」这个问题根本没有地方承载。★ 它测的是**逐课**哈希：改 3 页整门课的哈希就变，所以判为新批次（这是想要的）；「这两批里有多少页一样」不是它的问题，那个靠逐页 `pageHashOf()`。判据 `tests/persistence/xq-import-batch.test.ts` 34 条。
 
-**仍不成立**：批次的表与函数都在了，但**还没有任何导入器去调它** —— `xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表仍是 0 行，`created_in` 也没有第三个值出现过（104 个概念全在第 1 版），种子图同步器与出现记录同步器**都不写 `batch_id` 与 `page_hash`**（那两列是 V5 才加的，两个同步器还没有接）。所以「版本化」今天是**可用的能力**，不是**在用的机制**。
+**出现记录先接上了（2026-11-10）**：`scripts/backfill-concept-occurrences.ts --execute --batch` 按课各开一批（九门课九批，五键幂等，同一份内容重跑「命中」同一批）→ 同步器按 `stage → batchId` 把归属写进每一行 → 全部写成功才 `applyImportBatch()` 落定。真库读数：`xq_import_batch` 9 行全 `applied`、`xq_concept_occurrence` **645 行全部带 `batch_id` 与 `page_hash`**（9 个不同批次）、`first_seen_at` / `last_seen_at` 各 645 行、`stale_since` 0 行；重跑「命中」九批、`新增 0 更新 0 未变 645`、`落定 0 / 9`（幂等）。★ `--dry-run` **不真开批** —— 开批自己就是一次 INSERT，`--dry-run --batch` 只打印「不真开批次」。
+
+**仍不成立**：出现记录这一条接了，但**还没有导入器把整门课当一次导入来做** —— `xq_intake_task` / `xq_intake_proposal` / `xq_alignment_unit` 三张表仍是 0 行，`created_in` 也没有第三个值出现过（104 个概念全在第 1 版），种子图同步器仍不写 `batch_id`（概念不是按课导的，没有 `stage_id` 可挂）。所以「版本化」今天是**可用的能力**，不是**在用的机制**。
 
 **在有人真的按 `prereq` 边排出顺序之前，任何「按图谱排序」的行为都不许上线。**（原句写的是「形态还没定」，2026-11-10 更正：形态已经定了，缺的是用它的那一步。）
 
