@@ -91,11 +91,43 @@ export interface LearnerStateReview {
   dueAt: string | Date;
 }
 
+/**
+ * 一条**知识点级**读数（`readConceptMastery()` 折出来的）。
+ *
+ * ★ 它与上面那三态格子不是一回事：一格是「这一页他会不会」，这里是
+ *   「这个知识点他会不会」，证据**跨页跨课合并**。`类与对象` 那条实测就跨了
+ *   2 页 2 课 —— 任何单独一页都只有 1 条证据（不够判），合起来才够。
+ */
+export interface LearnerStateConcept {
+  concept: string;
+  tri: Tri;
+  /** 合并后的证据条数（按 `counted_n` 加权）。 */
+  n?: number | string | null;
+  /** 合并后的答对数。 */
+  k?: number | string | null;
+  lb5?: number | string | null;
+  ub95?: number | string | null;
+  /** 参与判定的题数（去重后的题目个数），与 `n` 不是一回事。 */
+  questions?: number | string | null;
+}
+
 export interface RenderLearnerStateBlockInput {
   /** 三态格子（`xq_cell_state`）。传进来之前应当已按 owner 圈好。 */
   cells?: readonly LearnerStateCell[];
   /** 到期复习。传进来之前应当已经过滤过 `done_at IS NULL`。 */
   reviews?: readonly LearnerStateReview[];
+  /**
+   * 知识点级读数（跨页跨课合并）。
+   *
+   * ★ **只列已经判得出来的**（`known` / `not-learned`），`unknown` 一律不列。
+   *
+   * 理由：知识点层存在的意义是**跨页合并把证据凑够**。没凑够的时候，页级那三节
+   * 已经把「为什么不够判」写得比这里细（`再做对 N 题可判` / `证据不一致`）——
+   * 再把 14 个「暂未定」抄一遍，只多占前缀预算，一个字的信息都不多。
+   *
+   * 反过来，一旦某个知识点真的判出来了，它就是比任何单页都强的陈述，该进块。
+   */
+  concepts?: readonly LearnerStateConcept[];
   /**
    * 练习结果，**原样**是 `formatPracticeResultsForState()` 的输出。
    *
@@ -239,6 +271,34 @@ function trimNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
+/**
+ * 一行知识点级读数：`- 概念「类与对象」· 2 题 · n=2 k=2 · 置信下界 0.60`。
+ *
+ * ★ 为什么不写 stage/scene：概念是**跨页**的，写一个页 id 就等于把它钉回某一页，
+ *   而它恰恰是「两页合起来才够判」的产物。要定位它出现在哪几页，那是
+ *   `GET /api/persistence/xq/concepts?id=` 的活，不是状态块的一行能干的事。
+ *
+ * ★ 为什么不写 `questions`：`n` 是加权后的证据条数（同日同题重测算半份），
+ *   `questions` 是去重后的题目个数。两个数都给、都叫「题数」，读的人一定会混。
+ *   这里只写 `n`（判据实际用的那个），题目个数留在接口里给界面用。
+ */
+function conceptLine(concept: LearnerStateConcept): string {
+  const name = singleLine(concept.concept);
+  const parts = [`- 概念「${name}」`];
+  const n = toNumber(concept.n);
+  const k = toNumber(concept.k);
+  const measure = n !== null && k !== null ? `n=${trimNumber(n)} k=${trimNumber(k)}` : '';
+  if (measure) parts.push(measure);
+  if (concept.tri === 'known') {
+    const lb = fixed2(toNumber(concept.lb5));
+    parts.push(lb === null ? '已达判据' : `置信下界 ${lb}`);
+  } else {
+    const ub = fixed2(toNumber(concept.ub95));
+    parts.push(ub === null ? '未达判据' : `置信上界 ${ub}`);
+  }
+  return parts.join(' · ');
+}
+
 /** 一行到期复习：`- 页 <sceneId>（<stageId>）· 概念「…」· 第 N 关 · 到期 <日期>`。 */
 function reviewLine(review: LearnerStateReview): string {
   const concept = (review.concept ?? '').trim();
@@ -302,7 +362,20 @@ export function renderLearnerStateBlock(input: RenderLearnerStateBlockInput = {}
 
   // ★ 零冷启动：先判空再拼任何字。空块占 token 且破坏前缀缓存，而「没数据」从
   //   「没有这一段」就能推出来 —— 所以这里连一行占位都不留。
-  if (cells.length === 0 && reviews.length === 0 && practiceText.length === 0) return '';
+  // 知识点级只收已经判得出来的两条（见输入注释）；判不出来的在这里就丢掉，
+  // 免得下游还要各自记得「unknown 不列」。
+  const concepts = (input.concepts ?? []).filter(
+    (concept) => concept.tri === 'known' || concept.tri === 'not-learned',
+  );
+
+  if (
+    cells.length === 0 &&
+    concepts.length === 0 &&
+    reviews.length === 0 &&
+    practiceText.length === 0
+  ) {
+    return '';
+  }
 
   const nowMs =
     input.now === undefined
@@ -321,6 +394,15 @@ export function renderLearnerStateBlock(input: RenderLearnerStateBlockInput = {}
       byCodePoint(a.sceneId, b.sceneId) ||
       byCodePoint(String(a.concept ?? ''), String(b.concept ?? '')),
   );
+
+  // 知识点级同样按概念名码点序 —— 前缀缓存要求两次渲染逐字节相同（约束 5）。
+  const sortedConcepts = [...concepts].sort((a, b) => byCodePoint(a.concept, b.concept));
+  const knownConcepts: string[] = [];
+  const notLearnedConcepts: string[] = [];
+  for (const concept of sortedConcepts) {
+    if (concept.tri === 'known') knownConcepts.push(conceptLine(concept));
+    else notLearnedConcepts.push(conceptLine(concept));
+  }
 
   const known: string[] = [];
   const notLearned: string[] = [];
@@ -370,6 +452,22 @@ export function renderLearnerStateBlock(input: RenderLearnerStateBlockInput = {}
   // 判据串必须与算法一致：`0.55` 是 `KNOWN_MIN`、`0.30` 是 `NOT_LEARNED_MAX`、
   // 「3 天后复测仍答对」是延迟桶（`DELAYED_BUCKET_DAYS`）。改算法就得改这几行，
   // 它们是 `tests/quiz/learner-state-render.test.ts` 里钉住的同一件事。
+  // ★ 知识点级排在页级**前面**：它跨页跨课合并过证据，是比任何单页都强的陈述。
+  //
+  //   节名沿用「判据写进标题」那条（N6 §9.2），但主语换了：页级那三节的主语是
+  //   **页**，这两节的主语是**知识点**。同一个阈值在两处都写一遍是刻意的 ——
+  //   读者不该为了核对一个数字去翻另一节。
+  if (knownConcepts.length > 0) {
+    lines.push(
+      '## 知识点：已达判据（跨页合并，置信下界 ≥ 0.55，且 3 天后复测仍答对）',
+      ...knownConcepts,
+      '',
+    );
+  }
+  if (notLearnedConcepts.length > 0) {
+    lines.push('## 知识点：未达判据（跨页合并，置信上界 ≤ 0.30）', ...notLearnedConcepts, '');
+  }
+
   if (known.length > 0) {
     lines.push('## 已达判据（置信下界 ≥ 0.55，且 3 天后复测仍答对）', ...known, '');
   }

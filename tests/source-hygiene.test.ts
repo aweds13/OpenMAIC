@@ -65,6 +65,8 @@ function collectFiles(): string[] {
 }
 
 describe('源码卫生', () => {
+  // ★ 这条要遍历整个仓库，单跑约 3.7 秒。默认 5 秒在并行负载下会超时 ——
+  //   超时不是「有 NUL」，是「还没扫完」，而假红会让人开始怀疑判据本身。
   it('源文件里没有裸 NUL 字节 —— 复合键要用转义写', () => {
     const files = collectFiles();
     // 这个断言本身也是判据：扫不到文件时这条测试会「通过」而什么都没查。
@@ -84,5 +86,5 @@ describe('源码卫生', () => {
       offenders,
       `这些文件里有裸 NUL 字节，会让 grep/diff 当二进制：${offenders.join(', ')}`,
     ).toEqual([]);
-  });
+  }, 15000);
 });

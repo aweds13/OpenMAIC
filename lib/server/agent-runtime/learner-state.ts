@@ -44,8 +44,10 @@ import { agentRuntimeConfig } from './config';
 import {
   renderLearnerStateBlock,
   type LearnerStateCell,
+  type LearnerStateConcept,
   type LearnerStateReview,
 } from './learner-state-render';
+import { readConceptMastery } from '@/lib/persistence/xq-concept-mastery';
 import { readPromptContextFile } from './prompt-context-file';
 
 const log = createLogger('LearnerState');
@@ -107,6 +109,14 @@ export interface RefreshLearnerStateResult {
   cells: number;
   /** 到期复习条数（`done_at IS NULL AND due_at <= now`）。 */
   reviews: number;
+  /**
+   * 折进来的知识点级读数条数（跨页跨课合并后的概念数）。
+   *
+   * ★ 它与 `cells` 不是同一件事的两个名字：`cells` 数的是**页**，这里数的是
+   *   **概念**。真库实测同一个概念可以跨 2 页 2 课 —— 两边数字永远对不上，
+   *   合并成一个只会让人以为哪边算错了。
+   */
+  concepts: number;
   /**
    * 折进来的**练习结果**条数（来自磁盘上的 `result.json`，不是数据库）。
    *
@@ -261,6 +271,36 @@ async function loadCells(db: Queryable): Promise<{ cells: LearnerStateCell[]; co
   return { cells, complete: true };
 }
 
+/**
+ * 知识点级读数（跨页跨课合并）。
+ *
+ * ★ 为什么不复用 `loadCells` 里那张 `xq_question_concept` 查询：那两个查询回答的
+ *   是**不同的问题**。`loadCells` 问「这一页的主题是哪**一个**知识点」（所以要求
+ *   最高档唯一、否则退回页标题）；这里问「这**个**知识点他会不会」（同一档并列
+ *   两个就都丢掉，因为分不清是哪两个概念的证据）。一个按页分组、一个按概念分组，
+ *   合写会逼出一个两边都读不懂的 SQL。
+ *
+ * 失败一律退化成空数组：知识点层是**增量**，读不到它时页级三节照样完整 ——
+ * 让整次刷新失败，等于因为一层汇总数据丢了一整份状态。
+ */
+async function loadConcepts(db: Queryable): Promise<LearnerStateConcept[]> {
+  try {
+    const rows = await readConceptMastery(db, {});
+    return rows.map((row) => ({
+      concept: row.concept,
+      tri: row.verdict.tri,
+      n: row.verdict.n,
+      k: row.verdict.k,
+      lb5: row.verdict.lb5,
+      ub95: row.verdict.ub95,
+      questions: row.questions,
+    }));
+  } catch (error) {
+    log.debug?.({ error: String(error) }, 'xq concept mastery unavailable');
+    return [];
+  }
+}
+
 /** 到期复习：`done_at IS NULL AND due_at <= now`。 */
 async function loadDueReviews(db: Queryable, now: Date): Promise<LearnerStateReview[]> {
   try {
@@ -330,9 +370,11 @@ export async function refreshLearnerStateFromRuntime(
 
   const loaded = db ? await loadCells(db) : { cells: [] as LearnerStateCell[], complete: false };
   const reviews = db ? await loadDueReviews(db, now) : [];
+  const concepts = db ? await loadConcepts(db) : [];
 
   const text = renderLearnerStateBlock({
     cells: loaded.cells,
+    concepts,
     reviews,
     practiceText,
     now,
@@ -346,6 +388,7 @@ export async function refreshLearnerStateFromRuntime(
       scenes: 0,
       cells: 0,
       reviews: 0,
+      concepts: 0,
       practiceResults: practiceEntries.length,
     };
   }
@@ -362,6 +405,7 @@ export async function refreshLearnerStateFromRuntime(
     scenes: loaded.cells.length,
     cells: loaded.cells.length,
     reviews: reviews.length,
+    concepts: concepts.length,
     practiceResults: practiceEntries.length,
   };
 }

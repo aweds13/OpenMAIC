@@ -275,6 +275,108 @@ describe('约束 7：文件要自己写明「代码生成、手改会被覆盖�
   });
 });
 
+describe('知识点级读数：只列判得出来的，排在页级前面', () => {
+  // 知识点层存在的意义是**跨页跨课合并把证据凑够**。真库实测：`类与对象` 那条
+  // 跨了 2 页 2 课，任何单独一页都只有 1 条证据（不够判），合起来才够。
+  //
+  // 反过来，没凑够的时候页级那三节已经把「为什么不够判」写得更细，
+  // 再抄 14 个「暂未定」只多占前缀预算。
+
+  it('★ 判得出来的知识点进块，且排在页级前面', () => {
+    const text = renderLearnerStateBlock({
+      cells: [cell()],
+      concepts: [{ concept: '类与对象', tri: 'known', n: 8, k: 7, lb5: 0.6 }],
+    });
+    const conceptAt = text.indexOf('## 知识点：已达判据');
+    const pageAt = text.indexOf('## 已达判据（置信下界');
+    expect(conceptAt).toBeGreaterThan(-1);
+    expect(pageAt).toBeGreaterThan(-1);
+    // 跨页合并过证据的陈述比任何单页都强，排在前面。
+    expect(conceptAt).toBeLessThan(pageAt);
+  });
+
+  it('★ 暂未定的知识点不列 —— 页级已经说过为什么', () => {
+    const text = renderLearnerStateBlock({
+      cells: [cell()],
+      concepts: [
+        { concept: '字符串', tri: 'unknown', n: 2, k: 2 },
+        { concept: '提交', tri: 'unknown', n: 2, k: 1 },
+      ],
+    });
+    expect(text).not.toContain('## 知识点：');
+    expect(text).not.toContain('字符串');
+    expect(text).not.toContain('提交');
+  });
+
+  it('★ 未达判据的知识点也进块，且用上界', () => {
+    const text = renderLearnerStateBlock({
+      cells: [cell()],
+      concepts: [{ concept: '空安全', tri: 'not-learned', n: 4, k: 0, ub95: 0.28 }],
+    });
+    expect(text).toContain('## 知识点：未达判据');
+    expect(text).toContain('概念「空安全」');
+    expect(text).toContain('置信上界 0.28');
+    expect(text).not.toContain('置信下界 0.28');
+  });
+
+  it('★ 一行里不写 stage/scene —— 概念是跨页的', () => {
+    // 写一个页 id 就等于把它钉回某一页，而它恰恰是「两页合起来才够判」的产物。
+    const text = renderLearnerStateBlock({
+      cells: [cell()],
+      concepts: [{ concept: '类与对象', tri: 'known', n: 2, k: 2, lb5: 0.6 }],
+    });
+    const line = text.split('\n').find((l) => l.includes('概念「类与对象」'));
+    expect(line).toBeTruthy();
+    expect(line).not.toContain('stage-');
+    expect(line).not.toContain('scene-');
+    expect(line).not.toContain('页 ');
+  });
+
+  it('★ 只写 n 不写 questions —— 两个都叫「题数」一定会混', () => {
+    const text = renderLearnerStateBlock({
+      cells: [cell()],
+      concepts: [{ concept: '类与对象', tri: 'known', n: 2, k: 2, lb5: 0.6, questions: 3 }],
+    });
+    expect(text).toContain('n=2 k=2');
+    expect(text).not.toContain('questions');
+    expect(text).not.toContain('3 题');
+  });
+
+  it('★ 只有知识点也能渲染（页级一格都没有时不该空）', () => {
+    const text = renderLearnerStateBlock({
+      concepts: [{ concept: '类与对象', tri: 'known', n: 3, k: 3, lb5: 0.56 }],
+    });
+    expect(text.startsWith(HEADER)).toBe(true);
+    expect(text).toContain('## 知识点：已达判据');
+  });
+
+  it('★ 全是 unknown 且别处也空 ⇒ 仍是空字符串（零冷启动不破）', () => {
+    expect(
+      renderLearnerStateBlock({ concepts: [{ concept: '字符串', tri: 'unknown', n: 1, k: 1 }] }),
+    ).toBe('');
+  });
+
+  it('★ 知识点按概念名码点序，乱序输入同一份输出', () => {
+    const a = renderLearnerStateBlock({
+      cells: [cell()],
+      concepts: [
+        { concept: 'Git', tri: 'known', n: 3, k: 3, lb5: 0.6 },
+        { concept: 'Dart 变量 var / final / const', tri: 'known', n: 3, k: 3, lb5: 0.6 },
+      ],
+    });
+    const b = renderLearnerStateBlock({
+      cells: [cell()],
+      concepts: [
+        { concept: 'Dart 变量 var / final / const', tri: 'known', n: 3, k: 3, lb5: 0.6 },
+        { concept: 'Git', tri: 'known', n: 3, k: 3, lb5: 0.6 },
+      ],
+    });
+    expect(a).toBe(b);
+    // 码点序：'D'(0x44) < 'G'(0x47)。
+    expect(a.indexOf('Dart 变量')).toBeLessThan(a.indexOf('概念「Git」'));
+  });
+});
+
 describe('★ 标签必须跟着数据来源变（写错比不写更坏）', () => {
   it('有概念名 ⇒ 写「概念」', () => {
     const text = renderLearnerStateBlock({
