@@ -5,6 +5,7 @@ import { syncSeedGraph } from '@/lib/persistence/xq-seed-sync';
 import type { ConceptGraph, ConceptNode } from '@/lib/persistence/xq-concept-graph';
 import {
   BIGRAM_TAU,
+  SENSE_VETO_MIN_ANCHORS,
   SUSPECT_CANDIDATE_LIMIT,
   bigramSimilarity,
   buildLexicalIndex,
@@ -182,10 +183,13 @@ describe('★ 判定树：没有字面候选的那一支', () => {
 });
 
 describe('★ 判定树：字面命中之后还有三道关', () => {
+  // ★ 三个锚 —— 刚好到 `SENSE_VETO_MIN_ANCHORS`。换个数字就没法测否决了：
+  //   两个锚时这条路径会走 `sense-too-thin`（见下面「锚太薄」那组），
+  //   那是刻意的：词表薄的时候我们不许说「它不像」。
   const constructorFacts = (): MatchFacts =>
     factsOf({
       nodes: [node('c_oop', '构造方法')],
-      anchors: [['c_oop', ['构造器', '构造函数']]],
+      anchors: [['c_oop', ['构造器', '构造函数', '实例化']]],
     });
 
   it('候选 ≥ 2 ⇒ 直接存疑（字面本身就有歧义）', () => {
@@ -254,6 +258,59 @@ describe('★ 判定树：字面命中之后还有三道关', () => {
     expect(result.tri).toBe('suspect');
     expect(result.reason).toBe('lexical-only');
     expect(result.candidates[0].vetoed).toBe(false);
+  });
+
+  it('★★ 锚太薄时不许否决 —— 拿自己的词表薄去怀疑对方，是自伤', () => {
+    // 真库实测的反例：`构造方法` 的锚只有 ["编译"]。于是语义正确的
+    // `构造器` / `父类` / `super` 全被判 `all-vetoed`，而错误的 `编译` 反而命中。
+    // 单锚概念等于「它只认一个词」，任何同义说法都成了反对证据。
+    const thin = factsOf({
+      nodes: [node('c_oop', '构造方法')],
+      anchors: [['c_oop', ['编译']]],
+    });
+    const result = decideThreeWay(
+      { externalName: '构造方法', senseAnchors: ['构造器', '父类', 'super'] },
+      thin,
+    );
+    expect(result.tri).toBe('suspect');
+    // ★ 理由必须指向「我们词表薄」，不是「它像不像」。
+    expect(result.reason).toBe('sense-too-thin');
+    expect(result.candidates[0].vetoed).toBe(false);
+    expect(result.candidates[0].senseTooThin).toBe(true);
+  });
+
+  it('★ 锚够厚时才轮到否决 —— 门槛是常量本身，不是随手写的数', () => {
+    // 同一个概念名、同一组外来锚，只改我们自己词表的厚度，结论就应当不同。
+    const enough = (count: number): MatchFacts =>
+      factsOf({
+        nodes: [node('c_oop', '构造方法')],
+        anchors: [['c_oop', Array.from({ length: count }, (_unused, index) => `词${index}`)]],
+      });
+    const thin = decideThreeWay(
+      { externalName: '构造方法', senseAnchors: ['构造器'] },
+      enough(SENSE_VETO_MIN_ANCHORS - 1),
+    );
+    expect(thin.reason).toBe('sense-too-thin');
+    expect(thin.candidates[0].vetoed).toBe(false);
+
+    const thick = decideThreeWay(
+      { externalName: '构造方法', senseAnchors: ['构造器'] },
+      enough(SENSE_VETO_MIN_ANCHORS),
+    );
+    expect(thick.reason).toBe('all-vetoed');
+    expect(thick.candidates[0].vetoed).toBe(true);
+  });
+
+  it('★ 薄锚仍然可以「支持」—— 取消的是否决权，不是信息', () => {
+    const thin = factsOf({
+      nodes: [node('c_oop', '构造方法')],
+      anchors: [['c_oop', ['编译']]],
+    });
+    const result = decideThreeWay({ externalName: '构造方法', senseAnchors: ['编译'] }, thin);
+    // 交集非空 ⇒ sense 信号照给 ⇒ 两个信号 ⇒ 命中。
+    expect(result.tri).toBe('hit');
+    expect(result.reason).toBe('sense-supported');
+    expect(result.candidates[0].senseTooThin).toBe(false);
   });
 
   it('★ 无锚 + 本课已有 occurrence ⇒ 命中（信号 B ②）', () => {

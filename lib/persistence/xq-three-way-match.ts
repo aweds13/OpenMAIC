@@ -46,6 +46,20 @@
  * 「交集为空」只反映输入缺失，不构成反对证据；那种情况落到 `lexical-only`
  * 存疑（这仍然符合 SR-F11.9：只剩字面时不许判命中）。
  *
+ * ## ★ 「我们的词表太薄」也不等于「你错了」（2026-11-10 补）
+ *
+ * 否决还有第三个前提：**候选的锚词表本身够厚**（`SENSE_VETO_MIN_ANCHORS`）。
+ * 真库实测锚数分布 `1:3 / 2:6 / 3:6 / 4:5 / 5:2 / 6:14`，而薄锚与页数无关 ——
+ * `PATH 与环境变量` 21 页只有 2 个锚，`构造方法` 9 页只有 1 个（`["编译"]`）。
+ *
+ * 于是出现一类**自伤**：`构造方法` 拿正确上下文（`构造器` / `父类` / `super` /
+ * `实例化`）来，被判 `all-vetoed`；反过来拿错误上下文（`编译`）来，却命中。
+ * 单锚概念等于「它只认一个词」，任何同义说法都被当成反对证据。
+ *
+ * 这不是「谨慎」而是「拿自己的词表薄去怀疑对方」。薄锚时取消否决权，
+ * 只保留「支持」的作用，并给出 `sense-too-thin` 这个理由 —— 它明确指向
+ * **该去补锚词表**，而不是「这个外来概念不像」。
+ *
  * ## 这一版刻意不做的事
  *
  * - **不写库**。匹配只回答「哪一段」，写 occurrence / proposal 是 P4 的事。
@@ -85,6 +99,20 @@ export const SUSPECT_CANDIDATE_LIMIT = 2;
  */
 export const BIGRAM_TAU: number | null = null;
 
+/**
+ * 候选的锚词数低于这个值，就**不许行使否决权**（2026-11-10 补）。
+ *
+ * ★ 这个数**没有标定**，它是「至少要有几个词才敢说『它不像』」的下限。
+ * 取 3 的理由是实测分布：真库 104 个概念里 9 个只有 1–2 个锚，而这 9 个
+ * 恰恰都是「有真实页数」的概念（`构造方法` 9 页 / `PATH` 21 页）。
+ * 1 个锚等于「只认一个词」，2 个也只够认两个说法 —— 在这个厚度上，
+ * 「交集为空」更可能说明我们抽词抽少了，而不是外来名字错了。
+ *
+ * 反过来，把门槛提到 4 会让 20 个概念失去否决权（`4:5 / 5:2 / 6:14` 里
+ * 只有 21 个够厚），否决权就形同虚设。3 是这两者之间唯一说得通的点。
+ */
+export const SENSE_VETO_MIN_ANCHORS = 3;
+
 /** 一个候选概念的匹配过程。留着是为了回答「为什么它没被选中」。 */
 export interface CandidateAssessment {
   readonly conceptId: string;
@@ -96,6 +124,13 @@ export interface CandidateAssessment {
   readonly vetoed: boolean;
   /** 候选自己的锚词（空数组表示「这个概念没有专属上下文」）。 */
   readonly anchors: readonly string[];
+  /**
+   * 本来会否决、但因为候选的锚词表太薄而没有否决。
+   *
+   * ★ 单独一个字段，不复用 `vetoed: false` —— 「我判它没问题」与
+   * 「我不敢判」在人工队列里要做的事完全不同（后者该去补锚词表）。
+   */
+  readonly senseTooThin: boolean;
 }
 
 export interface ThreeWayInput {
@@ -136,6 +171,11 @@ export const MATCH_REASONS = [
   'bigram-uncalibrated',
   /** bigram 低于已标定的 τ。今天走不到（`BIGRAM_TAU` 是 `null`）。 */
   'bigram-below-tau',
+  /**
+   * 候选的锚词表太薄，否决权不生效 —— 存疑不是「不像」，是「我们还没本钱判」。
+   * 见到这个理由该去做的事是补 `xq_concept.anchors`，不是反复看这条名字。
+   */
+  'sense-too-thin',
 ] as const;
 
 export type MatchReason = (typeof MATCH_REASONS)[number];
@@ -327,10 +367,16 @@ export function decideThreeWay(input: ThreeWayInput, facts: MatchFacts): ThreeWa
   }
 
   // 只剩字面：不许判命中（SR-F11.9 的原文要求）。
+  //
+  // ★ 但「为什么只剩字面」有两种，对下一个人要说不同的话：
+  //   ① 义项锚看了一眼、不相交（`anchors` 够厚）⇒ 真的可能不是同一个东西；
+  //   ② 义项锚**根本不敢看**（候选锚太薄）⇒ 我们还没本钱判，该去补锚词表。
+  // 把②也写成 `lexical-only`，人工队列里就会混进一批「看着像但不敢认」的条目，
+  // 而它们要做的事（补 anchors）与真正的语义分歧完全不同。
   return {
     tri: 'suspect',
     matchedConceptId: null,
-    reason: 'lexical-only',
+    reason: survivor.senseTooThin ? 'sense-too-thin' : 'lexical-only',
     candidates: assessed,
     normalizedName,
     bestSimilarity: null,
@@ -349,14 +395,19 @@ function assessCandidate(
   const hits = senseHits(anchors, input.senseAnchors);
   if (hits.length > 0) signals.push('sense');
 
-  // ★ 否决有两个前提，缺一不可：
+  // ★ 否决有三个前提，缺一不可：
   //   ① 候选**自己**有锚 —— 没锚是「我们对它一无所知」，否决等于凭沉默判罪；
-  //   ② 外来侧**真的给了**锚词 —— 否则「交集为空」只是因为左边是空集。
-  //   把②漏掉会让「没提供上下文」被读成「语义不符」，于是所有带锚的概念
-  //   （真库 104 个里 36 个）在外来侧不给锚时**全部**被否决 —— 那不是谨慎，
-  //   那是拿一个信息缺失当成一条反对证据。
+  //   ② 外来侧**真的给了**锚词 —— 否则「交集为空」只是因为左边是空集；
+  //   ③ 候选的锚词表**够厚** —— 否则「交集为空」只说明我们抽词抽少了。
+  // 把②漏掉会让「没提供上下文」被读成「语义不符」，于是所有带锚的概念
+  // 在外来侧不给锚时**全部**被否决 —— 那不是谨慎，是拿信息缺失当反对证据。
+  // 把③漏掉则相反：自己词表薄却去怀疑对方。实测 `构造方法` 的锚只有 ["编译"]，
+  // 于是语义正确的 `构造器`/`父类`/`super` 全被否决，而错误的 `编译` 反而命中。
   const senseAsked = input.senseAnchors.length > 0;
-  const vetoed = anchors.length > 0 && senseAsked && hits.length === 0;
+  const anchorsThickEnough = anchors.length >= SENSE_VETO_MIN_ANCHORS;
+  const wouldVeto = anchors.length > 0 && senseAsked && hits.length === 0;
+  const vetoed = wouldVeto && anchorsThickEnough;
+  const senseTooThin = wouldVeto && !anchorsThickEnough;
 
   if (!vetoed && contextSupports(conceptId, input, facts)) signals.push('context');
 
@@ -367,6 +418,7 @@ function assessCandidate(
     signals,
     vetoed,
     anchors,
+    senseTooThin,
   };
 }
 

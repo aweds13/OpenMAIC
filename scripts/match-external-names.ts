@@ -202,6 +202,7 @@ async function main(): Promise<number> {
                 canonicalName: candidate.canonicalName,
                 signals: candidate.signals,
                 vetoed: candidate.vetoed,
+                senseTooThin: candidate.senseTooThin,
                 anchors: candidate.anchors,
               })),
             })),
@@ -224,7 +225,13 @@ async function main(): Promise<number> {
           : `  → ${result.candidates
               .map(
                 (candidate) =>
-                  `${candidate.canonicalName}${candidate.vetoed ? '（否决）' : `(${candidate.signals.join('+')})`}`,
+                  `${candidate.canonicalName}${
+                    candidate.vetoed
+                      ? '（否决）'
+                      : candidate.senseTooThin
+                        ? '（锚太薄，不敢判）'
+                        : `(${candidate.signals.join('+')})`
+                  }`,
               )
               .join(' / ')}`;
       console.log(
