@@ -257,7 +257,7 @@ describe('recordProposal', () => {
     expect((await counts(db)).proposals).toBe(1);
   });
 
-  it('★ 拒绝之后再导入：seen_count 涨，但状态不被改写 —— 这就是「不再问」', async () => {
+  it('★ 拒绝之后再导入：人的决定冻住，证据继续更新（F7）', async () => {
     const db = await freshDb();
     const first = await recordProposal(db, {
       externalSource: 'acm-graph',
@@ -277,13 +277,163 @@ describe('recordProposal', () => {
     });
     expect(again.status).toBe('rejected');
     expect(again.seenCount).toBe(2);
-    const stored = await db.query<{ tri: string; decision_note: string }>(
-      `SELECT tri, decision_note FROM xq_intake_proposal WHERE id = $1`,
+    const stored = await db.query<{
+      status: string;
+      tri: string;
+      decided_by: string;
+      decided_at: Date | null;
+      decision_note: string;
+    }>(
+      `SELECT status, tri, decided_by, decided_at, decision_note
+         FROM xq_intake_proposal WHERE id = $1`,
       [first.id],
     );
-    // 判定结果同样不许被新导入改写（否则「上次为什么拒了」就丢了）。
-    expect(stored.rows[0]!.tri).toBe('miss');
-    expect(stored.rows[0]!.decision_note).toContain('构造题');
+    const row = stored.rows[0]!;
+    // ★ F7 的判决：拒绝只冻结**人的决定**，不冻结**证据**。
+    //
+    // 这条判据 2026-11-13 从「证据冻结」改成「决定冻结、证据更新」，原因是
+    // F7：审计发现拒绝后的行 tri 永远停在 miss，后来真的命中了人也看不见。
+    // 判决是「拒绝冻结的是人的决定，不是证据」—— 所以 tri 变 suspect 是对的。
+    // ⚠️ 放宽的只有 tri（以及 matched/confidence/signals）这三类**证据**，
+    // status / decided_* / decision_note 一个字都不许动，下面逐条钉住。
+    expect(row.tri).toBe('suspect');
+
+    // 人的决定：状态、拒绝人、拒绝时刻、理由，全部原样。
+    expect(row.status).toBe('rejected');
+    expect(row.decided_by).toBe('owner');
+    expect(row.decided_at).not.toBeNull();
+    expect(row.decision_note).toContain('构造题');
+  });
+
+  it('★ F6：proposed 的行后来带着 matched 以 hit 再来一次 ⇒ 直接 accepted，不再等人批', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM xq_concept WHERE canonical_name = 'Git' AND status = 'active'`,
+    );
+    const matched = rows[0]!.id;
+    const first = await recordProposal(db, {
+      externalSource: 'acm-graph',
+      externalName: '版本控制',
+      tri: 'miss',
+    });
+    expect(first.status).toBe('proposed');
+    const conceptsBefore = (await counts(db)).concepts;
+
+    const second = await recordProposal(db, {
+      externalSource: 'acm-graph',
+      externalName: '版本控制',
+      tri: 'hit',
+      matchedConceptId: matched,
+    });
+    expect(second.created).toBe(false);
+
+    const stored = await db.query<{
+      status: string;
+      tri: string;
+      matched_concept_id: string;
+      accepted_concept_id: string;
+      decided_by: string;
+      decided_at: Date | null;
+    }>(
+      `SELECT status, tri, matched_concept_id, accepted_concept_id, decided_by, decided_at
+         FROM xq_intake_proposal WHERE id = $1`,
+      [first.id],
+    );
+    const row = stored.rows[0]!;
+    // 三样必须一起变，否则 V5 的三条 CHECK 会互相打架：
+    // status=accepted ⇒ accepted_concept_id 非空；tri=hit ⇒ matched 非空；
+    // status≠proposed ⇒ decided_at/decided_by 都非空。
+    expect(row.status).toBe('accepted');
+    expect(row.accepted_concept_id).toBe(matched);
+    expect(row.matched_concept_id).toBe(matched);
+    expect(row.decided_by).toBe(AUTO_HIT_DECIDER);
+    expect(row.decided_at).not.toBeNull();
+    // 已经自动归并，人再点 --accept 只能是 not-proposed —— 绝不许再建一个
+    // 它自己都判定「已存在」的概念。
+    expect(
+      await promoteProposal(withTx(db), { proposalId: first.id, operator: 'owner' }),
+    ).toMatchObject({ ok: false, reason: 'not-proposed' });
+    expect((await counts(db)).concepts).toBe(conceptsBefore);
+  });
+
+  it('★ F6：已经 accepted 的行，证据不许被后续导入改写 —— 「已接受但匹配为空」是怪行', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM xq_concept WHERE canonical_name = 'Git' AND status = 'active'`,
+    );
+    const matched = rows[0]!.id;
+    const created = await recordProposal(db, {
+      externalSource: 'acm-graph',
+      externalName: 'Git 版本控制',
+      tri: 'hit',
+      matchedConceptId: matched,
+    });
+    expect(created.status).toBe('accepted');
+
+    await recordProposal(db, {
+      externalSource: 'acm-graph',
+      externalName: 'Git 版本控制',
+      tri: 'miss',
+      signals: [{ stageId: '', sceneId: '', pageHash: null, quote: '后来又说没命中' }],
+    });
+
+    const stored = await db.query<{ status: string; tri: string; accepted_concept_id: string }>(
+      `SELECT status, tri, accepted_concept_id FROM xq_intake_proposal WHERE id = $1`,
+      [created.id],
+    );
+    expect(stored.rows[0]!.status).toBe('accepted');
+    expect(stored.rows[0]!.tri).toBe('hit');
+    expect(stored.rows[0]!.accepted_concept_id).toBe(matched);
+  });
+
+  it('★ F6/F7 交叉：被拒过的行后来真的命中了，也不自动接受 —— 拒绝优先，人得再拍一次', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM xq_concept WHERE canonical_name = 'Git' AND status = 'active'`,
+    );
+    const matched = rows[0]!.id;
+    const first = await recordProposal(db, {
+      externalSource: 'acm-graph',
+      externalName: '版本控制',
+      tri: 'miss',
+    });
+    await rejectProposal(db, {
+      proposalId: first.id,
+      operator: 'owner',
+      note: '当时觉得是另一件事',
+    });
+
+    await recordProposal(db, {
+      externalSource: 'acm-graph',
+      externalName: '版本控制',
+      tri: 'hit',
+      matchedConceptId: matched,
+    });
+
+    const stored = await db.query<{
+      status: string;
+      tri: string;
+      matched_concept_id: string;
+      accepted_concept_id: string | null;
+      decided_by: string;
+      decision_note: string;
+    }>(
+      `SELECT status, tri, matched_concept_id, accepted_concept_id, decided_by, decision_note
+         FROM xq_intake_proposal WHERE id = $1`,
+      [first.id],
+    );
+    const row = stored.rows[0]!;
+    // 证据（tri / matched）更新了 —— 人下次能看到「它现在确实命中」。
+    expect(row.tri).toBe('hit');
+    expect(row.matched_concept_id).toBe(matched);
+    // 但人的决定原封不动：还是 rejected、没有 accepted 目标、拒绝人还是 owner。
+    expect(row.status).toBe('rejected');
+    expect(row.accepted_concept_id).toBeNull();
+    expect(row.decided_by).toBe('owner');
+    expect(row.decision_note).toContain('另一件事');
   });
 });
 
@@ -547,6 +697,151 @@ describe('promoteProposal', () => {
     expect(stored.rows[0]!.status).toBe('proposed');
     expect(stored.rows[0]!.accepted_concept_id).toBeNull();
   });
+
+  it('★ F5：外来名是某个活跃概念的**别名**时同样拒收，detail 报出概念名', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    // 从种子图里挑一个真实别名：它必须不是任何活跃概念的规范名，否则
+    // 命中的是「同名」那条分支，钉不到别名这条。
+    const { rows } = await db.query<{ alias: string; canonical_name: string; id: string }>(
+      `SELECT a.alias, c.canonical_name, c.id
+         FROM xq_concept_alias a
+         JOIN xq_concept c ON c.id = a.concept_id
+        WHERE c.status = 'active' AND a.ambiguous = false
+          AND NOT EXISTS (SELECT 1 FROM xq_concept x
+                           WHERE x.canonical_name = a.alias AND x.status = 'active')
+        ORDER BY length(a.alias) DESC, a.alias
+        LIMIT 1`,
+    );
+    const aliased = rows[0]!;
+    expect(aliased).toBeTruthy();
+    const before = await counts(db);
+
+    const proposalId = (
+      await recordProposal(db, {
+        externalSource: 'acm-graph',
+        externalName: aliased.alias,
+        tri: 'miss',
+      })
+    ).id;
+    const result = await promoteProposal(withTx(db), { proposalId, operator: 'owner' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.reason).toBe('name-taken');
+    expect(result.detail).toContain(aliased.canonical_name);
+    expect(result.detail).toContain('别名');
+    // 关键后果：概念表一行都不许多。旧实现会插出一个以别名当规范名的第二
+    // 概念，而那之后每次按名字匹配这条别名都会变成 lexical-ambiguous。
+    expect((await counts(db)).concepts).toBe(before.concepts);
+  });
+
+  it('★ F5：一个别名指向多个活跃概念时拒收，detail 列出全部候选', async () => {
+    const db = await freshDb();
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind, anchors, status, created_in) VALUES
+         ('c_000000000001', '甲概念', 'concept', '{}'::text[], 'active', 1),
+         ('c_000000000002', '乙概念', 'concept', '{}'::text[], 'active', 1)`,
+    );
+    await db.query(
+      `INSERT INTO xq_concept_alias (alias, kind, concept_id, source, ambiguous) VALUES
+         ('双指词', 'concept', 'c_000000000001', 'test', true),
+         ('双指词', 'concept', 'c_000000000002', 'test', true)`,
+    );
+    const proposalId = (
+      await recordProposal(db, { externalSource: 'x', externalName: '双指词', tri: 'miss' })
+    ).id;
+    const result = await promoteProposal(withTx(db), { proposalId, operator: 'owner' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.reason).toBe('name-taken');
+    // 两个概念名都要在 —— 归并到哪个不是脚本能决定的，摆给人看。
+    expect(result.detail).toContain('甲概念');
+    expect(result.detail).toContain('乙概念');
+    expect(result.detail).toContain('2 个');
+  });
+
+  it('★ F5：退役的同名概念不挡路 —— 重新引入一个退役的名字是合法动作', async () => {
+    const db = await freshDb();
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind, anchors, status, created_in)
+       VALUES ('c_000000000009', '退役词', 'concept', '{}'::text[], 'retired', 1)`,
+    );
+    const proposalId = (
+      await recordProposal(db, { externalSource: 'x', externalName: '退役词', tri: 'miss' })
+    ).id;
+    const result = await promoteProposal(withTx(db), { proposalId, operator: 'owner' });
+    expect(result.ok).toBe(true);
+    const live = await db.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM xq_concept
+        WHERE canonical_name = '退役词' AND status = 'active'`,
+    );
+    expect(Number(live.rows[0]!.n)).toBe(1);
+  });
+
+  it('★ F5+V7：判重被绕过时撞唯一索引也回 name-taken，不抛 500', async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    // 造一个「规范名、且不是任何别名」的概念：否则判重会先在别名那条分支
+    // 拒收，根本走不到 INSERT，钉不到索引。
+    const clashName = '独名甲';
+    await db.query(
+      `INSERT INTO xq_concept (id, canonical_name, kind, anchors, status, created_in)
+       VALUES ('c_000000000010', $1, 'concept', '{}'::text[], 'active', 1)`,
+      [clashName],
+    );
+    const proposalId = (
+      await recordProposal(db, { externalSource: 'x', externalName: clashName, tri: 'miss' })
+    ).id;
+    const before = await counts(db);
+
+    // 模拟「判重查完、插入之前，并发请求先建了同名概念」：让规范名那一次
+    // 查询看不见已有的 Git（真实 PG 里两个未提交的事务正是这样互相看不见），
+    // 于是插入只能撞 V7 的部分唯一索引。
+    const racingTx = (async (body: (q: unknown) => Promise<unknown>) =>
+      db.transaction(async (tx) => {
+        const query = async (sql: string, params?: unknown[]) => {
+          if (/FROM xq_concept\s/.test(sql) && sql.includes('canonical_name = $1')) {
+            return { rows: [] };
+          }
+          return tx.query(sql, params as never);
+        };
+        return body({ query });
+      })) as never;
+
+    const result = await promoteProposal(racingTx as never, {
+      proposalId,
+      operator: 'owner',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.reason).toBe('name-taken');
+    expect(result.detail).toContain('xq_concept_active_name_key');
+    expect((await counts(db)).concepts).toBe(before.concepts);
+  });
+
+  it("★ F10a：无页的文字证据晋升时不写出现记录 —— 不许出现 stage_id='' 的行", async () => {
+    const db = await freshDb();
+    await seedConcepts(db);
+    const proposalId = (
+      await recordProposal(db, {
+        externalSource: 'probe:test',
+        externalName: '构造',
+        tri: 'miss',
+        signals: [{ stageId: '', sceneId: '', pageHash: null, quote: '构造 → 构造方法' }],
+      })
+    ).id;
+    const result = await promoteProposal(withTx(db), { proposalId, operator: 'owner' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.occurrences).toBe(0);
+    const stray = await db.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM xq_concept_occurrence
+        WHERE stage_id = '' OR scene_id = ''`,
+    );
+    expect(Number(stray.rows[0]!.n)).toBe(0);
+  });
 });
 
 describe('readProposals', () => {
@@ -590,5 +885,66 @@ describe('readProposals', () => {
     expect(row!.signals[0]!.sceneId).toBe('scene-p1');
     expect(row!.signals[0]!.pageHash).toHaveLength(64);
     expect(row!.signals[0]!.anchorsHit).toEqual(['构造题']);
+  });
+
+  it('★ F10a：只有名字没有页的 quote 证据必须保留 —— --enqueue 写的就是这种', async () => {
+    const db = await freshDb();
+    const created = await recordProposal(db, {
+      externalSource: 'probe:test',
+      externalName: '版本控制',
+      tri: 'suspect',
+      signals: [
+        {
+          stageId: '',
+          sceneId: '',
+          pageHash: null,
+          quote: '版本控制 → Git',
+          anchorsHit: ['版本控制'],
+        },
+      ],
+    });
+    const [row] = await readProposals(db);
+    expect(row!.id).toBe(created.id);
+    // 旧实现无条件要求页，结果 CLI 写进来的 quote 100% 被吃掉，裁决台只看到
+    // 「0 页证据」—— 人根本没有可裁决的原文。
+    expect(row!.signals).toHaveLength(1);
+    expect(row!.signals[0]!.quote).toBe('版本控制 → Git');
+    expect(row!.signals[0]!.stageId).toBe('');
+    expect(row!.signals[0]!.sceneId).toBe('');
+    expect(row!.signals[0]!.anchorsHit).toEqual(['版本控制']);
+  });
+
+  it('★ F10a：带 pageHash 却没有页的证据丢掉 —— 它没有页可落', async () => {
+    const db = await freshDb();
+    await recordProposal(db, {
+      externalSource: 'x',
+      externalName: '构造',
+      tri: 'miss',
+      signals: [
+        { stageId: '', sceneId: '', pageHash: 'a'.repeat(64), quote: '有指纹没页' },
+        // 只有 stage、没有 scene、也没有 pageHash 的纯文字证据**不丢**（F10a
+        // 的判决只要求「需要页定位」的那种有页），所以它留成一条无页证据。
+        { stageId: STAGE, sceneId: '', pageHash: null, quote: '只有 stage 没 page' },
+      ],
+    });
+    const [row] = await readProposals(db);
+    expect(row!.signals).toHaveLength(1);
+    expect(row!.signals[0]!.quote).toBe('只有 stage 没 page');
+  });
+
+  it('★ F10a：空壳（没页、没 quote、没锚词）丢掉；纯锚词留下', async () => {
+    const db = await freshDb();
+    await recordProposal(db, {
+      externalSource: 'x',
+      externalName: '构造',
+      tri: 'miss',
+      signals: [
+        { stageId: '', sceneId: '', pageHash: null, quote: '', anchorsHit: [] },
+        { stageId: '', sceneId: '', pageHash: null, quote: '', anchorsHit: ['构造方法'] },
+      ],
+    });
+    const [row] = await readProposals(db);
+    expect(row!.signals).toHaveLength(1);
+    expect(row!.signals[0]!.anchorsHit).toEqual(['构造方法']);
   });
 });

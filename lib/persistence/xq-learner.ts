@@ -776,6 +776,35 @@ ALTER TABLE xq_concept_edge
   CHECK (status <> 'active' OR relation = 'contains' OR strength IS NOT NULL);
 `;
 
+// ---------------------------------------------------------------------------
+// 二十一、活跃概念的规范名不许重名
+// ---------------------------------------------------------------------------
+// ★ 为什么现在才加：`xq_concept` 从 baseline 起就没有名字唯一约束。当时的
+//   理由是同形异义合法（一个名字可以指两个概念，靠 `xq_concept_alias.ambiguous`
+//   记事实）—— 但那条理由说的是**别名**层面的多指，不是「两行 `active` 概念
+//   都叫 Git」。后者只会让「按名字找概念」在每一处都变成二选一。
+//
+// ★ 为什么是**部分**唯一索引：`merged` / `retired` 的行必须允许与被重新引入
+//   的同名新行共存 —— 一个概念退役、后来又被重新引入是正常路径，全表唯一
+//   会把那条路堵死。`WHERE status = 'active'` 只约束「同一时刻最多一个活跃
+//   说法」。
+//
+// ★ 加之前查过真库（2026-11-13，127.0.0.1:5433）：
+//     SELECT canonical_name, count(*) FROM xq_concept
+//      WHERE status = 'active' GROUP BY 1 HAVING count(*) > 1;   → 0 行
+//   （大小写不敏感的那一版同样 0 行），所以这条索引建得起来。换一个库时
+//   如果那里有重复，这条迁移会**失败** —— 那是想要的：重复要先人工归并，
+//   不能让迁移替人删行。
+//
+// ★ 为什么仍保留 `promoteProposal` 里的显式判重：索引只挡得住「规范名」，
+//   挡不住「这个名字是别人的**别名**」—— 那是 F5 的另一半，也是别名表存在的
+//   意义。
+export const XQ_LEARNER_V7 = `
+CREATE UNIQUE INDEX IF NOT EXISTS xq_concept_active_name_key
+  ON xq_concept (canonical_name)
+  WHERE status = 'active';
+`;
+
 export const XQ_LEARNER_MIGRATIONS: SchemaMigrationSet = {
   store: 'xq-learner',
   migrations: [
@@ -785,6 +814,7 @@ export const XQ_LEARNER_MIGRATIONS: SchemaMigrationSet = {
     { version: 4, name: 'concept-expand', up: XQ_LEARNER_V4 },
     { version: 5, name: 'import-batch', up: XQ_LEARNER_V5 },
     { version: 6, name: 'foreign-source', up: XQ_LEARNER_V6 },
+    { version: 7, name: 'concept-name-unique', up: XQ_LEARNER_V7 },
   ],
 };
 

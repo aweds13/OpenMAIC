@@ -150,6 +150,35 @@ export const SUSPECT_CANDIDATE_LIMIT = 2;
 export const BIGRAM_TAU = 0.45;
 
 /**
+ * Dice 的**退化门槛**：两侧名字都短于这个字数时，这个度量给不出「像但没到」（2026-11-13 补）。
+ *
+ * ★ 数学事实（`.tmp/AUDIT-xq-match.md` 的 F2，这里按两侧长度分开说）：
+ * Dice = 2k / ((La−1)+(Lb−1))，k 是共享的二字窗口数。只有两种情形**真的**退化：
+ *
+ *   · 任一侧 < 2 字：它一个窗口都没有，k 恒为 0 —— 分数恒等于 0，比了也只是
+ *     在说「长度不够」，与像不像无关。
+ *   · 两侧都只有 2 字：各自一个窗口，k ≤ 1 —— 分数只可能 0 或 1，而「1」就是
+ *     名字完全相等，早被 `lexicalIndex` 的字面分支拿走了。
+ *
+ * ★ 其余「一侧 2 字」的组合**不**退化：分数只剩 0 或 2/Lb，粗，但它同时带着
+ * 「外来名原样包含这个二字窗口」与「候选有多长」两个维度（`循环` 对 `循环结构`
+ * 是 0.500、对 `循环结构设计` 是 0.400），τ 就是在这上面切的。所以闸门看的是
+ * **这一对**，不是「外来名短不短」。
+ *
+ * ★ 这条边界是量出来的，702 个 MOOCCubeX 中文名（`.tmp/_mooccubex_names.json`）：
+ *   · 修前（只比规范名）：存疑 8。
+ *   · 别名参与、不设闸：存疑 47。
+ *   · 闸在「任一侧 <3」：存疑退回 8 —— 别名救回的 39 条里 **32 条**靠 2 字别名
+ *     （`再循环`→`循环` 0.667、`配方法`→`方法` 0.667、`本地终端`→`终端` 0.500），
+ *     全被这条闸误杀。所以不能闸「任一侧」。
+ *   · 闸在「两侧都 ≤2 或任一侧 <2」（本实现）：存疑 47，`short-name-no-fuzzy`
+ *     只剩 7 条，正好是那 7 个单字名（`卡`/`幂`/`桩`/`绳`/`网`/`金`/`ρ`）。
+ *
+ * ★ 完全相等不受影响：那是 `lexicalIndex` 的字面分支，轮不到这里。
+ */
+export const MIN_DICE_CHARS = 3;
+
+/**
  * 候选的锚词数低于这个值，就**不许行使否决权**（2026-11-10 补）。
  *
  * ★ 这个数**没有标定**，它是「至少要有几个词才敢说『它不像』」的下限。
@@ -206,7 +235,10 @@ export interface ThreeWayResult {
   readonly candidates: readonly CandidateAssessment[];
   /** 归一后的名字（查别名时用的就是这个）。 */
   readonly normalizedName: string;
-  /** 未命中那一支用到的相似度（没有候选时才有意义，否则 `null`）。 */
+  /**
+   * 未命中那一支用到的相似度（没有候选时才有意义，否则 `null`）。
+   * 一次都没比过时也是 `null` —— 名字太短（`short-name-no-fuzzy`），给 0 会被读成「比过，毫不相干」。
+   */
   readonly bestSimilarity: number | null;
 }
 
@@ -227,6 +259,14 @@ export const MATCH_REASONS = [
   /** bigram 低于已标定的 τ（0.45）：字面没命中、名字也不像 —— 判未命中。 */
   'bigram-below-tau',
   /**
+   * 名字太短，模糊比对对它无能为力 —— 与「毫不相干」和「像但没到」都不是一回事。
+   *
+   * ★ 见到这个理由不等于「库里没有相关概念」：它是 Dice 的**定义域**问题（见
+   * `MIN_DICE_CHARS`），字面 / 别名分支走不通时，短名本来就没有可判的信号。
+   * 想推它只能去补别名或锚词，调 τ 是白调。
+   */
+  'short-name-no-fuzzy',
+  /**
    * 候选的锚词表太薄，否决权不生效 —— 存疑不是「不像」，是「我们还没本钱判」。
    * 见到这个理由该去做的事是补 `xq_concept.anchors`，不是反复看这条名字。
    */
@@ -239,6 +279,14 @@ export type MatchReason = (typeof MATCH_REASONS)[number];
 export interface MatchFacts {
   /** 归一后的名字 → 概念 id 列表（含 `canonical_name` 与别名两条来源）。 */
   readonly lexicalIndex: ReadonlyMap<string, readonly string[]>;
+  /**
+   * 概念 id → 该概念的**全部名字**（规范名 + 别名），归一后去重、码点序排序。
+   *
+   * ★ 与 `lexicalIndex` 是同一批数据的两面：那一张按名字查概念（字面分支用），
+   * 这一张按概念取名字（模糊分支用）。模糊分支只翻那一张，就只会拿规范名去比 ——
+   * 别名明明在库里，却进不了相似度，`再循环` 于是永远比不上 `循环`。
+   */
+  readonly namesByConcept: ReadonlyMap<string, readonly string[]>;
   /** 概念 id → 节点。 */
   readonly nodes: ReadonlyMap<string, ConceptNode>;
   /** 概念 id → 锚词。没有这一列的概念给空数组。 */
@@ -283,6 +331,31 @@ export function buildLexicalIndex(
 export function compareCodePoints(a: string, b: string): number {
   if (a === b) return 0;
   return a < b ? -1 : 1;
+}
+
+/**
+ * 把 `canonical_name` 与别名摊成一张「概念 id → 全部归一名字」的索引。
+ *
+ * 模糊分支要回答的是「这个名字在**任何**一个说法下像不像某个概念」，所以它需要
+ * 的是这张反查表；`lexicalIndex` 只答「这个名字是不是某个概念的写法」，方向相反。
+ */
+export function buildNamesByConcept(
+  nodes: ReadonlyMap<string, ConceptNode>,
+  aliases: readonly { alias: string; conceptId: string }[],
+): Map<string, string[]> {
+  const index = new Map<string, Set<string>>();
+  const add = (raw: string, conceptId: string) => {
+    const key = matchKey(raw);
+    if (key === '') return;
+    const existing = index.get(conceptId);
+    if (existing === undefined) index.set(conceptId, new Set([key]));
+    else existing.add(key);
+  };
+  for (const node of nodes.values()) add(node.canonicalName, node.id);
+  for (const row of aliases) add(row.alias, row.conceptId);
+  const out = new Map<string, string[]>();
+  for (const [conceptId, names] of index) out.set(conceptId, [...names].sort(compareCodePoints));
+  return out;
 }
 
 /**
@@ -340,16 +413,32 @@ export function decideThreeWay(input: ThreeWayInput, facts: MatchFacts): ThreeWa
   // ── 候选集为空：字面索引里没有，只能靠 bigram 判「像不像」──────────────
   //
   // τ 已标定（0.45，见 `BIGRAM_TAU`），所以这一支是三分而不是两分：
+  //   · 名字太短，Dice 给不出可比的分 ⇒ 未命中，理由 `short-name-no-fuzzy`
+  //     （见 `MIN_DICE_CHARS`：这一档不是「不像」，是「没得比」）。
   //   · 一个二字窗口都不重合 ⇒ 未命中，理由 `no-lexical-candidate` —— 与
   //     「低于 τ」分开，因为两者要人做的事不同（前者是图里真没有，
   //     后者是我们图里可能有一个换了说法的同一个东西）。
   //   · 0 < 相似度 < τ ⇒ 未命中，理由 `bigram-below-tau`。
   //   · 相似度 ≥ τ ⇒ 存疑，理由 `bigram-similar`。
   //
+  // 比对的是「规范名 + 全部别名」（`namesByConcept`）：别名是同一个概念的另一个
+  // 说法，模糊分支不认它，`再循环` 就永远够不到 `循环`。
+  //
   // ★ `miss` 与 `suspect` 都会进提案队列，区别只在 `tri` 让人怎么读它 ——
   //   见 `BIGRAM_TAU` 注释里那句「不是看不看得到」。
   if (candidateIds.length === 0) {
-    const best = bestNameSimilarity(normalizedName, facts.nodes.values());
+    const fuzzy = bestNameSimilarity(normalizedName, facts);
+    if (!fuzzy.compared) {
+      return {
+        tri: 'miss',
+        matchedConceptId: null,
+        reason: 'short-name-no-fuzzy',
+        candidates: [],
+        normalizedName,
+        bestSimilarity: null,
+      };
+    }
+    const best = fuzzy.similarity;
     if (best <= 0) {
       return {
         tri: 'miss',
@@ -529,15 +618,45 @@ function contextSupports(conceptId: string, input: ThreeWayInput, facts: MatchFa
   return false;
 }
 
-function bestNameSimilarity(name: string, nodes: Iterable<ConceptNode>): number {
-  if (name === '') return 0;
+/**
+ * 这一对名字的 Dice 是否落进退化区间（见 `MIN_DICE_CHARS` 的数学）。
+ *
+ * 只看「这一对」，不看某个名字单独的短长 —— 2 字外来名对 5 字别名是
+ * `再循环` 之外最常见的救回形态，一刀切在「外来名短」上会把 F1 一起切掉。
+ */
+function diceIsDegenerate(a: string, b: string): boolean {
+  // 任一侧没有二字窗口：k 恒为 0，分数恒等于 0 —— 比了也只是在说「长度不够」。
+  if (a.length < 2 || b.length < 2) return true;
+  // 两侧都只有一个窗口：k ≤ 1，分数只可能 0 或 1；「1」早被字面分支拿走。
+  return a.length < MIN_DICE_CHARS && b.length < MIN_DICE_CHARS;
+}
+
+/**
+ * 模糊分支：外来名与每个概念的**全部名字**（规范名 + 别名）比，取全局最大。
+ *
+ * 返回里的 `compared` 不是装饰：调用方要区分「比过，全是 0」与「一个都没比」
+ * （后者见 `MIN_DICE_CHARS`）—— 这两种情况读报告的人要做的事不一样。
+ */
+function bestNameSimilarity(
+  name: string,
+  facts: MatchFacts,
+): { readonly similarity: number; readonly compared: boolean } {
+  if (name === '') return { similarity: 0, compared: false };
   let best = 0;
-  for (const node of nodes) {
-    const score = bigramSimilarity(name, node.canonicalName);
-    if (score > best) best = score;
-    if (best >= 1) break;
+  let compared = false;
+  for (const node of facts.nodes.values()) {
+    // 兜底：手工造的 facts 可能没填 `namesByConcept`（只有 `loadMatchFacts` 会填）。
+    // 兜到空会让每个名字都掉进「没有候选」—— 那是静默的错误，不如退回规范名。
+    const names = facts.namesByConcept.get(node.id) ?? [matchKey(node.canonicalName)];
+    for (const candidate of names) {
+      if (diceIsDegenerate(name, candidate)) continue;
+      compared = true;
+      const score = bigramSimilarity(name, candidate);
+      if (score > best) best = score;
+      if (best >= 1) return { similarity: best, compared: true };
+    }
   }
-  return best;
+  return { similarity: best, compared };
 }
 
 /**
@@ -643,6 +762,8 @@ export async function loadMatchFacts(queryable: Queryable): Promise<MatchFacts> 
 
   return {
     lexicalIndex: buildLexicalIndex(graph.nodes, aliases),
+    // 同一批 aliases 摊两遍：字面分支要「名字 → 概念」，模糊分支要「概念 → 名字」。
+    namesByConcept: buildNamesByConcept(graph.nodes, aliases),
     nodes: graph.nodes,
     anchors,
     stages,

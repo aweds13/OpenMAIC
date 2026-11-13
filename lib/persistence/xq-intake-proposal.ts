@@ -63,7 +63,14 @@ export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
  */
 export const AUTO_HIT_DECIDER = 'auto:three-way-hit';
 
-/** 一条页证据。`signals` 这个 jsonb 数组的元素形状。 */
+/**
+ * 一条页证据。`signals` 这个 jsonb 数组的元素形状。
+ *
+ * ★ `stageId` / `sceneId` 允许是**空串**：外来清单里常常只有名字、没有页
+ *   （`scripts/match-external-names.ts --enqueue` 就是这种），此时只有
+ *   `quote` / `anchorsHit` 是证据本体。带 `pageHash` 的才必须有页
+ *   （见 `asSignals`，F10a）。
+ */
 export interface ProposalSignal {
   stageId: string;
   sceneId: string;
@@ -118,9 +125,35 @@ export interface ProposalRow {
 /**
  * 写一条提案（幂等：同一 `(external_source, external_name, external_kind)` 只有一行）。
  *
- * 再来一次时只涨 `seen_count` 与 `last_seen_at`，**判定结果只在它仍 `proposed` 时更新** ——
- * 人已经批过或拒过的那一行不许被一次新的导入改写。这正是「拒绝之后不再问」
- * 能成立的地方：行还在，`status='rejected'`，下次导入只会让 `seen_count` 加一。
+ * ## 一行被重新看到时，哪些列会变、哪些列永不自动变
+ *
+ * 判决：**拒绝只冻结「人的决定」，不冻结「证据」**（F7）。
+ *
+ * - `status / decided_at / decided_by / decision_note`：**永不**被导入改写。
+ *   人说过「不收」，那就只有人在裁决台再拍一次才能改回来 —— 一次新的导入
+ *   不是人。
+ * - `tri / matched_concept_id / confidence / signals`：只要这一行还没被
+ *   **接受**就继续更新。拒绝之后证据还会变（上次是 `miss`，这次三段匹配
+ *   命中了），人下次打开裁决台应该看到**最新的**证据，而不是被冻结在
+ *   拒绝那一刻的旧结论。
+ * - `seen_count / last_seen_at`：恒更新（「又见过一次」本身就是事实）。
+ *
+ * ★ `rejected` 的行即使新证据是 `hit` 也**不**被自动接受：人的拒绝优先，
+ *   自动接受只对仍 `proposed` 的行生效（F6 第 2 条）。
+ *
+ * 为什么 `accepted` 的行连证据也不改：那一行已经归并到某个概念，
+ * `accepted_concept_id` 是**那一次归并**的凭据。若允许后来的 `suspect` 把
+ * `tri` 改掉，库里就会出现「已接受、但匹配概念为空」的怪行，而它看起来
+ * 与「人工接受了一条 miss 提案」一模一样，事后分不出哪条是坏数据。
+ *
+ * ## 为什么 `hit` 会把一条 `proposed` 行直接落成 `accepted`（F6）
+ *
+ * 三段匹配判 `hit` 就是「这个概念我们已经有了」。旧实现只改 `tri` / 不改
+ * `status`，于是行变成「`tri='hit'`、`matched_concept_id` 有值、`status` 仍是
+ * `proposed`」；人再点「接受」时走 `promoteProposal` 建新概念，而它自己刚
+ * 判定「已存在」—— 库里多一个重复概念。所以这里对**仍 `proposed`** 的行
+ * 就地落定：`status='accepted'`、`accepted_concept_id = matched_concept_id`、
+ * `decided_by='auto:three-way-hit'`。
  */
 export async function recordProposal(
   queryable: Queryable,
@@ -175,14 +208,39 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb,
 ON CONFLICT (external_source, external_name, external_kind) DO UPDATE SET
   seen_count = xq_intake_proposal.seen_count + 1,
   last_seen_at = now(),
-  tri = CASE WHEN xq_intake_proposal.status = 'proposed'
+
+  -- 证据四列：还没「接受」的行都继续更新（F7 的关键判决 —— 拒绝冻结的是
+  -- 人的决定，不是证据）。DO UPDATE 里的 xq_intake_proposal.status 读的
+  -- 是**旧行**，所以下面四条与 status 的 CASE 互不看彼此的新值。
+  tri = CASE WHEN xq_intake_proposal.status IN ('proposed', 'rejected')
              THEN EXCLUDED.tri ELSE xq_intake_proposal.tri END,
-  matched_concept_id = CASE WHEN xq_intake_proposal.status = 'proposed'
+  matched_concept_id = CASE WHEN xq_intake_proposal.status IN ('proposed', 'rejected')
              THEN EXCLUDED.matched_concept_id ELSE xq_intake_proposal.matched_concept_id END,
-  confidence = CASE WHEN xq_intake_proposal.status = 'proposed'
+  confidence = CASE WHEN xq_intake_proposal.status IN ('proposed', 'rejected')
              THEN EXCLUDED.confidence ELSE xq_intake_proposal.confidence END,
-  signals = CASE WHEN xq_intake_proposal.status = 'proposed'
-             THEN EXCLUDED.signals ELSE xq_intake_proposal.signals END
+  signals = CASE WHEN xq_intake_proposal.status IN ('proposed', 'rejected')
+             THEN EXCLUDED.signals ELSE xq_intake_proposal.signals END,
+
+  -- 自动归并只对「仍然待裁」且「这次是 hit」的行生效（F6）。三个条件都是必要的：
+  --   · 旧行必须 proposed —— rejected 绝不自动接受（人的拒绝优先），
+  --     accepted 已经在别处落定；
+  --   · 这一次必须是 hit —— 插入路径只有 hit 才带 status='accepted'
+  --     （recordProposal 对 hit 缺 matchedConceptId 直接抛，库里另有 CHECK）；
+  --   · matched 非空 —— 与 xq_intake_proposal_hit_target 同一条要求。
+  -- decided_at 用 now() 而不是 EXCLUDED 的：EXCLUDED 只在 hit 时非空，
+  -- 但这里要的是「这次归并发生的时刻」，与插入路径同一口径。
+  status = CASE WHEN xq_intake_proposal.status = 'proposed'
+                  AND EXCLUDED.status = 'accepted'
+                THEN 'accepted' ELSE xq_intake_proposal.status END,
+  accepted_concept_id = CASE WHEN xq_intake_proposal.status = 'proposed'
+                  AND EXCLUDED.status = 'accepted'
+                THEN EXCLUDED.accepted_concept_id ELSE xq_intake_proposal.accepted_concept_id END,
+  decided_at = CASE WHEN xq_intake_proposal.status = 'proposed'
+                  AND EXCLUDED.status = 'accepted'
+                THEN now() ELSE xq_intake_proposal.decided_at END,
+  decided_by = CASE WHEN xq_intake_proposal.status = 'proposed'
+                  AND EXCLUDED.status = 'accepted'
+                THEN EXCLUDED.decided_by ELSE xq_intake_proposal.decided_by END
 RETURNING id, status, seen_count, (xmax = 0) AS created`;
 
 export interface PromoteProposalInput {
@@ -239,88 +297,132 @@ export async function promoteProposal(
   const operator = input.operator.trim();
   if (operator === '') return { ok: false, reason: 'operator-missing' };
 
-  return transaction(async (tx) => {
-    const version = await openVersionOf(tx);
-    if (version === null) return { ok: false, reason: 'no-open-version' };
+  try {
+    return await transaction(async (tx) => {
+      const version = await openVersionOf(tx);
+      if (version === null) return { ok: false, reason: 'no-open-version' };
 
-    const target = await tx.query<{ external_name: string; status: string }>(
-      `SELECT external_name, status FROM xq_intake_proposal WHERE id = $1`,
-      [input.proposalId],
-    );
-    const row = target.rows[0];
-    if (!row) return { ok: false, reason: 'not-found' };
-    if (row.status !== 'proposed') {
-      return { ok: false, reason: 'not-proposed', detail: row.status };
-    }
+      const target = await tx.query<{ external_name: string; status: string }>(
+        `SELECT external_name, status FROM xq_intake_proposal WHERE id = $1`,
+        [input.proposalId],
+      );
+      const row = target.rows[0];
+      if (!row) return { ok: false, reason: 'not-found' };
+      if (row.status !== 'proposed') {
+        return { ok: false, reason: 'not-proposed', detail: row.status };
+      }
 
-    // 同名的正式概念已经存在时不许再插一个。`xq_concept` 没有名字唯一约束
-    // （同形异义是合法的：一个名字可以指两个概念，靠别名表的 `ambiguous` 记录），
-    // 所以这里只能显式查一次 —— 而恰恰因为库里允许，漏查的后果是两行同名
-    // `active` 概念，之后每次「按名字找概念」都变成二选一。
-    const clash = await tx.query<{ id: string }>(
-      `SELECT id FROM xq_concept WHERE canonical_name = $1 AND status = 'active' LIMIT 1`,
-      [row.external_name],
-    );
-    if (clash.rows[0]) {
-      return { ok: false, reason: 'name-taken', detail: clash.rows[0].id };
-    }
+      // 同名的正式概念已经存在时不许再插一个。`xq_concept` 没有名字唯一约束
+      // （同形异义是合法的：一个名字可以指两个概念，靠别名表的 `ambiguous` 记录），
+      // 所以判重必须显式查 —— 而且要查**两处**（F5）：
+      //
+      //   ① 规范名命中：直接重名；
+      //   ② **别名**命中：外来名「版本控制」其实是我们既有概念「Git」的另一种
+      //      叫法。只查①时这一条漏过去，于是会新建一个以「版本控制」为规范名的
+      //      第二概念，而别名行还挂在 Git 上 —— 实测：晋升后
+      //      `lexicalIndex.get('版本控制')` 从 `['c_74699c4830c4']` 变成
+      //      `['c_02da8ba4b59d','c_74699c4830c4']`，之后每次按名字匹配这条别名
+      //      都变成 `suspect lexical-ambiguous`。一次误晋升把别名永久钉成存疑。
+      //
+      // ★ 只认 `status='active'`：`retired` / `merged` 的同名概念不挡路 ——
+      //   重新引入一个退役的名字是合法动作（V7 那条部分唯一索引同样只覆盖
+      //   `active`）。
+      const clash = await findNameClash(tx, row.external_name);
+      if (clash !== null) {
+        // detail 是**给人看的一句话**，不只是 id：裁决台会把它原样打在
+        // 「没有晋升」后面，用户看到 `Git` 才知道「该把它当 hit 归并」。
+        return { ok: false, reason: 'name-taken', detail: clash };
+      }
 
-    const conceptId = newConceptId();
-    await tx.query(
-      `INSERT INTO xq_concept (id, canonical_name, kind, anchors, status, created_in)
+      const conceptId = newConceptId();
+      await tx.query(
+        `INSERT INTO xq_concept (id, canonical_name, kind, anchors, status, created_in)
        VALUES ($1, $2, 'concept', $3::text[], 'active', $4)`,
-      [conceptId, row.external_name, [...(input.anchors ?? [])], version],
-    );
+        [conceptId, row.external_name, [...(input.anchors ?? [])], version],
+      );
 
-    const settled = await tx.query<{ id: string }>(
-      `UPDATE xq_intake_proposal
+      const settled = await tx.query<{ id: string }>(
+        `UPDATE xq_intake_proposal
           SET status = 'accepted', accepted_concept_id = $2,
               decided_at = now(), decided_by = $3
         WHERE id = $1 AND status = 'proposed'
         RETURNING id`,
-      [input.proposalId, conceptId, operator],
-    );
-    if (settled.rows.length !== 1) {
-      // 事务回滚，插进去的概念一起消失。
-      throw new PromotionRaceError(input.proposalId);
-    }
+        [input.proposalId, conceptId, operator],
+      );
+      if (settled.rows.length !== 1) {
+        // 事务回滚，插进去的概念一起消失。
+        throw new PromotionRaceError(input.proposalId);
+      }
 
-    const occurrences = await tx.query<{ n: string | number }>(EXPAND_SIGNALS_SQL, [
-      conceptId,
-      input.proposalId,
-      input.batchId ?? null,
-    ]);
+      const occurrences = await tx.query<{ n: string | number }>(EXPAND_SIGNALS_SQL, [
+        conceptId,
+        input.proposalId,
+        input.batchId ?? null,
+      ]);
 
-    if (input.sameBatchAliases && input.sameBatchAliases.length > 0) {
-      await tx.query(
-        `UPDATE xq_intake_proposal
+      if (input.sameBatchAliases && input.sameBatchAliases.length > 0) {
+        await tx.query(
+          `UPDATE xq_intake_proposal
             SET status = 'accepted', accepted_concept_id = $2,
                 decided_at = now(), decided_by = $3
           WHERE id = ANY($1::bigint[]) AND status = 'proposed'`,
-        [[...input.sameBatchAliases], conceptId, operator],
-      );
-    }
+          [[...input.sameBatchAliases], conceptId, operator],
+        );
+      }
 
-    let edges = 0;
-    for (const edge of input.prereqEdges ?? []) {
-      const inserted = await tx.query<{ id: string }>(INSERT_PROPOSED_EDGE_SQL, [
-        edge.fromId,
+      let edges = 0;
+      for (const edge of input.prereqEdges ?? []) {
+        const inserted = await tx.query<{ id: string }>(INSERT_PROPOSED_EDGE_SQL, [
+          edge.fromId,
+          conceptId,
+          edge.strength,
+          edge.reason,
+          edge.source,
+          version,
+        ]);
+        edges += inserted.rows.length;
+      }
+
+      return {
+        ok: true as const,
         conceptId,
-        edge.strength,
-        edge.reason,
-        edge.source,
-        version,
-      ]);
-      edges += inserted.rows.length;
+        occurrences: Number(occurrences.rows[0]?.n ?? 0),
+        edges,
+      };
+    });
+  } catch (error) {
+    // V7 的部分唯一索引兜住「判重查完、插入之前，别人抢先建了同名概念」
+    // 这种竞态（以及任何绕过显式判重的写路径）。对一个 500 来说，调用方
+    // 分不清「名字撞了」和「库坏了」；而对裁决台，这两者的动作完全不同：
+    // 名字撞了要归并，库坏了要停机。所以把 23505 翻译回同一种可读拒绝。
+    //
+    // 事务适配器已经因为抛出回滚了整条事务，这里只是换一个返回值。
+    if (isActiveNameConflict(error)) {
+      return {
+        ok: false,
+        reason: 'name-taken',
+        detail:
+          '与活跃概念的规范名同名（并发写入撞上唯一索引 xq_concept_active_name_key）' +
+          ' —— 该把它当 hit 归并，而不是新建',
+      };
     }
+    throw error;
+  }
+}
 
-    return {
-      ok: true as const,
-      conceptId,
-      occurrences: Number(occurrences.rows[0]?.n ?? 0),
-      edges,
-    };
-  });
+/**
+ * 这条 23505 是不是「活跃概念重名」那条索引？
+ *
+ * 只认约束/索引名，不把**任何**唯一冲突都翻译成 name-taken —— 别名表、
+ * 边表都有各自的唯一约束，那些撞了是真 bug，该原样抛。
+ */
+function isActiveNameConflict(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const record = error as { code?: unknown; constraint?: unknown; message?: unknown };
+  if (record.code !== '23505') return false;
+  const where = String(record.constraint ?? '');
+  if (where === 'xq_concept_active_name_key') return true;
+  return /xq_concept_active_name_key/.test(String(record.message ?? ''));
 }
 
 /** 第 2 步守卫失败（别人先批了）时抛出，好让整条事务回滚。 */
@@ -341,6 +443,11 @@ export class PromotionRaceError extends Error {
  * 过滤，并把实际写进去的条数报出来 —— 少几条是可以解释的，报不出来才是问题。
  *
  * ★ `ON CONFLICT DO NOTHING` 而不是 `DO UPDATE`：见文件头。
+ *
+ * ★ 空 `stageId`/`sceneId` 的**纯文字证据**（F10a 之后会保留在 `signals` 里）
+ *   在这里天然写不出行：下面显式要求两列非空串，再叠一层 `EXISTS`。
+ *   不然「只有名字没有页」的提案晋升后会多出一行 stage_id='' 的出现记录 ——
+ *   它指不到任何页，却会被算进覆盖率。
  */
 const EXPAND_SIGNALS_SQL = `
 WITH src AS (
@@ -358,7 +465,8 @@ touched AS (
   SELECT $1, src.stage_id, src.scene_id, 0.80, 'foreign-body', $3, src.page_hash,
          now(), now()
     FROM src
-   WHERE src.stage_id IS NOT NULL AND src.scene_id IS NOT NULL
+   WHERE src.stage_id IS NOT NULL AND btrim(src.stage_id) <> ''
+     AND src.scene_id IS NOT NULL AND btrim(src.scene_id) <> ''
      AND EXISTS (SELECT 1 FROM document_scenes d
                   WHERE d.stage_id = src.stage_id AND d.id = src.scene_id)
   ON CONFLICT (concept_id, stage_id, scene_id) DO NOTHING
@@ -434,6 +542,78 @@ export async function readProposals(
   return rows.map(asProposal).filter((row): row is ProposalRow => row !== null);
 }
 
+/**
+ * 判重：这个名字**是**某个活跃概念的规范名，**或者是**它的别名？
+ *
+ * 返回 `null`（没人用这个名字）或一句给人看的 detail。
+ *
+ * 为什么 detail 要带概念名而不只是 id：裁决台把它原样打在「没有晋升」后面，
+ * 用户需要看到的是「它其实就是 Git」；只给 `c_74699c4830c4` 还得再查一次库。
+ *
+ * 为什么别名要比较 `lower()`：别名表是人工/导入填的，大小写不统一（`Git` /
+ * `git` 都出现过）。规范名仍按原样精确比较 —— 那是「这个名字本身」，大小写
+ * 不同在今天就是另一个名字，改这个口径要单独决定。
+ *
+ * 为什么别名命中要**报出全部**概念：别名的唯一索引只覆盖 `ambiguous = false`，
+ * 一个别名可以合法地指向多个概念。这时「该归并到哪一个」不是脚本能决定的，
+ * 所以只能拒绝，并把所有候选名字摆给人看。
+ */
+async function findNameClash(queryable: Queryable, externalName: string): Promise<string | null> {
+  const canonical = await queryable.query<{ id: string; canonical_name: string }>(
+    `SELECT id, canonical_name FROM xq_concept
+      WHERE canonical_name = $1 AND status = 'active'
+      ORDER BY canonical_name, id`,
+    [externalName],
+  );
+  if (canonical.rows.length > 0) {
+    const names = canonical.rows.map((r) => `${r.canonical_name}（${r.id}）`).join(' / ');
+    return `与活跃概念的规范名同名：${names} —— 该把它当 hit 归并，而不是新建`;
+  }
+
+  const aliases = await queryable.query<{
+    id: string;
+    canonical_name: string;
+    kind: string;
+    ambiguous: boolean;
+  }>(
+    `SELECT c.id, c.canonical_name, a.kind, a.ambiguous
+       FROM xq_concept_alias a
+       JOIN xq_concept c ON c.id = a.concept_id
+      WHERE lower(a.alias) = lower($1) AND c.status = 'active'
+      ORDER BY c.canonical_name, c.id, a.kind`,
+    [externalName],
+  );
+  if (aliases.rows.length === 0) return null;
+
+  // 同一个概念可能有多行同类别名（kind 不同），按概念合并 —— 否则
+  // 「一个别名指 N 个概念」会按**行数**报，而人关心的是概念数。
+  const byConcept = new Map<string, { name: string; kinds: string[]; ambiguous: boolean }>();
+  for (const row of aliases.rows) {
+    const current = byConcept.get(row.id) ?? {
+      name: row.canonical_name,
+      kinds: [],
+      ambiguous: false,
+    };
+    if (!current.kinds.includes(row.kind)) current.kinds.push(row.kind);
+    current.ambiguous = current.ambiguous || row.ambiguous === true;
+    byConcept.set(row.id, current);
+  }
+
+  const described = [...byConcept.entries()]
+    .map(
+      ([id, hit]) =>
+        `${hit.name}（${id}，别名 kind=${hit.kinds.join('/')}${hit.ambiguous ? '，ambiguous' : ''}）`,
+    )
+    .join(' / ');
+  if (byConcept.size === 1) {
+    return `是活跃概念 ${described} 的别名「${externalName}」—— 该把它当 hit 归并，而不是新建`;
+  }
+  return (
+    `「${externalName}」是 ${byConcept.size} 个活跃概念共用的别名：${described}` +
+    ' —— 一个别名多指，先把它们归并（或给人裁），不许拿它当新概念的规范名'
+  );
+}
+
 async function openVersionOf(queryable: Queryable): Promise<number | null> {
   const { rows } = await queryable.query<{ version: string | number }>(
     `SELECT version FROM xq_graph_version WHERE frozen_at IS NULL
@@ -477,6 +657,26 @@ function asProposal(row: Record<string, unknown>): ProposalRow | null {
   };
 }
 
+/**
+ * 把 jsonb 里的信号读成 `ProposalSignal`（F10a）。
+ *
+ * 旧实现无条件要求 `stageId` 与 `sceneId` 都非空，否则 `continue`。而
+ * `scripts/match-external-names.ts --enqueue` 写的证据恰恰是
+ * `{ stageId: '', sceneId: '', quote: '版本控制 → Git', anchorsHit: [...] }` ——
+ * 外来清单里只有名字、没有页。结果它写进去的 `quote` 100% 被这里吃掉，
+ * 人在裁决台看到的是「0 页证据」，等于裁决台只能看见名字。
+ *
+ * 所以判据改成「**这条证据需不需要页定位**」：
+ * - 带 `pageHash` 的（能对到具体某一页）才要求 `stageId`/`sceneId` ——
+ *   没有页的话它在晋升时写不进 `xq_concept_occurrence`（那里有复合外键），
+ *   留着只会让人以为有页证据；
+ * - 纯文字证据（`quote` / `anchorsHit`）即使没有页也保留 —— 它本来就是
+ *   「外来侧这么说的」原文，人裁决时唯一能看的东西。
+ * - 两者都没有的空壳丢弃（那不是证据）。
+ *
+ * 保留时 `stageId`/`sceneId` 仍原样给空串而不是 `null`：`ProposalSignal` 的
+ * 形状不变，打印方（`scripts/review-intake-proposals.ts`）按空串判断「无页」。
+ */
 function asSignals(value: unknown): ProposalSignal[] {
   if (!Array.isArray(value)) return [];
   const out: ProposalSignal[] = [];
@@ -485,15 +685,19 @@ function asSignals(value: unknown): ProposalSignal[] {
     const record = item as Record<string, unknown>;
     const stageId = asText(record.stageId ?? record.stage_id);
     const sceneId = asText(record.sceneId ?? record.scene_id);
-    if (stageId === '' || sceneId === '') continue;
+    const pageHash = asText(record.pageHash ?? record.page_hash) || null;
     const anchorsHit = Array.isArray(record.anchorsHit ?? record.anchors_hit)
       ? ((record.anchorsHit ?? record.anchors_hit) as unknown[])
       : [];
+    const quote = asText(record.quote);
+    const hasPage = stageId !== '' && sceneId !== '';
+    if (pageHash !== null && !hasPage) continue;
+    if (!hasPage && quote === '' && anchorsHit.length === 0) continue;
     out.push({
       stageId,
       sceneId,
-      pageHash: asText(record.pageHash ?? record.page_hash) || null,
-      quote: asText(record.quote),
+      pageHash,
+      quote,
       anchorsHit: anchorsHit.filter((w): w is string => typeof w === 'string'),
     });
   }

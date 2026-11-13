@@ -243,7 +243,9 @@ describe('xq 学情 schema', () => {
     ];
     for (const [index, good] of sources.entries()) {
       const sceneId = `scene-s${index}`;
-      await db.query(`INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', $1)`, [sceneId]);
+      await db.query(`INSERT INTO document_scenes (stage_id, id) VALUES ('stage-A', $1)`, [
+        sceneId,
+      ]);
       await db.query(
         `INSERT INTO xq_concept_occurrence (concept_id, stage_id, scene_id, weight, source)
          VALUES ('c_aaaaaaaaaaaa', 'stage-A', $1, 0.8, $2)`,
@@ -438,7 +440,7 @@ describe('xq 学情 schema', () => {
    * v2，而 v2 的每条语句都是 IF NOT EXISTS ⇒ 表面无害，实际掩盖了
    * 「这条迁移从来没成功过」这种事。
    */
-  it('版本 2..6 记进迁移账本，且重跑不重复记账', async () => {
+  it('版本 2..7 记进迁移账本，且重跑不重复记账', async () => {
     const db = await freshDb();
     await ensureXqLearnerSchema(db);
     await ensureXqLearnerSchema(db);
@@ -446,7 +448,7 @@ describe('xq 学情 schema', () => {
       `SELECT version, name FROM openmaic_schema_migrations
         WHERE store = 'xq-learner' ORDER BY version`,
     );
-    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(rows.map((r) => r.name)).toEqual([
       'baseline',
       'session-and-persona',
@@ -454,6 +456,7 @@ describe('xq 学情 schema', () => {
       'concept-expand',
       'import-batch',
       'foreign-source',
+      'concept-name-unique',
     ]);
     await db.close();
   });

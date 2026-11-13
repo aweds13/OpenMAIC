@@ -229,19 +229,44 @@ async function main(): Promise<number> {
       limit: options.limit,
     });
 
+    // F7：被拒过、但证据后来变成「命中」的提案**不在默认队列里**（默认只读
+    // proposed）。如果这里不单独捞一次，它们就永远看不见 —— 而人恰恰最该重看
+    // 这一批：上次拒绝时它是 miss，现在外来侧说是某个概念的命中。拒绝冻结的
+    // 是人的决定，证据变了就该让人再拍一次；自动接受是不许的（那会覆盖人）。
+    // 只在列表模式下查：--accept / --reject 走上一个分支，用不到这份清单。
+    const rejectedHits = await readProposals(pool as never, {
+      status: 'rejected',
+      tri: 'hit',
+      limit: options.limit,
+    });
+
+    type ListedProposal = Awaited<ReturnType<typeof readProposals>>[number];
+    const hasPage = (signal: ListedProposal['signals'][number]): boolean =>
+      signal.stageId !== '' && signal.sceneId !== '';
+    // JSON 里也带上「被拒过」的痕迹（decidedBy / decisionNote）与匹配目标：
+    // 下游哪怕只读 JSON 也能区分「待裁」和「人已经拒过一次、现在证据变了」。
+    const listShape = (row: ListedProposal) => ({
+      id: row.id,
+      tri: row.tri,
+      status: row.status,
+      externalSource: row.externalSource,
+      externalName: row.externalName,
+      matchedConceptId: row.matchedConceptId,
+      acceptedConceptId: row.acceptedConceptId,
+      decidedBy: row.decidedBy,
+      decisionNote: row.decisionNote,
+      seenCount: row.seenCount,
+      lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
+      signals: row.signals,
+    });
+
     if (options.json) {
+      // ★ 形状从「裸数组」变成 `{ queue, rejectedButHit }`：队列语义多了一层，
+      //   再压成一个数组会让「rejected 的 hit」看起来像是待裁。仓里没有程序
+      //   消费这个输出（只有人 + 脚本自己），所以这个破坏性改动是安全的。
       console.log(
         JSON.stringify(
-          rows.map((row) => ({
-            id: row.id,
-            tri: row.tri,
-            status: row.status,
-            externalSource: row.externalSource,
-            externalName: row.externalName,
-            seenCount: row.seenCount,
-            lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
-            signals: row.signals,
-          })),
+          { queue: rows.map(listShape), rejectedButHit: rejectedHits.map(listShape) },
           null,
           2,
         ),
@@ -249,27 +274,66 @@ async function main(): Promise<number> {
       return 0;
     }
 
-    if (rows.length === 0) {
+    if (rows.length === 0 && rejectedHits.length === 0) {
       console.log('队列是空的（没有待裁的提案）。');
       return 0;
     }
 
-    console.log(`待裁提案 ${rows.length} 条（最多 ${options.limit}）：`);
+    if (rows.length > 0) {
+      // --status rejected/accepted 时别再说「待裁」—— 那会让人以为队列里全是没裁的。
+      const heading = status === null || status === 'proposed' ? '待裁提案' : `${status} 提案`;
+      console.log(`${heading} ${rows.length} 条（最多 ${options.limit}）：`);
+    } else {
+      console.log('没有待裁的提案。');
+    }
     for (const row of rows) {
-      const pages = row.signals.length;
+      const pageSignals = row.signals.filter(hasPage).length;
+      const textSignals = row.signals.length - pageSignals;
+      // 「N 页证据」只在真有页时才说；CLI --enqueue 写进来的本来就是无页的
+      // 纯文字证据（F10a），一律叫「页」会让人以为库里丢了页。
+      const evidence =
+        `${pageSignals} 页证据` + (textSignals > 0 ? ` + ${textSignals} 条无页证据` : '');
       console.log(
         `  #${String(row.id).padStart(3)} ${row.tri.padEnd(7)} ${row.status.padEnd(8)} ` +
           `${row.externalName}（${row.externalSource}）· 见过 ${row.seenCount} 次 · ` +
-          `${pages} 页证据 · 最后 ${formatDate(row.lastSeenAt)}`,
+          `${evidence} · 最后 ${formatDate(row.lastSeenAt)}`,
       );
       for (const signal of row.signals.slice(0, 3)) {
-        const quote = signal.quote ? `「${signal.quote}」` : '';
-        console.log(`        ${signal.stageId}/${signal.sceneId} ${quote}`);
+        // 无页时**不打印** `stage//` 与孤零零的「」—— 那是「没页」被硬塞进
+        // 「页/quote」模板的样子。人看到的应该是一句原文，不是一个空壳。
+        const where = hasPage(signal) ? `${signal.stageId}/${signal.sceneId}` : '（无页）';
+        const parts = [where];
+        if (signal.quote !== '') parts.push(`「${signal.quote}」`);
+        const anchors = signal.anchorsHit ?? [];
+        if (anchors.length > 0) parts.push(`锚词 ${anchors.join('、')}`);
+        console.log(`        ${parts.join(' ')}`);
       }
       if (row.signals.length > 3) {
-        console.log(`        …还有 ${row.signals.length - 3} 页`);
+        console.log(`        …还有 ${row.signals.length - 3} 条证据`);
       }
     }
+
+    if (rejectedHits.length > 0) {
+      console.log('');
+      console.log(
+        `★ 被拒过、但证据现在变成「命中」的 ${rejectedHits.length} 条 —— ` +
+          '拒绝冻结的是人的决定，不是证据：',
+      );
+      for (const row of rejectedHits) {
+        const target = row.matchedConceptId ?? '-';
+        console.log(
+          `  #${String(row.id).padStart(3)} ${row.externalName}（${row.externalSource}）· ` +
+            `上次是 ${row.decidedBy ?? '?'} 在 ${formatDate(row.decidedAt)} 拒的 · 现在匹配到 ${target}`,
+        );
+        if (row.decisionNote) console.log(`        当时的理由：${row.decisionNote}`);
+        const quoted = row.signals.find((signal) => signal.quote !== '');
+        if (quoted) console.log(`        现在的证据：「${quoted.quote}」`);
+        console.log(
+          `        要翻案就 --accept ${row.id} --operator <你>；不翻就让它继续躺着（不会再自动变）。`,
+        );
+      }
+    }
+
     console.log('');
     console.log(
       "裁决：--accept <编号> --operator <你> / --reject <编号> --operator <你> --why '<理由>'",

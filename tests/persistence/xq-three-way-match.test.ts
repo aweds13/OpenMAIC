@@ -5,10 +5,13 @@ import { syncSeedGraph } from '@/lib/persistence/xq-seed-sync';
 import type { ConceptGraph, ConceptNode } from '@/lib/persistence/xq-concept-graph';
 import {
   BIGRAM_TAU,
+  MATCH_REASONS,
+  MIN_DICE_CHARS,
   SENSE_VETO_MIN_ANCHORS,
   SUSPECT_CANDIDATE_LIMIT,
   bigramSimilarity,
   buildLexicalIndex,
+  buildNamesByConcept,
   decideMany,
   decideThreeWay,
   loadMatchFacts,
@@ -86,6 +89,7 @@ function factsOf(options: {
   const nodes = new Map(options.nodes.map((item) => [item.id, item]));
   return {
     lexicalIndex: buildLexicalIndex(nodes, options.aliases ?? []),
+    namesByConcept: buildNamesByConcept(nodes, options.aliases ?? []),
     nodes,
     anchors: new Map(options.anchors ?? []),
     stages: new Map((options.stages ?? []).map(([id, list]) => [id, new Set(list)])),
@@ -131,6 +135,16 @@ describe('★ 归一与索引：查名字这一步不能自己发明一套规则
     expect(index.get('构造')?.length).toBe(2);
     // 排序稳定（码点序）—— 否则同一批导入两次的候选顺序会漂。
     expect(index.get('构造')).toEqual(['c_1', 'c_2']);
+  });
+
+  it('★ 反查表把规范名与别名摊在一个概念下（归一后去重）', () => {
+    const nodes = new Map([['c_1', node('c_1', 'Git 分支')]]);
+    const names = buildNamesByConcept(nodes, [
+      { alias: '分支', conceptId: 'c_1' },
+      // 归一后与规范名撞上 —— 同一个名字不该在表里出现两次。
+      { alias: 'GIT   分支', conceptId: 'c_1' },
+    ]);
+    expect(names.get('c_1')).toEqual(['git 分支', '分支']);
   });
 });
 
@@ -203,6 +217,103 @@ describe('★ 判定树：没有字面候选的那一支', () => {
     // 就是漏掉一个该问人的词。
     expect(result.bestSimilarity).toBeGreaterThanOrEqual(BIGRAM_TAU);
     expect(result.tri).not.toBe('miss');
+  });
+});
+
+describe('★ 模糊分支认全部名字，短名字不进 Dice（F1 + F2）', () => {
+  it('★ 别名参与相似度 —— 只比规范名的话 `再循环` 永远够不到 `循环`', () => {
+    const facts = factsOf({
+      nodes: [node('c_1', '循环结构')],
+      aliases: [{ alias: '循环', conceptId: 'c_1' }],
+    });
+    // 规范名 0.400（只共享「循环」一个窗口）< τ；别名 0.667 ≥ τ。
+    const result = decideThreeWay({ externalName: '再循环', senseAnchors: [] }, facts);
+    expect(result.tri).toBe('suspect');
+    expect(result.reason).toBe('bigram-similar');
+    expect(result.bestSimilarity).toBeCloseTo(2 / 3, 6);
+  });
+
+  it('★ 取的是「规范名 + 全部别名」里的最大者 —— 不能只翻别名', () => {
+    const facts = factsOf({
+      nodes: [node('c_1', '方法重载')],
+      aliases: [{ alias: '重载', conceptId: 'c_1' }],
+    });
+    // `方法重写` 对规范名 0.667，对别名 `重载` 0.500 —— 规范名赢，取最大。
+    const result = decideThreeWay({ externalName: '方法重写', senseAnchors: [] }, facts);
+    expect(result.reason).toBe('bigram-similar');
+    expect(result.bestSimilarity).toBeCloseTo(2 / 3, 6);
+  });
+
+  it('★ 一个概念有几个说法时，任一个够格就算够格', () => {
+    const facts = factsOf({
+      nodes: [node('c_1', '基本语言')],
+      aliases: [
+        { alias: 'BASIC', conceptId: 'c_1' },
+        { alias: 'basics', conceptId: 'c_1' },
+      ],
+    });
+    // 审计原样例：`BASIC语言` 经别名 `basics` 是 0.727，而规范名只有 0.222。
+    const result = decideThreeWay({ externalName: 'BASIC语言', senseAnchors: [] }, facts);
+    expect(result.tri).toBe('suspect');
+    expect(result.bestSimilarity).toBeGreaterThanOrEqual(BIGRAM_TAU);
+  });
+
+  it('★ 二字别名是 F1 的主力（39 条里 32 条靠它）—— 候选名短不设闸', () => {
+    const facts = factsOf({
+      nodes: [node('c_1', '方法与字段')],
+      aliases: [{ alias: '方法', conceptId: 'c_1' }],
+    });
+    // 规范名 0.333；别名只有两个字，但 2/Lb = 0.667 恰好是「外来名原样
+    // 包含这个短名」的信号。候选侧一起闸，会连 F1 的主战场一起丢掉。
+    const result = decideThreeWay({ externalName: '配方法', senseAnchors: [] }, facts);
+    expect(result.reason).toBe('bigram-similar');
+    expect(result.bestSimilarity).toBeCloseTo(2 / 3, 6);
+  });
+
+  it('★ 闸门看的是「这一对」，不是外来名单独短不短', () => {
+    // 2 字外来名对 4 字候选名：分数 0.500 带着「包含」的意思，必须照比。
+    // 若把闸切在「外来名 < 3 字」上，这条路会被判成 `short-name-no-fuzzy`。
+    const facts = factsOf({ nodes: [node('c_1', '循环结构')] });
+    const result = decideThreeWay({ externalName: '循环', senseAnchors: [] }, facts);
+    expect(result.reason).toBe('bigram-similar');
+    expect(result.bestSimilarity).toBeCloseTo(0.5, 6);
+    expect(result.tri).toBe('suspect');
+    // ★ 形状写死：短名闸不许把这一对推到「没得比」那一档。
+    expect(result.reason).not.toBe('short-name-no-fuzzy');
+  });
+
+  it('★ 两侧都只有两字 ⇒ Dice 只可能是 0/1，不比，理由单独一档', () => {
+    const facts = factsOf({ nodes: [node('c_1', '接口')] });
+    const result = decideThreeWay({ externalName: '路由', senseAnchors: [] }, facts);
+    expect(result.tri).toBe('miss');
+    expect(result.reason).toBe('short-name-no-fuzzy');
+    // ★ null 而不是 0：「没得比」与「比过、毫不相干」在报告里是两句话。
+    expect(result.bestSimilarity).toBeNull();
+    expect(MATCH_REASONS).toContain('short-name-no-fuzzy');
+  });
+
+  it('★ 单字名一个窗口都没有 ⇒ 同样落到 short-name-no-fuzzy', () => {
+    const facts = factsOf({ nodes: [node('c_1', '堆栈')] });
+    const result = decideThreeWay({ externalName: '栈', senseAnchors: [] }, facts);
+    expect(result.reason).toBe('short-name-no-fuzzy');
+    expect(result.bestSimilarity).toBeNull();
+  });
+
+  it('★ 短名闸不许架在「完全相等」前面 —— 那是字面分支的事', () => {
+    const facts = factsOf({ nodes: [node('c_1', '接口')] });
+    const result = decideThreeWay({ externalName: '接口', senseAnchors: [] }, facts);
+    // 两字名归一后相等 ⇒ 走字面，哪怕它短于 MIN_DICE_CHARS。
+    expect(result.reason).toBe('lexical-only');
+    expect(result.candidates.map((item) => item.conceptId)).toEqual(['c_1']);
+    expect(result.bestSimilarity).toBeNull();
+  });
+
+  it('闸门钉在 MIN_DICE_CHARS 上：三字名仍然要比', () => {
+    expect(MIN_DICE_CHARS).toBe(3);
+    const facts = factsOf({ nodes: [node('c_1', '循环')] });
+    const result = decideThreeWay({ externalName: '再循环', senseAnchors: [] }, facts);
+    expect(result.reason).toBe('bigram-similar');
+    expect(result.bestSimilarity).toBeCloseTo(2 / 3, 6);
   });
 });
 
@@ -521,6 +632,17 @@ describe('★ 从库里读事实：读错一处，判定全歪', () => {
     expect(facts.stages.get(git!.id)?.has('stage-A')).toBe(true);
     // 种子里 Git → 构造方法 有一条 prereq 边。
     expect(facts.connected(ctor!.id, git!.id)).toBe(true);
+  });
+
+  it('★ 别名进了 namesByConcept —— 否则模糊分支还是只看规范名', async () => {
+    const db = await freshDb();
+    await seedGraph(db);
+    const facts = await loadMatchFacts(db);
+    const ctor = [...facts.nodes.values()].find((item) => item.canonicalName === '构造方法');
+    expect(ctor).toBeDefined();
+    // 规范名与种子里的别名都在，且是**归一后**的形态 —— 查名字与比名字
+    // 必须共用 `matchKey` 一套规则，否则大小写/全角一漂就漏。
+    expect(facts.namesByConcept.get(ctor!.id)).toEqual(['构造器', '构造方法']);
   });
 
   it('没有锚的概念在 facts 里是「没有这个键」，不是空数组', async () => {
