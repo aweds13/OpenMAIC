@@ -169,16 +169,40 @@ describe('★ 判定树：没有字面候选的那一支', () => {
     expect(result.reason).toBe('no-lexical-candidate');
   });
 
-  it('★ τ 未标定时，有一点重叠就只能存疑 —— 不能拿没测过的量做硬判据', () => {
-    expect(BIGRAM_TAU).toBeNull();
-    const facts = factsOf({ nodes: [node('c_1', '构造方法')] });
-    const result = decideThreeWay({ externalName: '构造题', senseAnchors: [] }, facts);
+  it('★ τ 是标定过的数，不是 null —— 判据形状不再随「敢不敢判」改变', () => {
+    expect(BIGRAM_TAU).toBe(0.45);
+    expect(BIGRAM_TAU).toBeGreaterThan(0.42);
+    expect(BIGRAM_TAU).toBeLessThan(0.52);
+  });
+
+  it('★ 像到 τ 以上但没进别名表 ⇒ 存疑，理由写「像」不写「没有」', () => {
+    // `继承机制` 与 `继承` 的 Dice 是 0.500 —— 不在别名表里，靠 bigram 才认得出。
+    const facts = factsOf({ nodes: [node('c_1', '继承')] });
+    const result = decideThreeWay({ externalName: '继承机制', senseAnchors: [] }, facts);
     expect(result.tri).toBe('suspect');
-    // ★ 理由要写「τ 没标定」，不能写成「未命中」那种结论式措辞 ——
-    //   裁决的人看到 'no-lexical-candidate' 会以为「图上没有」，而真相是
-    //   「字面有重叠、我们不敢定」。
-    expect(result.reason).toBe('bigram-uncalibrated');
+    // ★ 理由要说「名字像但我们没把握」，不能写成结论式措辞 ——
+    //   裁决的人看到 'no-lexical-candidate' 会以为「图上没有」。
+    expect(result.reason).toBe('bigram-similar');
+    expect(result.bestSimilarity).toBeGreaterThanOrEqual(BIGRAM_TAU);
+  });
+
+  it('★ 像但没到 τ ⇒ 未命中（理由与「毫不相干」分开）', () => {
+    const facts = factsOf({ nodes: [node('c_1', '构造方法')] });
+    // `方法重载` 与 `构造方法` 只共享「方法」一个窗口，Dice = 2/(3+3) ≈ 0.333。
+    const result = decideThreeWay({ externalName: '方法重载', senseAnchors: [] }, facts);
+    expect(result.tri).toBe('miss');
+    expect(result.reason).toBe('bigram-below-tau');
     expect(result.bestSimilarity).toBeGreaterThan(0);
+    expect(result.bestSimilarity).toBeLessThan(BIGRAM_TAU);
+  });
+
+  it('★★ 同义变体不许被 τ 判掉 —— 这个数是拿这批变体反推出来的', () => {
+    const facts = factsOf({ nodes: [node('c_1', '继承')] });
+    const result = decideThreeWay({ externalName: '继承机制', senseAnchors: [] }, facts);
+    // `继承机制` 与 `继承` 的 Dice 是 0.500，正好在可用区间上沿 —— 判成 miss
+    // 就是漏掉一个该问人的词。
+    expect(result.bestSimilarity).toBeGreaterThanOrEqual(BIGRAM_TAU);
+    expect(result.tri).not.toBe('miss');
   });
 });
 

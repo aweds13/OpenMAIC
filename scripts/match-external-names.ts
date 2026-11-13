@@ -49,9 +49,10 @@
  * 写 0 行出现记录（它会照实报 `occurrences: 0`）。要给证据就得先有外来课的
  * 页，那是导入器的事，不是这个脚本能编的。
  *
- * ★ **提案行上只留 `tri`，不留 `reason`**：`reason` 里有
- * `bigram-uncalibrated` 这种「等 τ 标定完就会消失」的值，存进库会让同一列在
- * 两个时期表示两件事。它是给人当场看的，不是给库看的。
+ * ★ **提案行上只留 `tri`，不留 `reason`**：`reason` 是**这次判定的解释**，
+ * 会随判据演进而改词（`bigram-uncalibrated` 在 τ 标定后已改名
+ * `bigram-similar`）。存进库会让同一列在两个时期表示两件事 —— 它是给人
+ * 当场看的，不是给库看的。
  */
 
 import * as nodeModule from 'node:module';

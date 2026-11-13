@@ -24,16 +24,21 @@
  * ★ A 与 B 只能加分，C 能为空就否决。这是唯一能挡住「构造」的地方。
  * ★ 但否决有四个前提，缺一个就只是「不敢判」而不是「不符」—— 见下面两节。
  *
- * ## 为什么「没标定的阈值」不许写成数字
+ * ## 阈值曾经是 `null`，现在不是了（2026-11-10 标定）
  *
- * J §3.3 的 `bigram τ` 至今**待标定**：手上唯一的相似度读数是页级检索
+ * J §3.3 的 `bigram τ` 之前一直**待标定**：手上唯一的相似度读数是页级检索
  * （234 页 / 27 查询，`meanP=1.000 / meanR=0.658`），而这里要判的是 2–8 字的
- * 概念名。拿页级阈值套概念名，等于用一个没测过的量做硬判据。所以
- * `BIGRAM_TAU` 是 `null` 而不是 `0.6`：
+ * 概念名 —— 拿页级阈值套概念名等于用一个没测过的量做硬判据。所以它一度是
+ * `null`：只有 bigram 完全不相交（相似度 = 0）才判未命中，有任何重叠都降级成
+ * 存疑。
  *
- * - `null` 时，**只有 bigram 完全不相交（相似度 = 0）才判未命中**；
- *   有任何重叠都降级成存疑（多问人一次，不是错判）。
- * - 真定了阈值的人把它填进来，判定立刻按数字走 —— 判据形状不用改。
+ * ★ 现在标定完了，方法与读数写在 `BIGRAM_TAU` 的注释里。要点是**两边的代价
+ * 不对称，但不是「看不看得到」**：三段都会进提案队列（`--enqueue` 逐条写，
+ * 不按 `tri` 过滤），差别在 `tri` 这一列**让人怎么读它**。判成 `miss` 读作
+ * 「我们图里没有这个东西」，于是一个其实只是换了说法的名字会被当成新概念
+ * 收下 —— 那正是这条链最想避免的重复（`构造题` / `构造方法` 那次错挂 8 页，
+ * 方向相反但同源）。判成 `suspect` 读作「像，但请人判」。所以 τ 只取到
+ * 「离同义变体还有距离」的位置，不取「能把无关名字全判出」的最大值。
  *
  * ## ★ 「没给锚」不等于「锚不符」
  *
@@ -103,11 +108,46 @@ export type MatchSignal = (typeof MATCH_SIGNALS)[number];
 export const SUSPECT_CANDIDATE_LIMIT = 2;
 
 /**
- * bigram 相似度阈值 —— **待标定**，所以是 `null`。
+ * bigram 相似度阈值：字面索引没命中、且相似度低于它，判 `miss`（2026-11-10 标定）。
  *
- * 见文件头最后一段：`null` 时只有「完全不重叠」才判未命中。
+ * ★ **0.45 是扫出来的，不是拍的。** 三条数据集（`.tmp/_tau_sweep.mjs`）：
+ *
+ * | τ | 20 个真·外来名字判出 miss | 20 个留出集判出 miss | 9 个同义变体被误判 miss |
+ * |---|---|---|---|
+ * | 0.30 | 19/20 | 20/20 | 0/9 |
+ * | 0.42 | 20/20 | 20/20 | 0/9 |
+ * | 0.50 | 20/20 | 20/20 | 0/9 |
+ * | 0.55 | 20/20 | 20/20 | **2/9**（继承机制 / 接口定义） |
+ * | 0.60 | 20/20 | 20/20 | **6/9** |
+ *
+ * 三个集合的来历：
+ * - **真·外来名字**（20 个）：`协程调度器` / `向量数据库` / `傅里叶变换` / `动态规划` /
+ *   `红黑树` / `状态机` / `编译器优化` / `垃圾回收器` / `零拷贝` / `幂等性设计` /
+ *   `分布式锁` / `一致性哈希` / `影子表` / `灰度发布` / `灰度` / `埋点` /
+ *   `漏斗分析` / `归因模型` / `特征工程` / `在线学习`。
+ * - **留出集**（20 个，防止只在这一批上挑 τ）：`语义搜索` / `知识图谱补全` /
+ *   `推荐系统冷启动` / `强化学习策略梯度` / `图神经网络` / `模型蒸馏` / `量化压缩` /
+ *   `时序预测` / `异常检测` / `多模态对齐` / `因果推断` / `联邦学习` / `提示注入` /
+ *   `检索增强` / `指令微调` / `注意力稀疏化` / `长上下文压缩` / `词表裁剪` /
+ *   `推测解码` / `专家混合` —— 这 20 个在 τ=0.30 时就 20/20 全判出。
+ * - **同义变体**（9 个，都是不在别名表里、只能靠 bigram 判的真·同概念说法）：
+ *   `Stateless` / `合并冲突` / `递归函数` / `空安全机制` / `多态性` / `封装性` /
+ *   `继承机制` / `接口定义` / `变量类型` —— 相似度分别是 0.593 / 0.571 / 0.571 /
+ *   0.667 / 0.667 / 0.667 / **0.500** / **0.500** / 0.571。这批判成 miss 就是
+ *   漏掉一个该问人的词。
+ *
+ * ⇒ 可用区间 **0.42–0.52**（两端各留 0.05 间隔），取中 **0.45**。
+ *
+ * ★ 0.50 在纸面上也行（变体最低就是 0.500，判据是严格 `<`），但边界压着 0.500
+ * 等于「刚好不误伤」—— 任何一次 `matchKey` 归一化规则的微调都会把它推过去。
+ *
+ * ★ 另一条路（改判据形状）试过：用「共享 bigram 个数 ≤ 1 就算偶然」代替 τ。
+ * 它在 20 个外来名字上 20/20、在 9 个变体上 0/9 误判，看起来同等好；但它把
+ * 「共享几个二字窗口」当成了与名字长度无关的量 —— `方法` 与 `方法重载` 只共享
+ * 1 个窗口（2 字名只有一个窗口），而这两个是真的同族。留 τ 是因为 Dice 已经
+ * 按长度归一化过，再叠一条计数判据等于两个阈值互相牵制。
  */
-export const BIGRAM_TAU: number | null = null;
+export const BIGRAM_TAU = 0.45;
 
 /**
  * 候选的锚词数低于这个值，就**不许行使否决权**（2026-11-10 补）。
@@ -177,9 +217,14 @@ export const MATCH_REASONS = [
   'sense-supported',
   'lexical-only',
   'no-lexical-candidate',
-  /** 与某个概念名有字面重叠，但没到别名表那一级 —— τ 未标定，只能判存疑。 */
-  'bigram-uncalibrated',
-  /** bigram 低于已标定的 τ。今天走不到（`BIGRAM_TAU` 是 `null`）。 */
+  /**
+   * 与某个概念名像到 τ 以上，但没到别名表那一级 —— 像不等于同一个，交给人。
+   *
+   * ★ 这个理由在 τ 标定前叫 `bigram-uncalibrated`（「没法判」）；标定之后
+   * 语义变了：字面没命中、名字又足够像，所以判存疑。
+   */
+  'bigram-similar',
+  /** bigram 低于已标定的 τ（0.45）：字面没命中、名字也不像 —— 判未命中。 */
   'bigram-below-tau',
   /**
    * 候选的锚词表太薄，否决权不生效 —— 存疑不是「不像」，是「我们还没本钱判」。
@@ -292,17 +337,34 @@ export function decideThreeWay(input: ThreeWayInput, facts: MatchFacts): ThreeWa
   const normalizedName = matchKey(input.externalName);
   const candidateIds = (normalizedName === '' ? [] : facts.lexicalIndex.get(normalizedName)) ?? [];
 
-  // ── 候选集为空：只能靠 bigram 判「像不像」，而 τ 还没标定 ────────────
+  // ── 候选集为空：字面索引里没有，只能靠 bigram 判「像不像」──────────────
+  //
+  // τ 已标定（0.45，见 `BIGRAM_TAU`），所以这一支是三分而不是两分：
+  //   · 一个二字窗口都不重合 ⇒ 未命中，理由 `no-lexical-candidate` —— 与
+  //     「低于 τ」分开，因为两者要人做的事不同（前者是图里真没有，
+  //     后者是我们图里可能有一个换了说法的同一个东西）。
+  //   · 0 < 相似度 < τ ⇒ 未命中，理由 `bigram-below-tau`。
+  //   · 相似度 ≥ τ ⇒ 存疑，理由 `bigram-similar`。
+  //
+  // ★ `miss` 与 `suspect` 都会进提案队列，区别只在 `tri` 让人怎么读它 ——
+  //   见 `BIGRAM_TAU` 注释里那句「不是看不看得到」。
   if (candidateIds.length === 0) {
     const best = bestNameSimilarity(normalizedName, facts.nodes.values());
-    const belowTau = BIGRAM_TAU !== null && best < BIGRAM_TAU;
-    // τ 为 null 时，只有「一个 bigram 都不重合」才敢判未命中。
-    const noOverlap = best <= 0;
-    if (belowTau || (BIGRAM_TAU === null && noOverlap)) {
+    if (best <= 0) {
       return {
         tri: 'miss',
         matchedConceptId: null,
-        reason: best <= 0 ? 'no-lexical-candidate' : 'bigram-below-tau',
+        reason: 'no-lexical-candidate',
+        candidates: [],
+        normalizedName,
+        bestSimilarity: best,
+      };
+    }
+    if (best < BIGRAM_TAU) {
+      return {
+        tri: 'miss',
+        matchedConceptId: null,
+        reason: 'bigram-below-tau',
         candidates: [],
         normalizedName,
         bestSimilarity: best,
@@ -311,7 +373,7 @@ export function decideThreeWay(input: ThreeWayInput, facts: MatchFacts): ThreeWa
     return {
       tri: 'suspect',
       matchedConceptId: null,
-      reason: 'bigram-uncalibrated',
+      reason: 'bigram-similar',
       candidates: [],
       normalizedName,
       bestSimilarity: best,
