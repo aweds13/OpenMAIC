@@ -228,12 +228,16 @@ describe('XqLearnerStore', () => {
       const result = await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
       expect(result.rounds).toBe(4);
 
-      // ★ 不能用 EXTRACT(DAY FROM (due_at - now()))：那是 interval 的「日分量」，
+      // ★ 不能用 EXTRACT(DAY FROM (due_at - anchor))：那是 interval 的「日分量」，
       // +1 天减掉几毫秒会变成 0 天 23:59:59.99，日分量读出来是 0。
       // 要总天数就取 epoch 再除，然后四舍五入。
+      //
+      // ★ 减的是**排期锚点**（store 注入的 NOW），不是 `now()` —— 锚点改成参数之后
+      // （2026-11-26），拿真实时钟去减只会得到负数。这条测试原本就因此变成过时间炸弹。
       const { rows } = await db.query<{ round: number; days: number }>(
-        `SELECT round, round(EXTRACT(EPOCH FROM (due_at - now())) / 86400)::int AS days
+        `SELECT round, round(EXTRACT(EPOCH FROM (due_at - $1::timestamptz)) / 86400)::int AS days
            FROM xq_review_schedule ORDER BY round`,
+        [NOW.toISOString()],
       );
       expect(rows.map((r) => Number(r.round))).toEqual([1, 2, 3, 4]);
       expect(rows.map((r) => Number(r.days))).toEqual([1, 3, 7, 15]);
@@ -382,15 +386,18 @@ describe('XqLearnerStore', () => {
 
     it('dueReviews 的 now 是注入的，不改系统时钟', async () => {
       await store.scheduleReviewForWrong('stage-A', 'scene-p1', 'q1', 'concept-x');
-      // 「今天」四关都没到（第 1 关也要 +1 天）
-      const today = await store.dueReviews(new Date(Date.UTC(2026, 10, 8)), 50);
-      expect(today).toHaveLength(0);
-      // 第 12 天：1 天 / 3 天 / 7 天那三关都到期了，15 天那关还没
-      const day12 = await store.dueReviews(new Date(Date.UTC(2026, 10, 20)), 50);
-      expect(day12.map((d) => d.round)).toEqual([1, 2, 3]);
-      // 第 31 天：四关全到期
-      const day31 = await store.dueReviews(new Date(Date.UTC(2026, 11, 9)), 50);
-      expect(day31.map((d) => d.round)).toEqual([1, 2, 3, 4]);
+      // ★ 全部相对**锚点 NOW（2026-11-20）**算，不相对真实时钟 ——
+      // 四关落在 +1 / +3 / +7 / +15 天（11-21 / 11-23 / 11-27 / 12-05）。
+      // 这段原本写的是「第 12 天」「第 31 天」加绝对日期，那是按写它那天的真实
+      // 时钟凑出来的；日期一过就红（实测 2026-11-26 起必红）。
+      const day0 = await store.dueReviews(NOW, 50);
+      expect(day0).toHaveLength(0);
+      // +7 天：1/3/7 那三关到期，15 天那关还没
+      const day7 = await store.dueReviews(new Date(Date.UTC(2026, 10, 27)), 50);
+      expect(day7.map((d) => d.round)).toEqual([1, 2, 3]);
+      // +15 天：四关全到期
+      const day15 = await store.dueReviews(new Date(Date.UTC(2026, 11, 5)), 50);
+      expect(day15.map((d) => d.round)).toEqual([1, 2, 3, 4]);
     });
   });
 

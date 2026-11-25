@@ -232,7 +232,16 @@ export async function recordProbeFromRuntimeAppend(
       // （见 xq-learner.ts 第四节）。但取到了就要用：唯一键含 concept，
       // 同一道错题今天挂 A、明天挂 B 会变成两组四关。
       const concept = await store.conceptForQuestion(input.stageId, input.sceneId, item.questionId);
-      await store.scheduleReviewForWrong(input.stageId, input.sceneId, item.questionId, concept);
+      // ★ 锚点是他**答错的时刻**（`createdAt`），不是写库的此刻。
+      // 这两者在正常路径上差几秒，但在补录/回放里能差几个月 —— 用 now()
+      // 排期会让三个月前的错题从今天开始数四关，第二天一起到期。
+      await store.scheduleReviewForWrong(
+        input.stageId,
+        input.sceneId,
+        item.questionId,
+        concept,
+        askedAt,
+      );
       result.scheduled += 1;
     } catch (error) {
       (deps.logFailure ?? defaultLogFailure)(

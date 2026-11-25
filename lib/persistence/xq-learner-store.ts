@@ -258,12 +258,18 @@ const SELECT_CELLS_SQL = `SELECT DISTINCT stage_id, scene_id FROM xq_probe_item`
  *
  * 间隔从 `$5` 传进来（`REVIEW_INTERVAL_DAYS`），不写死在 SQL 里 —— 那张表只有
  * 一份，写两份就会在改阶梯时对不上。`generate_series(1, 4)` 的第 n 个值取数组第 n 项。
+ *
+ * ★ 锚点是**参数**（`$6`），不是 SQL 里的 `now()`。两个理由：
+ * ① 一次回填要按「他当时答错的时刻」排，而不是按「脚本跑起来的时刻」——
+ *    否则补录三个月的错题，四关全从今天开始，第二天一起到期；
+ * ② `now()` 让这条链不可重放：同样的输入在不同日子算出不同排期，
+ *    测试也只能靠改系统时钟才过（实测真出现过一次「昨天还绿、今天红」）。
  */
 const SCHEDULE_REVIEW_SQL = `INSERT INTO xq_review_schedule (
   stage_id, scene_id, question_id, concept, round, due_at
 )
 SELECT $1, $2, $3, $4, g.round,
-       now() + make_interval(days => ($5::int[])[g.round])
+       $6::timestamptz + make_interval(days => ($5::int[])[g.round])
   FROM generate_series(1, cardinality($5::int[])) AS g(round)
 ON CONFLICT (stage_id, scene_id, question_id, concept, round) DO NOTHING
 RETURNING id`;
@@ -543,6 +549,11 @@ export class XqLearnerStore {
     sceneId: string,
     questionId: string,
     concept: string,
+    /**
+     * 「今天」从哪一天算起 —— 传他**答错的那一刻**。
+     * 不传就取注入的 `now`（再退到系统时钟），与构造函数的语义一致。
+     */
+    anchor?: Date,
   ): Promise<{ rounds: number }> {
     const { rows } = await this.queryable.query<{ id: string }>(SCHEDULE_REVIEW_SQL, [
       stageId,
@@ -550,6 +561,7 @@ export class XqLearnerStore {
       questionId,
       concept,
       [...REVIEW_INTERVAL_DAYS],
+      anchor ?? this.now?.() ?? new Date(),
     ]);
     return { rounds: rows.length };
   }
