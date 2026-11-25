@@ -40,11 +40,11 @@
 
 ## 0. 一句话现状
 
-这是 THU-MAIC **OpenMAIC** 的二开分支（`upgrade/v1.3.0`）。
+这是 THU-MAIC **OpenMAIC** 的二开分支（当前基线 `upgrade/v1.5.0`，合入上游 v1.5.0 后的分支）。
 改动落在 `lib/` `app/` **`components/`** `tests/`，外加 `next.config.ts` 与
 `package.json` / `pnpm-lock.yaml`（`jsdom` 进了 `dependencies`，见 §2 的 `page-text.ts`）。
 **以 `git diff --name-only origin/main..HEAD` 为准**（**含 `components/`** —— 漏看就会以为
-"改动只在服务端"）。上游基线是 `origin/main` = `3618238d`；`57fbcc4` 只是**祖先**，
+"改动只在服务端"）。上游基线是 `v1.5.0` = `98a57ebe`（2026-11-24）；`57fbcc4` 只是**祖先**，
 `docs-map` 判据仍拿它当历史锚点，不代表当前基线。
 
 ★ **`packages/@openmaic/**` 的干净程度取决于起点**：相对真正的分叉点 `v1.3.0`（`c0f296aa`）
@@ -69,15 +69,24 @@
 
 ---
 
-## 0.1 当前状态（2026-11-10）
+## 0.1 当前状态（2026-11-26）
 
-- **本地分支 `upgrade/v1.3.0` 领先 `mine/main`，未推送**。★ 笔数**会漂**，不要照抄：
-  以 `git rev-list --count mine/main..upgrade/v1.3.0` 为准（2026-11-10 实测 **58**、
-  反向 = 0；`git merge-base --is-ancestor a79e5038 mine/main` = no）。领先段里最老的 3 笔是插件结论库
-  （`4fa27693` … `1c111528`），其后是材料模块收敛与学情链 `84ad7e8b`…`f7ecefd7`。
-  ⇒ 本文件 §0.1 下面写的「已落码」都还只在本机分支上。★ 推送失败看 `curl https://api.github.com`（通）
-  对 `curl https://github.com`（000）；日志里 `Everything up-to-date` **不等于成功**（RPC 断连后的误导尾行），
-  只能信 API / `git ls-remote`。原命令重试，**不要**改 remote / 换协议 / 强推。
+- **上游 v1.5.0 已合入并推送**。远端 `mine` 现有两条分支：`upgrade/v1.3.0` = `19b46314`
+  （合入前的分叉 HEAD）、`upgrade/v1.5.0` = `feb869c7`（合入结果）。★ 笔数与哈希**会漂**，不要照抄，
+  以 `git rev-list --count mine/main..upgrade/v1.5.0` 与 `git ls-remote --heads mine` 为准。
+- ★★ **推送踩过的两个坑，下次照这个做**：
+  1. **token 缺 `workflow` scope**。仓库 token 是 OAuth App（`gho_`），scopes = `gist / read:org / repo / user`，
+     **不含 `workflow`** ⇒ 只要一次推送里含 `.github/workflows/*` 的新增或修改，远端直接 `remote rejected`
+    （报 `refusing to allow an OAuth App to create or update workflow … without 'workflow' scope`）。
+    解法：**先把 workflow 回退成远端现状、提交、推送**，把上游那 5 个 workflow 的差异存档
+    （`_tools/kg/openmaic-upgrade/09-upstream-workflows.patch`，16,003 B），等有 `workflow` 权限的凭据再单独补。
+    实测这一步之后**其余 1524 个文件照常推得动**（`f42dc1cc` 与推送出去的 `feb869c7` 除 5 个 workflow 外
+    逐字节相同，`git diff --stat f42dc1cc feb869c7 -- . ':!.github/workflows'` 为空）。
+  2. **网络是间歇性的**，`curl https://github.com` 会突然回 `000` 而 `api.github.com` 仍 200（HTTP/2 被 RST）。
+    解法：`git -c http.version=HTTP/1.1 -c http.postBuffer=524288000 push …` + **有界重试脚本**
+    （实测 10 次上限里第 2 次成功）。★ 别用 `| tail` 截断长命令；别信 `Everything up-to-date` 的尾行，
+    只信 `git ls-remote` 回读到目标哈希。
+- **五层 `docs/` 全绿**：`check-layers.py` → `188 条引用（断链 0 处）` + `PASS ✅`（2026-11-26 在 `upgrade/v1.5.0` 上复测）。★ 这个数**会漂** —— 每次加一个被反引号点名的源文件它就 +1，写进文档时带日期。
 - **五层 `docs/` 全绿**：`check-layers.py` → `188 条引用（断链 0 处）` + `PASS ✅`（做过反向验证；2026-11-10 实测 188）。★ 这个数**会漂** —— 每次加一个被反引号点名的源文件它就 +1，写进文档时带日期。
 - **仓根三份老文档与两份一次性复盘已删**（含「新窗口交接卡」），内容拆进五层与本文件
   §0.1/§8（旧版 `git show 490259c1:<文件名>`）。结论库 140200 → 88228 字节。
@@ -274,11 +283,45 @@ D1–D5 通、D6（自评一次没采）/ D7（19 个练习只有 1 份 `result.
 
 ---
 
+## 8.1 上游合并操作手册（v1.5.0 那次跑通的顺序，下次照抄）
+
+★ 这一节只写**动作**；判据在 `scripts/`、测试与 `docs/` 里。
+
+**前置**：`git -c http.version=HTTP/1.1 fetch origin --tags --prune`（默认 fetch 会被 HTTP/2 RST）。
+
+1. **量冲突面**（不要直接 merge 才看）：`git diff --name-only <旧分叉点> HEAD` ∩
+   `git diff --name-only <旧分叉点> <新 tag>` ⇒ 得到 BOTH 清单；再分别看 `--diff-filter=A` 与 `D`
+   求「双方都新增」与「我方删除但上游还在用」。
+2. **建独立工作树**：`git worktree add .worktrees/merge-X <branch>`，**不要**在主树里 merge。
+3. **`git merge <tag> --no-commit --no-ff`**，然后按类分批解，**每批 `git add` 一次**。
+4. **i18n 永远用三路合并，不要手拼**：`git show :1: <base>` / `:2:` ours / `:3:` theirs，
+   逐叶键判「等于 base 取对方 / 对方等于 base 取我们 / 都改取我们并记录」。
+   ★ 解完必须**比对 base 与每个 overlay 的键集**：有的键被代码**按状态动态取**
+   （如 `workbench.tool.group.${status}`），静态 grep 找不到它，删掉只会在运行时渲染裸 key。
+5. **装依赖**：`corepack enable pnpm` 在无管理员权限时 EPERM ⇒ 写**两个** shim（`pnpm` 给 bash、
+   `pnpm.cmd` 给 cmd.exe，后者是必须的 —— `build:packages` 里 `cd ../@openmaic/dsl && pnpm run build`
+   由 cmd.exe 执行），指向 corepack 缓存里的 `pnpm.cjs`。
+6. **`pnpm run build:packages` 必须先跑**，否则 `tsc --noEmit` 会报几十条
+   `TS6053: File 'packages/@openmaic/<pkg>/dist/...d.ts' not found`。
+7. **判「失败是不是合并引入」必须回主线跑基线**：同一个目录在主树（旧 HEAD）与合并树各跑一遍，
+   比**失败文件集合**，不比条数。★ 合并树里也可能**新出现**上游带来的测试文件，它红了就是真·合并引入。
+8. **Python 拼 TS/TSX 后逐文件跑 `ts.createSourceFile(...).parseDiagnostics`** 确认 0 ——
+   实测被切坏过 `generated-tools.ts` 的 `
+`（落成真换行）、`director-loop.ts` 的 `import`（丢首字母）、
+   `route.ts` 的残尾。`grep -rn "^AD$"` 是最快的残留探针。**超大文本不要走 heredoc**（会被截断）。
+9. **推送前先确认这次不碰 workflow**（见 §0.1 第 1 条）。
+
 ## 9. 干活的标准循环
 
 ```
 1. 读 §2 的地图，确认你要改的东西有没有主
-2. 改 lib/ 或 app/（不要动 packages/@openmaic）
+2. 改 lib/ 或 app/。`packages/@openmaic/**` 原则上**仍不要动**，但 v1.5.0 起有两类例外必须留在包内，
+   否则旧 canvas 与包内 canvas 会静默不一致：
+   · **行高回落值**（`@openmaic/renderer` 的 `DEFAULT_TEXT_LINE_HEIGHT = 1.5`，见 §0）；
+   · 任何**只对被换掉的渲染器成立**的约束（播放/编辑器默认已走包内 canvas，退回旧 canvas 要设
+     `NEXT_PUBLIC_MAIC_PLAYBACK_RENDERER_ENABLED=false` / `NEXT_PUBLIC_MAIC_EDITOR_RENDERER_ENABLED=false`，
+     且 `NEXT_PUBLIC_*` 是**构建期内联**）。
+   改包内代码的代价：`git diff v1.3.0 HEAD -- packages/` 会不再为空，合并时要单独看。
 3. node node_modules/prettier/bin/prettier.cjs --write <改过的文件>
    npx tsc --noEmit  +  node scripts/check-i18n-keys.mjs  +  python -X utf8 scripts/check-layers.py
 4. 重启 next dev（§3.2）—— agent-runtime 不热重载；改了插件见 `docs/implementation/DSH宿主.md`
