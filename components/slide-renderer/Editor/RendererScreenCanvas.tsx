@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useMobileLayout } from '@/lib/adaptive/adaptive-provider';
 import { useAnimate } from 'motion/react';
-import { SlideCanvas, type SlideEffects } from '@openmaic/renderer';
+import { SlideCanvas, SlideRendererProvider, type SlideEffects } from '@openmaic/renderer';
 import type { PPTImageElement, PPTVideoElement } from '@openmaic/dsl';
 import { Film, ImageOff, Paintbrush, RotateCcw, ShieldAlert, VideoOff } from 'lucide-react';
 import { useCanvasStore } from '@/lib/store';
@@ -303,7 +304,9 @@ export function RendererScreenCanvas() {
   const slide = useSceneSelector<SlideContent, SlideContent['canvas']>((content) => content.canvas);
   const resolved = useResolvedSlideMedia(slide);
 
-  const canvasPercentage = useCanvasStore.use.canvasPercentage();
+  const storedCanvasPercentage = useCanvasStore.use.canvasPercentage();
+  const mobile = useMobileLayout();
+  const canvasPercentage = mobile ? 100 : storedCanvasPercentage;
   const setCanvasScale = useCanvasStore.use.setCanvasScale();
 
   const highlightedElementIds = useCanvasStore.use.highlightedElementIds();
@@ -357,31 +360,33 @@ export function RendererScreenCanvas() {
   ]);
 
   return (
-    <SlideCanvas
-      slide={resolved.slide}
-      canvasPercentage={canvasPercentage}
-      onScaleChange={handleScaleChange}
-      effects={effects}
-      elementIdPrefix={SCREEN_ELEMENT_ID_PREFIX}
-      renderImage={(element, _src, defaultContent) => (
-        <PlaybackImageContent
-          element={element}
-          defaultContent={defaultContent}
-          media={resolved.byElementId[element.id]}
-          sceneId={sceneId}
-          slideId={slide.id}
-        />
-      )}
-      renderVideo={(element) => (
-        <PlaybackVideoContent
-          element={element}
-          media={resolved.byElementId[element.id]}
-          sceneId={sceneId}
-          slideId={slide.id}
-        />
-      )}
-      videoInteractive
-      chrome
-    />
+    <SlideRendererProvider slide={resolved.slide} classroomSizing>
+      <SlideCanvas
+        slide={resolved.slide}
+        canvasPercentage={canvasPercentage}
+        onScaleChange={handleScaleChange}
+        effects={effects}
+        elementIdPrefix={SCREEN_ELEMENT_ID_PREFIX}
+        renderImage={(element, _src, defaultContent) => (
+          <PlaybackImageContent
+            element={element}
+            defaultContent={defaultContent}
+            media={resolved.byElementId[element.id]}
+            sceneId={sceneId}
+            slideId={slide.id}
+          />
+        )}
+        renderVideo={(element) => (
+          <PlaybackVideoContent
+            element={element}
+            media={resolved.byElementId[element.id]}
+            sceneId={sceneId}
+            slideId={slide.id}
+          />
+        )}
+        videoInteractive
+        chrome
+      />
+    </SlideRendererProvider>
   );
 }

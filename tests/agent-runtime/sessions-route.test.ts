@@ -378,12 +378,27 @@ describe('agent session collection route', () => {
   });
 
   it('lists only sessions for the resolved owner', async () => {
-    mocks.listSessionsByOwner.mockResolvedValue([{ id: 'session-1', status: 'running' }]);
+    mocks.listSessionsByOwner.mockResolvedValue([
+      { id: 'session-1', status: 'running' },
+      { id: 'pbl-role-internal', status: 'running' },
+    ]);
     const response = await GET(new NextRequest('http://localhost/api/agent/sessions'));
 
     expect(response.status).toBe(200);
     expect(mocks.listSessionsByOwner).toHaveBeenCalledWith('anon:test');
     await expect(response.json()).resolves.toEqual([{ id: 'session-1', status: 'running' }]);
+  });
+
+  it('passes the store’s awaiting-answer verdict through to the rail', async () => {
+    mocks.listSessionsByOwner.mockResolvedValue([
+      { id: 'asked', status: 'succeeded', awaitingAnswer: true },
+      { id: 'at-rest', status: 'succeeded' },
+    ]);
+    const response = await GET(new NextRequest('http://localhost/api/agent/sessions'));
+    await expect(response.json()).resolves.toEqual([
+      { id: 'asked', status: 'succeeded', awaitingAnswer: true },
+      { id: 'at-rest', status: 'succeeded' },
+    ]);
   });
 
   it('keeps both collection methods behind the runtime gate', async () => {

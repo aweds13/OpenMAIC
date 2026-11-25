@@ -143,6 +143,7 @@ export const LLM_STAGES = [
   'web-search-query-rewrite',
   'maic-agent-driver',
   'conversation-title',
+  'material-chapters',
   // 对抗性内容审查（`review_course`）：一次隔离的调用，上下文里只有页面文本 + 规矩。
   'course-review',
 ] as const;

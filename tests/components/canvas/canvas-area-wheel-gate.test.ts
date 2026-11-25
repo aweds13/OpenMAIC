@@ -44,9 +44,6 @@ vi.mock('@/components/whiteboard', () => ({ Whiteboard: () => null }));
 vi.mock('@/lib/contexts/scene-context', () => ({
   SceneProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
-vi.mock('@/components/scene-renderers/classroom-complete', () => ({
-  ClassroomCompletePageConnected: () => null,
-}));
 vi.mock('@/components/edit/ContainBox', () => ({
   ContainBox: ({ children }: { children: React.ReactNode }) => children,
 }));

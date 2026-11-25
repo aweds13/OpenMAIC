@@ -90,6 +90,16 @@ describe('BaseTextElement', () => {
     expect(markup).toContain(`justify-content:${justifyContent}`);
   });
 
+  it('falls back to the documented 1.5 line height instead of browser "normal"', () => {
+    // The DSL documents `lineHeight` as optional with default 1.5. Leaving the
+    // style unset renders at the browser's "normal" (~1.2), which silently
+    // disagrees with every host-side height estimate.
+    const markup = renderToStaticMarkup(
+      React.createElement(BaseTextElement, { elementInfo: textElement }),
+    );
+    expect(markup).toContain('line-height:1.5');
+  });
+
   it('shares text paint styles with custom editable content', () => {
     const markup = renderToStaticMarkup(
       React.createElement(BaseTextElement, {

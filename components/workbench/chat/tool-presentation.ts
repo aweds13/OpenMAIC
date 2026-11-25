@@ -51,6 +51,7 @@
  */
 import {
   AudioLines,
+  Clapperboard,
   BookOpen,
   Copy,
   FileSearch,
@@ -261,6 +262,19 @@ function salientArg(args: Record<string, unknown>): string | undefined {
  * label with the title arriving four minutes later is exactly the "nothing is
  * happening" feeling the traces were added for.
  */
+const teachingToolLabels = {
+  read_file: 'workbench.tool.label.readFile',
+  write_file: 'workbench.tool.label.writeFile',
+  list_files: 'workbench.tool.label.listFiles',
+  manage_file: 'workbench.tool.label.manageFile',
+  run_build: 'workbench.tool.label.runBuild',
+  collect_build: 'workbench.tool.label.collectBuild',
+  read_next_skill: 'workbench.tool.label.readTeachingSkill',
+  request_skill_review: 'workbench.tool.label.requestReview',
+  respond_to_learner: 'workbench.tool.label.respondToLearner',
+  complete_stage: 'workbench.tool.label.completeTeachingStage',
+} as const;
+
 export function presentTool(
   node: ChatNode,
   plan: PlannedPage[] = [],
@@ -274,6 +288,22 @@ export function presentTool(
   const localizedResult = node.toolResultCopyKey ? t(node.toolResultCopyKey) : node.toolResultText;
   const errorLine = (subject: string, _raw?: string) =>
     formatErrorLine(subject, localizedResult, t('workbench.tool.errorSeparator'));
+
+  const teachingLabel = teachingToolLabels[name as keyof typeof teachingToolLabels];
+  if (teachingLabel)
+    return {
+      icon: Wrench,
+      label: t(teachingLabel),
+      subject: str(args.path),
+      chips,
+      ...(failed
+        ? {
+            errorText: t(
+              d.interrupted ? 'workbench.tool.error.interrupted' : 'workbench.tool.error.generic',
+            ),
+          }
+        : {}),
+    };
 
   switch (name) {
     // Material operations are intentionally one quiet, non-expandable row.
@@ -425,6 +455,42 @@ export function presentTool(
         hidePayload: true,
         ...(failed
           ? { errorText: errorLine(t('workbench.tool.error.listVoices'), node.toolResultText) }
+          : {}),
+      };
+
+    // ── Page media ───────────────────────────────────────────────────────────
+    // The subject is the agent's own prompt: what is being drawn or filmed.
+    case 'generate_image':
+      return {
+        icon: ImageIcon,
+        label: t('workbench.tool.label.generateImage'),
+        subject: str(args.prompt),
+        chips,
+        ...(failed
+          ? { errorText: errorLine(t('workbench.tool.error.generateImage'), node.toolResultText) }
+          : {}),
+      };
+
+    case 'generate_video':
+      return {
+        icon: Clapperboard,
+        label: t('workbench.tool.label.generateVideo'),
+        subject: str(args.prompt),
+        chips,
+        ...(failed
+          ? { errorText: errorLine(t('workbench.tool.error.generateVideo'), node.toolResultText) }
+          : {}),
+      };
+
+    // Its one argument is a material id, nothing a person reads.
+    case 'import_pptx':
+      return {
+        icon: Presentation,
+        label: t('workbench.tool.label.importPptx'),
+        chips,
+        hidePayload: true,
+        ...(failed
+          ? { errorText: errorLine(t('workbench.tool.error.importPptx'), node.toolResultText) }
           : {}),
       };
 

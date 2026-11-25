@@ -52,28 +52,42 @@
 
 ### SR-F7.4 原生压缩必须在预算触顶时真的发生，不得空转
 
-- **输入**：`OPENMAIC_AGENT_COMPACTION_ENABLED=true`，预算取默认 150000，transcript 长到超过预算；对照组是同一个 transcript、同一个预算、压缩关着。
+- **输入**：`OPENMAIC_AGENT_COMPACTION_ENABLED=true`，预算取默认 150000，transcript 长到超过判定阈值；对照组是同一个 transcript、同一个预算、压缩关着。
 
-- **期望**：开着时 `triggerCount > 0`：写入一条 compaction entry，上下文**真的变小**；关着时 `checkCount` 与 `triggerCount` 恒为 0（`lib/server/agent-runtime/compaction.ts:315-327` 在 `if (!settings.enabled) return trace;` 之后才有计数）。另有一条独立入口：`/compact` 是本回合消息里的文本命令，绕过阈值，且在自动压缩关掉的部署里也生效（`lib/server/agent-runtime/runner.ts:1477-1483`）。
+- **期望**：压缩发生在 `transformContext` 里 —— 这是唯一能在「不丢掉本回合工具结果」的前提下改模型视图的位置。开着时 `triggerCount > 0`：写入一条 compaction entry，上下文**真的变小**，原始条目一条不删（压缩是投影，不是删除）；关着时 `triggerCount` 恒为 0，但**准入检查照跑** —— 超过预算的请求**不发出去**，以 `CONTEXT_BUDGET_EXCEEDED` 失败（原因码 `summary_failed` / `still_oversized` / `invalid_output_budget` / `no_compaction_boundary`，见 `lib/agent/runtime/context-budget-error.ts`）。
 
-- **失败长什么样**：预算拿模型目录窗口（有些是 1M）当判据，于是永远不触发 —— 这是这个旋钮出现前的实况。另一种更坏：预算低于固定开销，每轮都压、每轮都更大。实测记录在 `lib/server/agent-runtime/compaction.ts:81-87`：6000 的预算连打四轮，输入 token 是 23,030 → 24,565 → 26,181 → 27,831，只涨不跌。还有第三种：压缩失败了却把整场运行判死。
+  另有一条独立入口：`/compact` 是本回合消息里的文本命令（`lib/server/agent-runtime/session-commands.ts`），绕过阈值，且在自动压缩关掉的部署里也生效 —— 它把 `forceCompaction` 交给同一个 runtime，不另起一次压缩 pass。★ `/compact` 打在没什么可压的历史上算**无事发生**（`console.warn` 后原样返回），不是拒绝：用户要的是一个不存在的重写，没理由因此判死整场 run。
 
-- **判据落点**：`tests/agent-runtime/compaction.test.ts` —— `does nothing at all when compaction is disabled` / `leaves the transcript untouched while under budget` / `writes a compaction entry and shrinks the context when over budget` / `records a summarization failure without failing the run` / `compacts on request even with a budget it would never cross`。`tests/agent-runtime/compaction-stale-anchor.test.ts` —— `maybeCompactAgentSession reports the real saving` / `does not re-compact a context it just shrank`（刚压完不许立刻再压一次）。命令：`npx vitest run tests/agent-runtime/compaction.test.ts tests/agent-runtime/compaction-stale-anchor.test.ts`。
+- **失败长什么样**：预算拿模型目录窗口（有些是 1M）当判据，于是永远不触发 —— 这是这个旋钮出现前的实况。另一种更坏：预算低于固定开销，每轮都压、每轮都更大。第三种：压缩失败了却把整场运行判死（压缩是优化，不是正确性前提；但**超预算的请求仍然不许发出去**，那是正确性）。
+
+- **判据落点**：`tests/agent-runtime/compaction.test.ts` **36 条**，四类：
+  - 触发与不触发 —— `compacts when the transcript crosses the window threshold` / `reads the durable in-memory PG session view but appends no boundary below threshold` / `compacts after a smaller-window switch and restores the saved summary on the next run`。
+  - 压缩结果合法 —— `emits an LLM-legal message sequence after compaction (leading summary user message)` / `never mutates the input transcript (checkpoint stays raw)` / `lossily shrinks a pi no-op cut whose tail is oversized tool results` / `checks read-time protocol additions before persisting a durable cut`。
+  - 准入不许空转 —— `blocks an oversized required context when summary fails without altering history` / `does not persist or return a successful summary which is still over budget` / `blocks invalid output reservations and disabled compaction cannot bypass admission` / `blocks without a summary when the latest user message alone exceeds the budget`。
+  - ★ fork 自有两条 —— `★ /compact 在低于阈值、且自动压缩关着时仍然压一次` / `★ /compact 打在没什么可压的历史上算无事发生，不判死整场 run`。
+
+  命令：`npx vitest run tests/agent-runtime/compaction.test.ts`。
 
 - **两边各自要满足**：
-  - 宿主侧：`maybeCompactAgentSession` 不许在失败时抛穿 —— 压缩是优化，不是正确性前提；`triggerCount > 0` 时必须把事件带出来（`LIFECYCLE.trace`），否则「到底压没压」在运行期看不见。
-  - 观测量侧：`estimateAgentContextTokens` 优先用 provider 上一轮报的 usage（那是整个请求的量：transcript + system prompt + 工具定义）；只有在 provider 没报 usage，或最新那条 compaction 比该消息还新（`usageAnchorIsStale`）时，才退化成只估消息 —— 否则压缩完的下一轮会拿一个过期的量再压一次。
+  - 宿主侧：`transformContext` 不许在可恢复的失败上抛穿（摘要失败记进 trace 的 `failures` / `lastSummaryFailure`，不带对话正文）；`triggerCount > 0` 时必须有 `LIFECYCLE.contextCompacted` 事件与一条 `tokensBefore -> tokensAfter` 的 trace，否则「到底压没压、省了多少」在运行期看不见。
+  - 观测量侧：估算是**保守全量**（`estimateFullContextTokens`：system prompt + 工具 schema + 全部消息一起序列化，ASCII 按 4 字符 1 token、**非 ASCII 按 1 字符 1 token**、图片按固定块）—— 刻意**不**信任 provider 上一轮报的 usage anchor：anchor 是「上一次请求」的量，转写候选、工具调用修复、协议前言都会在它之后追加，而这里要回答的是「这一次发出去会不会超」。代价是偏保守（估多不估少），收益是中文不再被 chars/4 低估。
 
 ### SR-F7.5 压缩预算必须按可用窗口配置，且必须大于固定开销
 
-- **输入**：四类预算值 —— 默认（不设 env）、极小（如 100）、正常（如 150000）、以及用 `OPENMAIC_AGENT_COMPACTION_RESERVE_TOKENS` / `OPENMAIC_AGENT_COMPACTION_KEEP_RECENT_TOKENS` 显式覆写。
+- **输入**：四类预算值 —— 默认（不设 env，`DEFAULT_COMPACTION_CONTEXT_BUDGET_TOKENS = 150000`）、极小（如 100）、正常（如 400000）、以及用 `OPENMAIC_AGENT_COMPACTION_RESERVE_TOKENS` / `OPENMAIC_AGENT_COMPACTION_KEEP_RECENT_TOKENS` 显式覆写。
 
-- **期望**：reserve 与 keep 由**预算**派生，不由模型窗口派生：`reserveTokens = min(默认, max(2048, floor(budget × 0.25)))`、`keepRecentTokens = min(默认, max(2048, floor(budget × 0.34)))`（`lib/server/agent-runtime/compaction.ts:174-199`）；预算小到 100 时两者都落到 2048 下限，仍给摘要模型留出空间。默认预算是 150000（`lib/server/agent-runtime/config.ts:18`），系统提示词 + 工具定义这一坨固定开销约 23k，所以默认值约是它的 6 倍 —— 这个 6 倍关系是「预算只有明显高于固定开销才有意义」的落点。
+- **期望**：判定用的是 **`decisionWindow = min(模型窗口, contextBudgetTokens)`**，不是模型窗口本身（`lib/agent/runtime/compaction-runtime.ts` 的 `contextBudgetTokens` 选项，由 `lib/server/agent-runtime/config.ts` 的 `contextBudgetTokens` 传入）。预算只许**收窄**判定窗口，不许放宽。reserve 与 keep 从 `decisionWindow` **按比例派生**并夹在窗口内：
 
-- **失败长什么样**：`reserveTokens` / `keepRecentTokens` 跟着模型窗口走，换一个 1M 窗口的模型就再也不触发；或者预算设成 6000（低于 23k 固定开销）还开着压缩，于是每轮都触发、每轮都更大。
+  `reserveTokens = min(16384, max(2048, floor(decisionWindow × 0.2)))`、`keepRecentTokens = min(20000, max(2048, floor(decisionWindow × 0.25)))`；操作者显式覆盖时再夹一道 —— `reserve ≤ decisionWindow / 4`、`keep ≤ decisionWindow / 2`，被夹会 `console.warn` 一次（去重，不每轮刷）。
 
-- **判据落点**：`tests/agent-runtime/compaction.test.ts` —— `derives reserve and keep from the budget, not from the model window`（断言 `reserveTokens <= 150_000` 且 `keepRecentTokens <= 150_000`）、`floors both values so a tiny budget still leaves the summarizer room`（预算 100 → 两者都是 2_048）、`lets the operator override either value, including enabled`。命令：`npx vitest run tests/agent-runtime/compaction.test.ts`。**「预算 > 固定开销」这个不等式本身暂无自动化判据** —— 测的是「从预算派生」与「有下限」，不是「比 23k 大」；人工核对方式：`curl http://127.0.0.1:<port>/api/whoami` 读 `compactionContextBudgetTokens` 与 `compactionEnabled`（这两个值在 `/api/whoami` 里是原样回显的），确认它明显大于 23k 再开压缩。
+  触发点是 `decisionWindow − max(reserveTokens, 输出预留)`。默认预算 150000 的意义：系统提示词 + 工具定义这一坨固定开销约 23k，所以默认值约是它的 6 倍 —— 这个 6 倍关系是「预算只有明显高于固定开销才有意义」的落点。
+
+- **失败长什么样**：只按模型窗口判 —— 1M 窗口配窗口缩放的 reserve 16384，要到 **98.4%**（983,616）才触发，真实会话永远到不了；或者预算设成 6000（低于 23k 固定开销）还开着压缩，于是每轮都触发、每轮都更大；或者预算配成每请求可调，前缀缓存直接失去意义。
+
+- **判据落点**：`tests/agent-runtime/compaction.test.ts` —— `reserves a large wire output share of a 1M window before compacting` / `never makes the safety target non-positive or larger than a tiny context window` / `scales reserve/keep to a 16K window when no explicit settings are passed` / `scales reserve/keep to a 32K window without exceeding it` / `clamps EXPLICIT overrides to the window ratios (reserve ≤ window/4, keep ≤ window/2)` / `reports a keep-budget clamp once, not on every model call` / `makes a required durable 32K/16K cut after clamping an inverted keep budget` / `audits all catalog contexts and extreme route pins without a keep/target inversion`；★ fork 自有两条 —— `★ 绝对预算取代窗口做判定：1M 窗口在 400k 预算下仍会触发`（`contextWindow === 1_000_000` 而 `decisionWindow === 400_000`）/ `★ 预算大于窗口时以窗口为准（预算只许收窄，不许放宽）`。
+
+  命令：`npx vitest run tests/agent-runtime/compaction.test.ts`。**「预算 > 固定开销」这个不等式本身暂无自动化判据** —— 测的是「从判定窗口派生」「有下限」「显式覆盖被夹」，不是「比 23k 大」；人工核对方式：`curl http://127.0.0.1:<port>/api/whoami` 读 `compactionContextBudgetTokens` 与 `compactionEnabled`（这两个值在 `/api/whoami` 里是原样回显的），确认它明显大于 23k 再开压缩。
 
 - **两边各自要满足**：
-  - 宿主侧：env 解析必须能区分「没设」与「设成 0」—— 没设走默认 150000，设成不合法的值不许静默变成 0（0 会让下限 2048 生效，看起来像在工作，其实什么都没省）。
+  - 宿主侧：env 解析必须能区分「没设」与「设成 0」—— 没设走默认 150000，设成不合法的值不许静默变成 0（0 会让下限生效，看起来像在工作，其实什么都没省）。`contextBudgetTokens` 要随 trace 一起回显（`decisionWindow` 字段），否则日志里只看到 150000 却不知道为什么在 150k 就压了。
   - 运维侧：预算只能配在部署层（env），不许做成每请求可调 —— 一旦每请求可调，前缀缓存就没法指望了。

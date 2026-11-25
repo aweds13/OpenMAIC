@@ -13,6 +13,7 @@
  * (`lib/legacy-browser-import/model-settings.ts`) and drops them.
  */
 
+import { DOCK_DEFAULT_HEIGHT } from '@/lib/edit/dock-height';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ASRProviderId } from '@/lib/audio/types';
@@ -29,7 +30,7 @@ import {
 import { keepUnimported } from '@/lib/legacy-browser-import/model-settings-unimported';
 
 /** Persisted-blob version for zustand's `persist` `migrate` ladder. */
-const SETTINGS_PERSIST_VERSION = 5;
+const SETTINGS_PERSIST_VERSION = 7;
 
 /**
  * Bound after the store exists; see `onWriteRefused` for why it is not inlined.
@@ -111,6 +112,11 @@ export interface SettingsState {
    * 变成空白。见 lib/server/self-study-mode.ts。
    */
   selfStudyEnabled: boolean;
+  /**
+   * When the workbench agent asks a question with a recommended option, choose
+   * it for the user after a short countdown they can interrupt.
+   */
+  autoConfirmRecommendedAnswer: boolean;
 
   // Playback controls
   ttsMuted: boolean;
@@ -146,13 +152,21 @@ export interface SettingsState {
    * load. Only a user-set selection carries across classrooms on restore.
    */
   agentSelectionIsUserSet: boolean;
+  /**
+   * The user's preset selection while a course's own roster stands in for it
+   * (`restoreAgentSelection`). Empty when nothing is being kept. It returns for
+   * a course without a roster, and on the home page.
+   */
+  presetAgentChoice: string[];
 
   // Layout preferences (persisted via localStorage)
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
   chatAreaCollapsed: boolean;
   chatAreaWidth: number;
-  editRailCollapsed: boolean;
-  editRailWidth: number;
+  /** The classroom dock, shared by both modes, so a switch never moves the canvas. */
+  dockHeight: number;
+  dockCollapsed: boolean;
 
   /**
    * The model settings of an earlier build, kept only while they could not be
@@ -170,6 +184,7 @@ export interface SettingsState {
   setReviewOutlineEnabled: (enabled: boolean) => void;
   /** 自学模式开关。见 SettingsState 里 selfStudyEnabled 的注释。 */
   setSelfStudyEnabled: (enabled: boolean) => void;
+  setAutoConfirmRecommendedAnswer: (enabled: boolean) => void;
 
   // Playback actions
   setTTSMuted: (muted: boolean) => void;
@@ -185,13 +200,15 @@ export interface SettingsState {
   /** Set (or clear, with `undefined`) the persisted voice pick for one agent. */
   setAgentVoiceOverride: (agentId: string, voice: AgentVoiceOverride | undefined) => void;
   setAgentSelectionIsUserSet: (isUserSet: boolean) => void;
+  setPresetAgentChoice: (ids: string[]) => void;
 
   // Layout actions
   setSidebarCollapsed: (collapsed: boolean) => void;
+  setSidebarWidth: (width: number) => void;
   setChatAreaCollapsed: (collapsed: boolean) => void;
   setChatAreaWidth: (width: number) => void;
-  setEditRailCollapsed: (collapsed: boolean) => void;
-  setEditRailWidth: (width: number) => void;
+  setDockHeight: (height: number) => void;
+  setDockCollapsed: (collapsed: boolean) => void;
 }
 
 /** The persisted fields: everything but the actions. */
@@ -202,6 +219,7 @@ const PERSISTED_FIELDS = [
   'asrLanguage',
   'reviewOutlineEnabled',
   'selfStudyEnabled',
+  'autoConfirmRecommendedAnswer',
   'ttsMuted',
   'ttsVolume',
   'autoPlayLecture',
@@ -212,11 +230,13 @@ const PERSISTED_FIELDS = [
   'autoAgentCount',
   'agentVoiceOverrides',
   'agentSelectionIsUserSet',
+  'presetAgentChoice',
   'sidebarCollapsed',
+  'sidebarWidth',
   'chatAreaCollapsed',
   'chatAreaWidth',
-  'editRailCollapsed',
-  'editRailWidth',
+  'dockHeight',
+  'dockCollapsed',
   'legacyModelSettings',
 ] as const satisfies readonly (keyof SettingsState)[];
 
@@ -284,6 +304,7 @@ export const useSettingsStore = create<SettingsState>()(
       reviewOutlineEnabled: false,
       // 自学模式默认关：见 SettingsState 里 selfStudyEnabled 的注释
       selfStudyEnabled: false,
+      autoConfirmRecommendedAnswer: true,
 
       // Playback controls
       ttsMuted: false,
@@ -298,13 +319,15 @@ export const useSettingsStore = create<SettingsState>()(
       autoAgentCount: 3,
       agentVoiceOverrides: {},
       agentSelectionIsUserSet: false,
+      presetAgentChoice: [],
 
       // Layout preferences
       sidebarCollapsed: true,
+      sidebarWidth: 220,
       chatAreaCollapsed: true,
       chatAreaWidth: 320,
-      editRailCollapsed: false,
-      editRailWidth: 220,
+      dockHeight: DOCK_DEFAULT_HEIGHT,
+      dockCollapsed: false,
 
       setTTSVoice: (voice, providerId) => set({ ttsVoice: voice, ttsVoiceProviderId: providerId }),
       setTTSSpeed: (speed) => set({ ttsSpeed: speed }),
@@ -313,6 +336,7 @@ export const useSettingsStore = create<SettingsState>()(
       // 自学模式没有"供应商可用性"前置条件 —— 它只是改提示词 + 砍讲稿，
       // 不依赖任何外部凭证，所以不需要 setImageGenerationEnabled 那种守卫。
       setSelfStudyEnabled: (enabled) => set({ selfStudyEnabled: enabled }),
+      setAutoConfirmRecommendedAnswer: (enabled) => set({ autoConfirmRecommendedAnswer: enabled }),
 
       setTTSMuted: (muted) => set({ ttsMuted: muted }),
       setTTSVolume: (volume) => set({ ttsVolume: Math.max(0, Math.min(1, volume)) }),
@@ -334,11 +358,13 @@ export const useSettingsStore = create<SettingsState>()(
           return { agentVoiceOverrides: next };
         }),
       setAgentSelectionIsUserSet: (isUserSet) => set({ agentSelectionIsUserSet: isUserSet }),
+      setPresetAgentChoice: (ids) => set({ presetAgentChoice: ids }),
 
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+      setSidebarWidth: (width) => set({ sidebarWidth: width }),
       setChatAreaCollapsed: (collapsed) => set({ chatAreaCollapsed: collapsed }),
-      setEditRailCollapsed: (collapsed) => set({ editRailCollapsed: collapsed }),
-      setEditRailWidth: (width) => set({ editRailWidth: width }),
+      setDockHeight: (height) => set({ dockHeight: height }),
+      setDockCollapsed: (collapsed) => set({ dockCollapsed: collapsed }),
       setChatAreaWidth: (width) => set({ chatAreaWidth: width }),
     }),
     {
@@ -357,7 +383,13 @@ export const useSettingsStore = create<SettingsState>()(
       migrate: (persistedState: unknown, version: number) => {
         const state = { ...((persistedState as Record<string, unknown> | null) ?? {}) };
         // v4 → v5: model settings move to the server (RFC #1701).
-        return version < 5 ? migrateSettingsToV5(state, version) : pickPersisted(state);
+        const next = version < 5 ? migrateSettingsToV5(state, version) : pickPersisted(state);
+        // v6 → v7: Learn and Edit share one page list. Its fold is the Learn one
+        // (`sidebarCollapsed`); only Edit ever remembered a width.
+        if (version < 7 && typeof state.editRailWidth === 'number') {
+          next.sidebarWidth = state.editRailWidth;
+        }
+        return next;
       },
       // Only known preference fields reach the state; anything else a blob
       // carries (fields of earlier builds) is ignored. Model settings kept

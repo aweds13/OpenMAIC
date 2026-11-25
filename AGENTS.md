@@ -47,9 +47,15 @@
 "改动只在服务端"）。上游基线是 `origin/main` = `3618238d`；`57fbcc4` 只是**祖先**，
 `docs-map` 判据仍拿它当历史锚点，不代表当前基线。
 
-★ **`packages/@openmaic/**` 并非"一行没动"**：实测
-`git diff --stat 57fbcc4..HEAD -- packages/@openmaic` = **165 files / +14826 / −792**。
-旧文档里"为空可复验"是**假绿灯**（相对 `3618238d` 才是 0）。默认仍不改它，但别以为它干净。
+★ **`packages/@openmaic/**` 的干净程度取决于起点**：相对真正的分叉点 `v1.3.0`（`c0f296aa`）
+实测 `git diff --stat v1.3.0 19b46314 -- packages/@openmaic` **为空** —— 我们一行没改；
+相对更早的 `57fbcc4` 才是 165 files / +14826 / −792（那是上游自己在那段里改的）。
+⇒ 判断"这块归谁"必须指名起点，否则两种答案都对、也都是误导。
+
+★ **v1.5.0 合并后这条变了**：`packages/@openmaic/renderer` 现在有本 fork 的**一处**改动 ——
+文本元素的 `lineHeight` 回落值（`DEFAULT_TEXT_LINE_HEIGHT = 1.5`，见 §2）。原因是 v1.5.0 把
+播放/编辑器默认换成了包内 canvas，而包内原来把 `lineHeight` 原样写出、元素不带该字段时
+浏览器回落到 `normal`(~1.2)，与宿主按 1.5 算的版面检查**静默不一致**。
 
 使用者是**一个自学者**（天津大学计算机大一，备二面）。他对产物的要求是实测出来的，
 不是偏好：
@@ -181,7 +187,7 @@ D1–D5 通、D6（自评一次没采）/ D7（19 个练习只有 1 份 `result.
 
 | 我要改… | 去哪一节（括号里是入口文件；细节都在 modules.md 第四节） |
 |---|---|
-| 运行期开关 / 上下文压缩 / 会话命令 | §二 M2/M5（`lib/server/agent-runtime/config.ts`、`lib/server/agent-runtime/session-commands.ts`、`lib/server/agent-runtime/compaction.ts`、`lib/server/agent-runtime/prompt-context-file.ts`、`usageAnchorIsStale()`） |
+| 运行期开关 / 上下文压缩 / 会话命令 | §二 M2/M5（`lib/server/agent-runtime/config.ts`、`lib/server/agent-runtime/session-commands.ts`、`lib/server/agent-runtime/compaction.ts`、`lib/server/agent-runtime/prompt-context-file.ts`、`lib/agent/runtime/compaction-runtime.ts` 的 `estimateFullContextTokens()`） |
 | 生成提示词 / brief 规矩 / 听课 vs 自学 | §二 M4（`lib/server/agent-runtime/course-design.ts`、`lib/server/agent-runtime/study-mode.ts`、`lib/server/self-study-mode.ts`、`lib/server/agent-runtime/course-outline-write.ts`） |
 | 写入后诊断 / 版面判据 / 审查 | §二 M9/M13（`lib/server/agent-runtime/scene-diagnostics.ts`、`lib/quiz/layout-check.ts`、`lib/slide/text-metrics.ts`、`lib/server/agent-runtime/review-tools.ts`、`lib/server/agent-runtime/page-review.ts`、`sceneWriteDiagnosticsWithReview()`、`outOfScopeGapClaims()`） |
 | 答题状态 / 覆盖缺口 / 出题注入 / 题库文本 | §二 M6/M12（`lib/quiz/attempt-fold.ts`、`lib/server/agent-runtime/learner-state-render.ts`、`lib/quiz/coverage-gap.ts`、`lib/quiz/quiz-grounding.ts`、`lib/quiz/page-text.ts`） |

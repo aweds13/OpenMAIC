@@ -48,41 +48,44 @@ export function isServerPersistenceConfigured(): boolean {
  * Build-time workbench affordance. This public flag is separate from the
  * server runtime gate because Next.js inlines NEXT_PUBLIC values into client
  * bundles; both gates must be on before a workbench page is reachable.
+ *
+ * `NEXT_PUBLIC_PRO_WORKBENCH_ENABLED` is the previous name, still read when the
+ * new one is unset, until its removal in 1.6.0, so existing deployments keep
+ * their workbench across the rename.
  */
-export function isProWorkbenchEnabled(): boolean {
+export function isWorkbenchEnabled(): boolean {
+  const value = process.env.NEXT_PUBLIC_WORKBENCH_ENABLED;
+  if (value !== undefined && value !== '') return readBoolean(value);
   return readBoolean(process.env.NEXT_PUBLIC_PRO_WORKBENCH_ENABLED);
 }
 
 /**
- * MAIC Editor (Pro mode) gate. Default OFF — gates only the Pro toggle
- * affordance in `Header`. The `StageMode` type union is unaffected so
- * existing code paths typecheck identically with the flag in either
- * state.
+ * Classroom editor gate. Default OFF — gates only the edit toggle in `Header`.
+ * The `StageMode` type union is unaffected so existing code paths typecheck
+ * identically with the flag in either state.
  *
- * Implied by the Pro workbench flag: the workbench IS Pro mode, and a
- * workbench build without the editor toggle has no way to edit a course.
- * The standalone flag remains for deployments that want the classroom
- * editor without the workbench.
+ * Implied by the workbench flag: editing a course is part of the workbench,
+ * and a workbench build without the editor has no way to edit a course. The
+ * standalone flag remains for deployments that want the classroom editor
+ * without the workbench.
  */
 export function isMaicEditorEnabled(): boolean {
-  return isProWorkbenchEnabled() || readBoolean(process.env.NEXT_PUBLIC_MAIC_EDITOR_ENABLED);
+  return isWorkbenchEnabled() || readBoolean(process.env.NEXT_PUBLIC_MAIC_EDITOR_ENABLED);
 }
 
-/**
- * Experimental playback canvas renderer. Default OFF so classroom playback uses
- * the legacy in-app renderer unless explicitly enabled in `.env.local`.
- */
+// Docker builds pass an empty string for an omitted public build argument.
+function readRendererFlag(value: string | undefined): boolean {
+  return value === undefined || value === '' || readBoolean(value);
+}
+
+/** Select the package playback canvas unless the deployment opts out. */
 export function isPlaybackRendererEnabled(): boolean {
-  return readBoolean(process.env.NEXT_PUBLIC_MAIC_PLAYBACK_RENDERER_ENABLED);
+  return readRendererFlag(process.env.NEXT_PUBLIC_MAIC_PLAYBACK_RENDERER_ENABLED);
 }
 
-/**
- * Experimental Pro-mode slide editor renderer. Default OFF so professional
- * editing keeps using the legacy in-app editor canvas unless explicitly enabled
- * in `.env.local`.
- */
+/** Select the package editor canvas unless the deployment opts out. */
 export function isEditorRendererEnabled(): boolean {
-  return readBoolean(process.env.NEXT_PUBLIC_MAIC_EDITOR_RENDERER_ENABLED);
+  return readRendererFlag(process.env.NEXT_PUBLIC_MAIC_EDITOR_RENDERER_ENABLED);
 }
 
 /**

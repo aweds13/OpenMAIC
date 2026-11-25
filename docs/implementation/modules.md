@@ -165,8 +165,9 @@
 | `lib/server/agent-runtime/materials-library.ts` | `read_materials` / `update_materials` + **`listMaterialText()`** | agent 自己维护的材料库；**它的 URL 会喂进会话的 URL 信任闸**（`store.ts` 的建会话钩子）—— 见 AGENTS.md §3.1 那条假红与结论库 |
 | `lib/persistence/asset-byte-split-store.ts` | 材料字节**按大小分流**（D1）：≤ `ASSET_INLINE_BYTE_LIMIT` 写 `asset_blobs.bytes`，超过写本地内容寻址目录并留 `bytes` 为 NULL（NULL 是「在盘上」的标记，不是缺块） | `asset_blobs.bytes` 本来就 nullable（`PgAssetByteStore.deleteWith` 会清它）⇒ 读侧先列后盘、一次回退就够，**不需要路由列**。三个 `*With` 方法必须加入 registry 事务（不加入会与自己的 blob 行锁**自死锁**）；文件写不是事务性的 |
 | `lib/server/agent-runtime/mcp-tools.ts` + `mcp-client.ts` | 外部 MCP（GitHub）接进工作台 | 连不上只记 failed，不拖死会话 |
-| `lib/server/agent-runtime/compaction.ts` | 原生上下文压缩 + ★ `usageAnchorIsStale()`：**用量锚点比最新一条 compaction 还旧就不采信**（`estimateAgentContextTokens(…, { trustUsageAnchor })`） | **默认关**，本部署开着。不检查它 ⇒ 提示恒为 `N -> N`，且**每次压缩后必然白压一次**（见结论库 §压缩锚点） |
-| `lib/server/agent-runtime/session-commands.ts` | `/compact` 之类的会话命令 | 手动挡**不需要** ENABLED —— 它绕过阈值也绕过开关 |
+| `lib/server/agent-runtime/compaction.ts` | 原生上下文压缩的**薄适配器**（上游 v1.5.0 起）：只提供 focus 文案与持久会话树，实现全在 `lib/agent/runtime/compaction-runtime.ts`；★ 本 fork 额外透传两项自有开关 —— `contextBudgetTokens`（绝对预算，收窄判定窗口）与 `forceCompaction`（`/compact` 手动挡） | **默认关**，本部署开着。★ 同名不同物：换掉整份实现时若漏接这两个字段，`/compact` 失效且 1M 窗口要到 98.4% 才压（见结论库 §压缩） |
+| `lib/agent/runtime/compaction-runtime.ts` | 压缩本体（上游新增 37,880 B → 本 fork 40,718 B）：`transformContext` 每次请求判一次；估算**保守全量**（含 system prompt 与工具 schema，非 ASCII 按 1 字符 1 token）；准入超预算抛 `ContextBudgetError`；分块摘要上限 8 次；`reserve/keep` 从 `decisionWindow` 按比例派生并夹在窗口内 | ★ 判定窗口 = `min(模型窗口, 预算)`。不接预算 ⇒ 真实会话永远到不了阈值，压缩等于没开 |
+| `lib/server/agent-runtime/session-commands.ts` | `/compact` 之类的会话命令（纯文本 token 解析，不加 composer 菜单项） | 手动挡**不需要** ENABLED —— 它绕过阈值也绕过开关；★ 它不另起一次压缩，只是把 `forceCompaction` 交给同一处 `transformContext` |
 | `lib/server/agent-runtime/prompt-context-file.ts` | 画像/材料库的"路径加载时求值、内容每次重读" | |
 | `lib/server/agent-runtime/fetch-url.ts` | `fetch_url`（**上游就有**，我们改了两处） | 见 AGENTS.md §5 |
 | `lib/export/use-export-pptx.ts` | `buildPptxBlob` / `buildResourcePackZip` + 共用的 `collectInteractivePages` | 单课导出；resource pack = PPTX + 交互页 |

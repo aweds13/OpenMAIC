@@ -11,16 +11,14 @@ import {
   type StreamFn,
 } from '@earendil-works/pi-agent-core';
 import {
-  registerApiProvider,
-  unregisterApiProviders,
+  createModels,
+  createProvider,
+  lazyStream,
   type Api,
-  type AssistantMessageEventStream,
   type Context,
   type Model,
   type SimpleStreamOptions,
-  type StreamOptions,
 } from '@earendil-works/pi-ai';
-import { nanoid } from 'nanoid';
 
 export interface DirectorCompactionEvent {
   tokensBefore: number;
@@ -43,7 +41,11 @@ export interface DirectorCompactionTrace {
 }
 
 export interface DirectorCompactionRuntime {
-  transformContext: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+  transformContext: (
+    messages: AgentMessage[],
+    signal?: AbortSignal,
+    transientTokens?: number,
+  ) => Promise<AgentMessage[]>;
   getTrace: () => DirectorCompactionTrace;
   dispose: () => void;
 }
@@ -114,21 +116,25 @@ export function createDirectorCompactionRuntime(opts: {
       ? Math.floor(opts.contextWindow)
       : 128_000;
   const settings = resolveSettings(contextWindow, opts.settings);
-  const sourceId = `maic-director-compaction:${nanoid()}`;
-  const api = sourceId as Api;
-  const model = createConnectorModel(api, contextWindow, opts.maxOutputTokens ?? 8_192);
-  const bridge = (
-    bridgeModel: Model<Api>,
-    context: Context,
-    streamOptions?: StreamOptions | SimpleStreamOptions,
-  ) => opts.streamFn(bridgeModel, context, streamOptions as never) as AssistantMessageEventStream;
-  registerApiProvider(
-    {
-      api,
-      stream: bridge,
-      streamSimple: bridge,
-    },
-    sourceId,
+  const model = createConnectorModel(
+    'maic-connector',
+    contextWindow,
+    opts.maxOutputTokens ?? 8_192,
+  );
+  // Each runtime owns its model collection; concurrent conversations must not
+  // replace one another's connector or mutate Pi's global compatibility API.
+  const models = createModels();
+  const bridge = (bridgeModel: Model<Api>, context: Context, streamOptions?: SimpleStreamOptions) =>
+    lazyStream(bridgeModel, async () => opts.streamFn(bridgeModel, context, streamOptions));
+  models.setProvider(
+    createProvider({
+      id: model.provider,
+      models: [model],
+      // The injected OpenMAIC connector already owns request-scoped model
+      // credentials. Pi needs no second key store or environment lookup.
+      auth: { apiKey: { name: 'OpenMAIC connector', resolve: async () => ({ auth: {} }) } },
+      api: { stream: bridge, streamSimple: bridge },
+    }),
   );
 
   let sessionPromise = new InMemorySessionRepo().create();
@@ -168,13 +174,14 @@ export function createDirectorCompactionRuntime(opts: {
   };
 
   return {
-    transformContext: async (messages, signal) => {
+    transformContext: async (messages, signal, transientTokens = 0) => {
       if (disposed || !settings.enabled) return messages;
       const session = await syncSession(messages);
       const beforeContext = await session.buildContext();
       const tokensBefore = estimateDirectorContextTokens(beforeContext.messages);
       trace.checkCount += 1;
-      if (!shouldCompact(tokensBefore, contextWindow, settings)) {
+      // Count transient input without saving it in the session or its summary.
+      if (!shouldCompact(tokensBefore + transientTokens, contextWindow, settings)) {
         return beforeContext.messages;
       }
 
@@ -186,9 +193,8 @@ export function createDirectorCompactionRuntime(opts: {
 
         const compactResult = await compact(
           preparationResult.value,
+          models,
           model,
-          'maic-connector',
-          undefined,
           CLASSROOM_COMPACTION_FOCUS,
           signal,
           'off',
@@ -227,7 +233,7 @@ export function createDirectorCompactionRuntime(opts: {
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      unregisterApiProviders(sourceId);
+      models.clearProviders();
     },
   };
 }

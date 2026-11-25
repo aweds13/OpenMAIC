@@ -217,6 +217,26 @@ describe('agent driver model', () => {
     expect(mocks.streamLLM.mock.calls[0]?.[0]?.maxOutputTokens).toBeUndefined();
   });
 
+  it('sends the per-call summary cap for an unknown model when the stream is not uncapped', async () => {
+    // The runner's compaction summary stream: same connection, no catalog
+    // output window, but it must honor pi's explicit summary maxTokens.
+    mocks.streamLLM.mockReturnValue(finishedStream());
+    const { createCallLlmStreamFn } = await import('@/lib/agent/runtime/stream-fn');
+    const streamFn = createCallLlmStreamFn({
+      languageModel: {} as never,
+      maxOutputTokens: undefined,
+    });
+
+    const stream = await streamFn(
+      {} as never,
+      { systemPrompt: 'system', messages: [], tools: [] },
+      { maxTokens: 2_560 },
+    );
+    await drain(stream);
+
+    expect(mocks.streamLLM.mock.calls[0]?.[0]?.maxOutputTokens).toBe(2_560);
+  });
+
   it('keeps the catalog output limit on the wire for a known model', async () => {
     mocks.streamLLM.mockReturnValue(finishedStream());
     const { createCallLlmStreamFn } = await import('@/lib/agent/runtime/stream-fn');
@@ -237,5 +257,112 @@ describe('agent driver model', () => {
       await configure({ model: 'openai:gpt-5.6-luna', contextWindow: 32_000 })
     )();
     expect(resolved.piModel.contextWindow).toBe(32_000);
+  });
+
+  it('halves an output reservation that would consume the whole context window', async () => {
+    mocks.modelInfo = { contextWindow: 1_050_000, outputWindow: 128_000 };
+    const resolved = await (
+      await configure({ model: 'openai:gpt-5.6-luna', contextWindow: 32_000 })
+    )();
+    // Conversation, summary and the budget check all see the same reservation.
+    expect(resolved.reservedOutputTokens).toBe(16_000);
+    expect(resolved.wireMaxOutputTokens).toBe(16_000);
+    expect(resolved.piModel.maxTokens).toBe(16_000);
+  });
+
+  it('keeps an output reservation that fits inside the context window', async () => {
+    mocks.modelInfo = { contextWindow: 200_000, outputWindow: 128_000 };
+    const resolved = await (await configure({ model: 'openai:gpt-5.6-luna' }))();
+    expect(resolved.reservedOutputTokens).toBe(128_000);
+    expect(resolved.wireMaxOutputTokens).toBe(128_000);
+  });
+
+  it.each([
+    [64_000, 8192, 64_000, 8192],
+    [undefined, undefined, 128_000, undefined],
+    [0, Number.NaN, 128_000, undefined],
+    [400_000, 32_768, 200_000, 16_384],
+  ])(
+    'budgets teaching for both slot targets (fallback context %s, output %s)',
+    async (contextWindow, outputWindow, expectedContext, expectedOutput) => {
+      const providers = await import('@/lib/ai/providers');
+      const original = providers.getModelInfo;
+      const spy = vi
+        .spyOn(providers, 'getModelInfo')
+        .mockImplementation((provider, id) =>
+          id === 'gpt-4.1'
+            ? ({ id, name: id, contextWindow, outputWindow } as never)
+            : original(provider, id),
+        );
+      try {
+        const resolved = await (
+          await configure({ model: 'openai:gpt-5.6-luna', fallback: 'openai:gpt-4.1' })
+        )();
+        expect(resolved.teaching.piModel.contextWindow).toBe(expectedContext);
+        expect(resolved.teaching.wireMaxOutputTokens).toBe(expectedOutput);
+        // Ordinary Agent calls retain the original primary metadata and transport.
+        expect(resolved.piModel.contextWindow).toBe(200_000);
+        expect(resolved.wireMaxOutputTokens).toBe(16_384);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
+
+  it('does not reserve for a fallback the slot cannot use', async () => {
+    const resolved = await (
+      await configure({ model: 'openai:gpt-5.6-luna', fallback: 'ac:qwen/qwen3.5-flash' })
+    )();
+    expect(resolved.teaching.piModel).toEqual(resolved.piModel);
+    expect(resolved.teaching.wireMaxOutputTokens).toBe(16_384);
+  });
+
+  it('does not infer a known wire cap when only the fallback output is known', async () => {
+    mocks.modelInfo = null;
+    const resolved = await (
+      await configure({ model: 'openai:some-model', fallback: 'openai:gpt-4.1' })
+    )();
+    expect(resolved.teaching.wireMaxOutputTokens).toBeUndefined();
+    expect(resolved.wireMaxOutputTokens).toBeUndefined();
+  });
+
+  it('plans teaching with a context window declared for the fallback', async () => {
+    const resolved = await (
+      await configure(undefined, {
+        workspace: {
+          source: 'workspace',
+          config: {
+            providers: {
+              relay: {
+                preset: 'openai-compatible',
+                apiKey: 'sk',
+                modelContextWindows: { m2: 50_000 },
+              },
+            },
+            slots: { agent: { model: 'relay:m1', fallback: 'relay:m2' } },
+          },
+        },
+      })
+    )('user:alice');
+    expect(resolved.piModel.contextWindow).toBe(200_000);
+    // The fallback sits on an endpoint the catalogue does not describe: its
+    // declared window, not the 128k estimate, caps the shared teaching budget.
+    expect(resolved.teaching.piModel.contextWindow).toBe(50_000);
+  });
+
+  it('keeps the 128k planning estimate for a fallback without a declaration', async () => {
+    const resolved = await (
+      await configure(undefined, {
+        workspace: {
+          source: 'workspace',
+          config: {
+            providers: { relay: { preset: 'openai-compatible', apiKey: 'sk' } },
+            slots: { agent: { model: 'relay:m1', fallback: 'relay:m2' } },
+          },
+        },
+      })
+    )('user:alice');
+    expect(resolved.piModel.contextWindow).toBe(200_000);
+    expect(resolved.teaching.piModel.contextWindow).toBe(128_000);
   });
 });

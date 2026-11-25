@@ -671,14 +671,10 @@ describe('server model authorization coverage matrix', () => {
     // （或者更糟：永远扫不到东西）的死判据。
     const rel = (file: string) => file.slice(api.length + 1).replace(/\\/g, '/');
     const calls = walk(api)
-      .filter((file) => {
-        const path = rel(file);
-        return (
-          (path === 'route.ts' || path.endsWith('/route.ts')) &&
-          pattern.test(readFileSync(file, 'utf8'))
-        );
-      })
-      .map((file) => rel(file).slice(0, -'/route.ts'.length))
+      // `join` uses `\` on Windows; the matrix names routes with `/`.
+      .map((file) => file.replace(/\\/g, '/'))
+      .filter((file) => file.endsWith('/route.ts') && pattern.test(readFileSync(file, 'utf8')))
+      .map((file) => file.slice(api.length + 1, -'/route.ts'.length))
       .sort();
     // Document services have no request-selected model id.
     expect(calls).toEqual(

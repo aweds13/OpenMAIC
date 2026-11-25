@@ -532,6 +532,26 @@ describe('the list', () => {
 
 // ── Staying fresh (option B) on the page ───────────────────────────────────
 
+describe('a source the workspace search located', () => {
+  it('opens on a search for its name, with its row marked and its ⋯ focused', async () => {
+    library = (params) =>
+      params.get('query')
+        ? json({ materials: [inF1('hit', { name: 'worksheet.pdf' })], limits: LIMITS })
+        : json({ materials: [source('a')], limits: LIMITS });
+    const page = await openPage({ locate: { key: 1, materialId: 'hit', name: 'worksheet.pdf' } });
+    await settle();
+    expect(libraryCalls.at(-1)?.get('query')).toBe('worksheet.pdf');
+    expect((page.query('kb-search') as HTMLInputElement | null)?.value).toBe('worksheet.pdf');
+    expect(page.query('kb-material-hit')?.getAttribute('data-located')).toBe('true');
+    expect(document.activeElement?.getAttribute('data-testid')).toBe('kb-material-menu-hit');
+
+    // Typing another search lets the mark go.
+    await search('other');
+    expect(page.query('kb-material-hit')?.getAttribute('data-located') ?? null).toBeNull();
+    await page.dispose();
+  });
+});
+
 describe('staying fresh without moving the teacher', () => {
   it('a background refresh keeps the open folders and the rows already shown', async () => {
     const page = await openPage();
@@ -2083,9 +2103,11 @@ describe('public extraction failure explanations', () => {
       expect(dialog.textContent).toBe(
         reasonCode === 'too_many_pages'
           ? 'workspace.knowledgeBase.failure.too_many_pages.descriptionWithoutLimit'
-          : `workspace.knowledgeBase.failure.${reasonCode}.description${
-              reasonCode === 'media_too_long' ? '{"minutes":90}' : ''
-            }`,
+          : reasonCode === 'pages_failed'
+            ? 'workspace.knowledgeBase.failure.pages_failed.descriptionWithoutCount'
+            : `workspace.knowledgeBase.failure.${reasonCode}.description${
+                reasonCode === 'media_too_long' ? '{"minutes":90}' : ''
+              }`,
       );
       expect(document.body.innerHTML).not.toContain('PRIVATE_RAW_DETAIL');
       await act(async () => {
@@ -2490,6 +2512,35 @@ it.each([
     await page.dispose();
   },
 );
+
+it('shows the failed physical page range in the library failure popover', async () => {
+  library = () =>
+    json({
+      materials: [
+        source('pages-failed', {
+          extraction: {
+            status: 'failed',
+            reasonCode: 'pages_failed',
+            reasonValues: { firstPage: 101, lastPage: 150 },
+            reason: 'PRIVATE_DIAGNOSTIC',
+          },
+        }),
+      ],
+      limits: LIMITS,
+    });
+  const page = await openPage();
+  const status = page.query('kb-status-pages-failed')!;
+  expect(status.textContent).toBe('workspace.knowledgeBase.failure.pages_failed.label');
+  await act(async () => {
+    status.querySelector('button')!.click();
+  });
+  await settle();
+  expect(document.querySelector('[role="dialog"]')!.textContent).toBe(
+    'workspace.knowledgeBase.failure.pages_failed.description{"firstPage":101,"lastPage":150}',
+  );
+  expect(document.body.innerHTML).not.toContain('PRIVATE_DIAGNOSTIC');
+  await page.dispose();
+});
 
 it('does not lead with Parse again for a PDF refused for too many pages', async () => {
   library = () =>

@@ -15,7 +15,7 @@ import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
 import { slotVoxCPMBackend } from '@/lib/audio/tts-selection';
 import { useModelCapabilities } from '@/lib/model-settings/use-model-settings';
-import { DEFAULT_TTS_VOICES } from '@/lib/audio/constants';
+import { DEFAULT_TTS_VOICES, qwenVoiceNeedsReclone } from '@/lib/audio/constants';
 import {
   Volume2,
   Loader2,
@@ -26,6 +26,7 @@ import {
   FileAudio,
   Mic,
   Square,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -496,7 +497,12 @@ export function VoxCPMVoiceManager() {
   );
 }
 
-export function QwenVoiceCloneManager() {
+/**
+ * `cloneTarget` is the target the server says saved clones must match. Saved
+ * voices cloned for another target are marked as soon as the manager mounts;
+ * without a target nothing is guessed in the browser.
+ */
+export function QwenVoiceCloneManager({ cloneTarget }: { cloneTarget?: string }) {
   const { t } = useI18n();
   const { profiles, addCloneVoice, deleteVoice } = useQwenVoiceProfiles();
   const ttsVoiceProviderId = useSettingsStore((state) => state.ttsVoiceProviderId);
@@ -506,12 +512,15 @@ export function QwenVoiceCloneManager() {
   const { previewing, startPreview, stopPreview } = useTTSPreview();
 
   const [name, setName] = useState('');
-  const [refText, setRefText] = useState('');
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+  // Preview answers override the reported target only until settings refresh
+  // with a different target: true asks for a re-clone, false means it played.
+  const [recloneVerdicts, setRecloneVerdicts] = useState<Record<string, boolean>>({});
+  const previewRequestRef = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingStreamRef = useRef<MediaStream | null>(null);
@@ -619,6 +628,7 @@ export function QwenVoiceCloneManager() {
 
   useEffect(() => {
     return () => {
+      previewRequestRef.current += 1;
       stopRecordingTimer();
       if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
       stopRecordingStream();
@@ -630,15 +640,14 @@ export function QwenVoiceCloneManager() {
   }, [previewing]);
 
   const handleSave = async () => {
-    if (!name.trim() || !refText.trim() || !referenceFile) return;
+    if (!name.trim() || !referenceFile) return;
     setSaving(true);
     try {
-      const voiceId = await addCloneVoice({ name, referenceAudio: referenceFile, refText });
+      const voiceId = await addCloneVoice({ name, referenceAudio: referenceFile });
       // A new clone becomes the narration voice (this manager shows only while
       // the tts slot is Qwen).
       setTTSVoice(voiceId, 'qwen-tts');
       setName('');
-      setRefText('');
       setReferenceFile(null);
       toast.success(t('settings.qwenCloneSaved'));
     } catch (error) {
@@ -648,7 +657,27 @@ export function QwenVoiceCloneManager() {
     }
   };
 
+  useEffect(() => {
+    previewRequestRef.current += 1;
+    stopPreview();
+    setPreviewingVoiceId(null);
+    setRecloneVerdicts({});
+  }, [cloneTarget, stopPreview]);
+
+  const setRecloneVerdict = (voiceId: string, verdict: boolean | undefined) => {
+    setRecloneVerdicts((current) => {
+      const next = { ...current };
+      if (verdict === undefined) delete next[voiceId];
+      else next[voiceId] = verdict;
+      return next;
+    });
+  };
+
+  const needsReclone = (voiceId: string) =>
+    recloneVerdicts[voiceId] ?? (!!cloneTarget && qwenVoiceNeedsReclone(voiceId, cloneTarget));
+
   const handlePreview = async (voiceId: string) => {
+    const requestId = ++previewRequestRef.current;
     if (previewingVoiceId === voiceId) {
       stopPreview();
       setPreviewingVoiceId(null);
@@ -662,14 +691,23 @@ export function QwenVoiceCloneManager() {
         voice: voiceId,
         speed: ttsSpeed,
       });
+      if (requestId === previewRequestRef.current) setRecloneVerdict(voiceId, false);
     } catch (error) {
+      if (requestId !== previewRequestRef.current) return;
       setPreviewingVoiceId(null);
+      if (
+        error instanceof Error &&
+        (error as { errorCode?: string }).errorCode === 'QWEN_VC_RECLONE_REQUIRED'
+      ) {
+        setRecloneVerdict(voiceId, true);
+      }
       toast.error(error instanceof Error ? error.message : t('settings.qwenCloneSaveFailed'));
     }
   };
 
   const handleDelete = async (voiceId: string) => {
     const vendorDeleted = await deleteVoice(voiceId);
+    setRecloneVerdict(voiceId, undefined);
     if (!vendorDeleted) toast.warning(t('settings.qwenCloneDeleteWarning'));
     if (ttsVoiceProviderId === 'qwen-tts' && ttsVoice === voiceId) {
       setTTSVoice(DEFAULT_TTS_VOICES['qwen-tts'], 'qwen-tts');
@@ -688,6 +726,11 @@ export function QwenVoiceCloneManager() {
           {t('settings.qwenCloneVoicesTitle')}
         </Label>
         <p className="mt-1 text-xs text-muted-foreground">{t('settings.qwenCloneRefAudioHint')}</p>
+        {profiles.some(({ id }) => /^qwen(?:3)?-tts-vc-/iu.test(id)) && (
+          <p role="status" className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+            {t('settings.qwenCloneMigrationHint')}
+          </p>
+        )}
         {!recordingSupported && (
           <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
             {t('settings.qwenCloneUnsupported')}
@@ -707,19 +750,28 @@ export function QwenVoiceCloneManager() {
             </div>
             <div className="max-h-[360px] min-h-[240px] overflow-y-auto">
               {profiles.length ? (
-                profiles.map((profile) => (
-                  <VoiceProfileRow
-                    key={profile.id}
-                    icon={<FileAudio className="h-4 w-4" />}
-                    title={profile.name}
-                    badge={t('settings.voxcpmClone')}
-                    detail={profile.referenceAudioName || profile.id}
-                    kind="clone"
-                    previewing={previewingVoiceId === profile.id}
-                    onPreview={() => handlePreview(profile.id)}
-                    onDelete={() => handleDelete(profile.id)}
-                  />
-                ))
+                profiles.map((profile) => {
+                  const requiresReclone = needsReclone(profile.id);
+                  return (
+                    <VoiceProfileRow
+                      key={profile.id}
+                      icon={<FileAudio className="h-4 w-4" />}
+                      title={profile.name}
+                      badge={
+                        requiresReclone
+                          ? t('settings.qwenCloneNeedsReclone')
+                          : t('settings.voxcpmClone')
+                      }
+                      badgeTone={requiresReclone ? 'warning' : 'neutral'}
+                      detail={profile.referenceAudioName || profile.id}
+                      warning={requiresReclone ? t('settings.qwenCloneRecloneRequired') : undefined}
+                      kind="clone"
+                      previewing={previewingVoiceId === profile.id}
+                      onPreview={() => handlePreview(profile.id)}
+                      onDelete={() => handleDelete(profile.id)}
+                    />
+                  );
+                })
               ) : (
                 <div className="flex min-h-[200px] items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground/60">
                   {t('settings.voxcpmNoCustomVoices')}
@@ -767,12 +819,6 @@ export function QwenVoiceCloneManager() {
                   )}
                 </Button>
               </div>
-              <Textarea
-                value={refText}
-                onChange={(event) => setRefText(event.target.value)}
-                placeholder={t('settings.qwenCloneRefText')}
-                className="min-h-24 resize-none rounded-md text-sm"
-              />
               <Input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -782,7 +828,7 @@ export function QwenVoiceCloneManager() {
               <Button
                 size="sm"
                 onClick={handleSave}
-                disabled={saving || !name.trim() || !refText.trim() || !referenceFile}
+                disabled={saving || !name.trim() || !referenceFile}
                 className="h-10 w-full gap-1.5 rounded-md"
               >
                 {saving ? (
@@ -812,6 +858,7 @@ function VoiceProfileRow({
   badge,
   badgeTone = 'neutral',
   detail,
+  warning,
   kind = 'prompt',
   muted,
   previewing,
@@ -823,6 +870,7 @@ function VoiceProfileRow({
   badge: string;
   badgeTone?: 'default' | 'warning' | 'neutral';
   detail: string;
+  warning?: string;
   kind?: 'auto' | 'prompt' | 'clone';
   muted?: boolean;
   previewing?: boolean;
@@ -846,7 +894,7 @@ function VoiceProfileRow({
   return (
     <div
       className={cn(
-        'group relative flex min-h-16 items-center gap-3 border-t border-border/50 px-4 py-3 first:border-t-0',
+        'group relative flex min-h-16 items-start gap-3 border-t border-border/50 px-4 py-3 first:border-t-0',
         muted ? 'opacity-60' : 'hover:bg-muted/35',
       )}
     >
@@ -859,7 +907,7 @@ function VoiceProfileRow({
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="truncate text-sm font-medium">{title}</span>
           <span
             className={cn(
@@ -871,6 +919,15 @@ function VoiceProfileRow({
           </span>
         </div>
         <p className="mt-1 truncate text-xs text-muted-foreground">{detail}</p>
+        {warning && (
+          <div
+            role="status"
+            className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs leading-relaxed text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/40 dark:text-amber-300"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <p>{warning}</p>
+          </div>
+        )}
       </div>
       {onPreview && (
         <Button

@@ -6,7 +6,11 @@ import { IMAGE_PROVIDERS } from '@/lib/media/image-providers';
 import { VIDEO_PROVIDERS } from '@/lib/media/video-providers';
 import { PDF_PROVIDERS } from '@/lib/pdf/constants';
 import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search/constants';
-import { MODALITY_ORDER, TOKEN_PLAN_PRESETS } from '@/lib/config/token-plan-presets';
+import {
+  MODALITY_ORDER,
+  TOKEN_PLAN_PRESETS,
+  tokenPlanInRegion,
+} from '@/lib/config/token-plan-presets';
 import { getSlot, isSlotId, type SlotCapability, type SlotId } from '@/lib/config/model-slots';
 import {
   PROVIDER_PRESETS,
@@ -173,4 +177,95 @@ it('shares one DeepSeek account across chat, search and fetch without recommendi
     webFetch: { registryId: 'deepseek', baseUrl: undefined },
   });
   expect(getProviderPreset('deepseek')?.recommended).toBeUndefined();
+});
+
+it('turns the DeepSeek plan into its own preset beside the personal DeepSeek account', () => {
+  expect(getProviderPreset('deepseek')?.kind).toBe('single');
+  const preset = getProviderPreset('deepseek-token-plan')!;
+  expect(preset.kind).toBe('token-plan');
+  expect(preset.capabilities).toEqual({
+    chat: {
+      registryId: 'deepseek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      models: ['deepseek-flash', 'deepseek-v4-pro'],
+      defaultModel: 'deepseek-flash',
+    },
+    tts: { registryId: 'deepseek-tts', baseUrl: 'https://api.deepseek.com/v1' },
+    asr: { registryId: 'deepseek-asr', baseUrl: 'https://api.deepseek.com/v1' },
+    document: { registryId: 'deepseek-ocr', baseUrl: 'https://api.deepseek.com/v1' },
+    webSearch: { registryId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1' },
+    webFetch: { registryId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1' },
+  });
+  // The speech and OCR tools have no model parameter: provider-only assignments.
+  expect(preset.recommended).toEqual({
+    llm: 'deepseek-flash',
+    tts: 'deepseek-tts',
+    asr: 'deepseek-asr',
+    document: 'deepseek-ocr',
+    webSearch: 'deepseek',
+    webFetch: 'deepseek',
+  });
+  expect(TOKEN_PLAN_PRESETS.at(-1)?.id).toBe('deepseek');
+});
+
+it('seeds the DeepSeek plan models with the registry metadata', () => {
+  const models = presetModels(getProviderPreset('deepseek-token-plan')!, 'chat');
+  expect(models.map((model) => model.id)).toEqual(['deepseek-flash', 'deepseek-v4-pro']);
+  const flash = models[0];
+  expect(flash.name).toBe('DeepSeek Flash');
+  expect(flash.contextWindow).toBe(1048576);
+  expect(flash.capabilities).toMatchObject({ tools: true, vision: true });
+  expect(flash.capabilities?.thinking?.toggleable).toBe(true);
+  expect(models[1].capabilities).toMatchObject({ tools: true, vision: false });
+});
+
+describe('token plan regions', () => {
+  const idsIn = (region: 'domestic' | 'international') =>
+    TOKEN_PLAN_PRESETS.filter((plan) => tokenPlanInRegion(plan, region)).map((plan) => plan.id);
+  const hosts = (id: string) =>
+    new Set(
+      Object.values(TOKEN_PLAN_PRESETS.find((plan) => plan.id === id)!.modalities).map(
+        (target) => new URL(target!.baseUrl).hostname,
+      ),
+    );
+
+  it('lists only the plans tested with international keys on the international side', () => {
+    expect(idsIn('international')).toEqual(['minimax-intl', 'kimi-intl', 'deepseek']);
+    expect(idsIn('domestic')).toEqual([
+      'tokendance',
+      'minimax',
+      'volcengine-ark',
+      'kimi',
+      'deepseek',
+    ]);
+  });
+
+  it('serves every capability of an international plan from the international site', () => {
+    expect([...hosts('minimax-intl')]).toEqual(['api.minimax.io']);
+    expect([...hosts('kimi-intl')]).toEqual(['api.kimi.ai']);
+    expect([...hosts('minimax')]).toEqual(['api.minimaxi.com']);
+    expect([...hosts('kimi')]).toEqual(['api.kimi.com']);
+  });
+
+  it('keeps the domestic capabilities on the international plans', () => {
+    const modalities = (id: string) =>
+      Object.keys(TOKEN_PLAN_PRESETS.find((plan) => plan.id === id)!.modalities);
+    expect(modalities('minimax-intl')).toEqual(modalities('minimax'));
+    expect(modalities('kimi-intl')).toEqual(modalities('kimi'));
+  });
+
+  it('offers international MiniMax only the models the international site serves', () => {
+    const preset = getProviderPreset('minimax-intl')!;
+    expect(preset.kind).toBe('token-plan');
+    expect(presetModels(preset, 'chat').map((model) => model.id)).toEqual([
+      'MiniMax-M3',
+      'MiniMax-M2.7',
+      'MiniMax-M2.7-highspeed',
+      'MiniMax-M2.5',
+      'MiniMax-M2.5-highspeed',
+    ]);
+    expect(TOKEN_PLAN_PRESETS.find((plan) => plan.id === 'minimax-intl')?.apiKeyPlaceholder).toBe(
+      'sk-cp-...',
+    );
+  });
 });

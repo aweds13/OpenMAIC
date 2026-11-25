@@ -2,7 +2,7 @@
  * Token Plan presets — multi-modal.
  *
  * A token plan (e.g. MiniMax) is often a single key that spans LLM + image +
- * video + TTS + web search + web fetch. A preset declares, per modality, the
+ * video + TTS + ASR + document parsing + web search + web fetch. A preset declares, per modality, the
  * target provider id + base URL in that modality's registry. "One-click apply" fills the key into
  * every declared modality and lights it up; modalities not declared here are
  * simply "not adapted yet" (at our best — add an entry later to extend).
@@ -16,8 +16,16 @@ import type { ProviderType } from '@/lib/types/provider';
 /** Loose grouping for the preset list UI. */
 export type PresetCategory = 'official' | 'aggregator' | 'token_plan' | 'third_party';
 
-/** The modalities a token plan can be applied to. ASR is omitted = not adapted. */
-export type TokenPlanModality = 'llm' | 'image' | 'video' | 'tts' | 'webSearch' | 'webFetch';
+/** The modalities a token plan can be applied to. */
+export type TokenPlanModality =
+  | 'llm'
+  | 'image'
+  | 'video'
+  | 'tts'
+  | 'asr'
+  | 'document'
+  | 'webSearch'
+  | 'webFetch';
 
 /** Where a token plan maps in one modality's provider registry. */
 export interface TokenPlanModalityTarget {
@@ -70,8 +78,24 @@ export interface TokenPlanPreset {
   /** Icon path under /public (optional). */
   icon?: string;
   category: PresetCategory;
+  /**
+   * The region whose accounts the plan's endpoints serve: the Token Plan page
+   * lists a plan under that region only. Unset for a vendor with one global
+   * endpoint, listed under both. A vendor whose domestic and international
+   * sites take different keys has one plan per region, each with its own
+   * endpoints, so switching regions never mixes the two.
+   */
+  region?: TokenPlanRegion;
   /** Per-modality apply targets. Only declared modalities get lit up. */
   modalities: Partial<Record<TokenPlanModality, TokenPlanModalityTarget>>;
+}
+
+/** The two sides of the Token Plan page: mainland China accounts, and the rest. */
+export type TokenPlanRegion = 'domestic' | 'international';
+
+/** Whether the Token Plan page lists a plan under a region. */
+export function tokenPlanInRegion(plan: TokenPlanPreset, region: TokenPlanRegion): boolean {
+  return !plan.region || plan.region === region;
 }
 
 /** Human-facing order of modalities in the apply result. */
@@ -80,6 +104,8 @@ export const MODALITY_ORDER: TokenPlanModality[] = [
   'image',
   'video',
   'tts',
+  'asr',
+  'document',
   'webSearch',
   'webFetch',
 ];
@@ -89,14 +115,20 @@ export const MODALITY_ORDER: TokenPlanModality[] = [
  *
  * Scoped to TRUE token plans — a single key that spans multiple modalities.
  * Single-modality LLM providers (aggregators like OpenRouter, vendor-direct like
- * DeepSeek/GLM/Qwen) are deliberately NOT here: they're ordinary API providers
- * already covered by the add-provider flow, and listing them under "Token Plan"
+ * GLM/Qwen) are deliberately NOT here: they're ordinary API providers already
+ * covered by the add-provider flow, and listing them under "Token Plan"
  * muddied the "one key, every modality" promise.
  *
  * - TokenDance: LLM/image/video/TTS/web-search through one gateway key.
  * - MiniMax: LLM/image/video/TTS/web-search adapters.
  * - Volcengine Ark Agent Plan: LLM/image/video/TTS/web-search via the plan key.
  * - Kimi Coding Plan: LLM/web-search/web-fetch via the plan key.
+ * - DeepSeek: LLM/TTS/ASR/document OCR/web-search/web-fetch via one platform API key.
+ *
+ * MiniMax and Kimi each have an international plan beside the domestic one,
+ * on the international site's endpoints (MiniMax's domestic endpoints reject
+ * an international key). TokenDance and Ark have no international counterpart
+ * a plan key reaches; DeepSeek has one global endpoint.
  */
 export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
   // ── Gateway token plan (one key, vendor wire formats) ─────────────────────
@@ -115,6 +147,7 @@ export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
     apiKeyPlaceholder: 'sk-...',
     icon: '/logos/tokendance.svg',
     category: 'token_plan',
+    region: 'domestic',
     modalities: {
       llm: {
         providerId: 'tokendance',
@@ -174,6 +207,7 @@ export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
     apiKeyPlaceholder: 'sk-...',
     icon: '/logos/minimax.svg',
     category: 'token_plan',
+    region: 'domestic',
     modalities: {
       llm: {
         providerId: 'minimax',
@@ -216,6 +250,59 @@ export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
       webSearch: { providerId: 'minimax', baseUrl: 'https://api.minimaxi.com' },
     },
   },
+  {
+    // MiniMax's international site (platform.minimax.io): the same APIs on
+    // api.minimax.io, authenticated by the M Plan key (`sk-cp-`); a
+    // pay-as-you-go key (`sk-api-`) is charged to the account balance instead.
+    // The international site no longer serves MiniMax-M2.1 or MiniMax-M2.
+    // Lower tiers may include no video model; generation then reports the
+    // tier, as with the domestic plan.
+    id: 'minimax-intl',
+    name: 'MiniMax',
+    websiteUrl: 'https://platform.minimax.io',
+    apiKeyPlaceholder: 'sk-cp-...',
+    icon: '/logos/minimax.svg',
+    category: 'token_plan',
+    region: 'international',
+    modalities: {
+      llm: {
+        providerId: 'minimax',
+        baseUrl: 'https://api.minimax.io/anthropic/v1',
+        apiFormat: 'anthropic',
+        defaultModels: [
+          'MiniMax-M3',
+          'MiniMax-M2.7',
+          'MiniMax-M2.7-highspeed',
+          'MiniMax-M2.5',
+          'MiniMax-M2.5-highspeed',
+        ],
+      },
+      image: {
+        providerId: 'minimax-image',
+        baseUrl: 'https://api.minimax.io',
+        defaultModels: ['image-01', 'image-01-live'],
+      },
+      video: {
+        providerId: 'minimax-video',
+        baseUrl: 'https://api.minimax.io',
+        defaultModels: ['MiniMax-Hailuo-2.3', 'MiniMax-Hailuo-02', 'T2V-01-Director', 'T2V-01'],
+      },
+      tts: {
+        providerId: 'minimax-tts',
+        baseUrl: 'https://api.minimax.io',
+        defaultModelId: 'speech-2.8-turbo',
+        defaultModels: [
+          'speech-2.8-hd',
+          'speech-2.8-turbo',
+          'speech-2.6-hd',
+          'speech-2.6-turbo',
+          'speech-02-hd',
+          'speech-02-turbo',
+        ],
+      },
+      webSearch: { providerId: 'minimax', baseUrl: 'https://api.minimax.io' },
+    },
+  },
 
   // ── Vendor token plans (LLM; one key, often spans many models) ────────────
   {
@@ -233,6 +320,7 @@ export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
     apiKeyPlaceholder: 'ark-...',
     icon: '/logos/volcengine.svg',
     category: 'token_plan',
+    region: 'domestic',
     modalities: {
       llm: {
         providerId: 'doubao',
@@ -288,7 +376,7 @@ export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
       },
     },
   },
-  // ── Kimi Coding Plan (last = lowest priority) ───────────────────────────
+  // ── Kimi Coding Plan ────────────────────────────────────────────────────
   // The Coding Plan key authenticates against the plan's DEDICATED
   // endpoint (https://www.kimi.com/code/docs/) — api.kimi.com/coding/v1,
   // international api.kimi.ai/coding/v1 — NOT Moonshot's Open Platform
@@ -303,7 +391,7 @@ export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
   // (the implicit builtin reader for fetch when no reader was configured).
   // The mainline defaults to `kimi-for-coding`; every follow-mainline LLM
   // station inherits it. Image/video/TTS are not declared and stay untouched.
-  // Priority note: placed LAST in TOKEN_PLAN_PRESETS, so Kimi yields only
+  // Priority note: ranked below the multi-modal plans, so Kimi yields only
   // slots that a higher-priority connected plan also recommends.
   {
     id: 'kimi',
@@ -316,6 +404,7 @@ export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
     apiKeyPlaceholder: 'sk-...',
     icon: '/logos/kimi.png',
     category: 'token_plan',
+    region: 'domestic',
     modalities: {
       llm: {
         providerId: 'kimi',
@@ -326,6 +415,65 @@ export const TOKEN_PLAN_PRESETS: TokenPlanPreset[] = [
       },
       webSearch: { providerId: 'kimi', baseUrl: 'https://api.kimi.com/coding/v1' },
       webFetch: { providerId: 'kimi', baseUrl: 'https://api.kimi.com/coding/v1' },
+    },
+  },
+  {
+    // Kimi Code on the international site (kimi.ai/code): the same plan
+    // endpoint and model ids on api.kimi.ai/coding/v1.
+    id: 'kimi-intl',
+    name: 'Kimi',
+    websiteUrl: 'https://www.kimi.ai/code?aff=openmaic',
+    apiKeyPlaceholder: 'sk-...',
+    icon: '/logos/kimi.png',
+    category: 'token_plan',
+    region: 'international',
+    modalities: {
+      llm: {
+        providerId: 'kimi',
+        baseUrl: 'https://api.kimi.ai/coding/v1',
+        apiFormat: 'openai',
+        defaultModels: ['k3', 'k3-256k', 'kimi-for-coding', 'kimi-for-coding-highspeed'],
+        defaultModelId: 'kimi-for-coding',
+      },
+      webSearch: { providerId: 'kimi', baseUrl: 'https://api.kimi.ai/coding/v1' },
+      webFetch: { providerId: 'kimi', baseUrl: 'https://api.kimi.ai/coding/v1' },
+    },
+  },
+  // ── DeepSeek (last = lowest priority) ───────────────────────────────────
+  // Pay-as-you-go rather than a subscription, but one DeepSeek platform key
+  // covers chat, speech synthesis (/v1/tools/tts), speech recognition
+  // (/v1/tools/asr), document OCR (/v1/tools/ocr), web search
+  // (/v1/tools/search) and web fetch (/v1/tools/fetch) on the same official
+  // endpoint, through the existing `deepseek*` registry adapters. The endpoint
+  // is the one a personal `deepseek` provider uses; the plan still gets its
+  // own `deepseek-token-plan` preset so connecting and disconnecting it never
+  // touches a personal DeepSeek provider (and so a personal key does not count
+  // as a connected plan). The mainline defaults to `deepseek-flash` (vision,
+  // tool calling); every follow-mainline LLM station inherits it. The speech
+  // and OCR tools have no model parameter, so their slots get the provider
+  // itself. Image and video are not declared and stay untouched.
+  // Priority note: placed LAST in TOKEN_PLAN_PRESETS, so DeepSeek yields the
+  // slots any other connected plan also recommends.
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    websiteUrl: 'https://platform.deepseek.com',
+    apiKeyPlaceholder: 'sk-...',
+    icon: '/logos/deepseek.svg',
+    category: 'token_plan',
+    modalities: {
+      llm: {
+        providerId: 'deepseek',
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiFormat: 'openai',
+        defaultModels: ['deepseek-flash', 'deepseek-v4-pro'],
+        defaultModelId: 'deepseek-flash',
+      },
+      tts: { providerId: 'deepseek-tts', baseUrl: 'https://api.deepseek.com/v1' },
+      asr: { providerId: 'deepseek-asr', baseUrl: 'https://api.deepseek.com/v1' },
+      document: { providerId: 'deepseek-ocr', baseUrl: 'https://api.deepseek.com/v1' },
+      webSearch: { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1' },
+      webFetch: { providerId: 'deepseek', baseUrl: 'https://api.deepseek.com/v1' },
     },
   },
 ];

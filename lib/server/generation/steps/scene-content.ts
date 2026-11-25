@@ -6,12 +6,13 @@
  * caller resolves the model for the scene type's stage.
  */
 import { prepareVisionImages } from '../vision-images';
+import { createGenerationAiCall } from '../ai-call';
 import { callLLM } from '@/lib/ai/llm';
 import {
   applyOutlineFallbacks,
   generateSceneContent as generateContent,
-  buildVisionUserContent,
   partitionImagesForVision,
+  type AICallFn,
 } from '@openmaic/generation';
 import type { AgentInfo } from '@openmaic/generation';
 import type {
@@ -81,13 +82,7 @@ export async function generateSceneContent(
   ctx: OwnerStepContext,
 ): Promise<SceneContentResult> {
   const { pdfImages, imageMapping, agents, languageDirective, requirements } = input;
-  const {
-    model: languageModel,
-    modelInfo,
-    modelString,
-    thinkingConfig,
-    serverManaged,
-  } = input.model;
+  const { model: languageModel, modelInfo, modelString, thinkingConfig } = input.model;
   const { log } = ctx;
   const outline: SceneOutline = { ...input.outline };
 
@@ -99,59 +94,24 @@ export async function generateSceneContent(
   // resolution below is a DEFENSIVE NO-OP for those concrete data URLs
   // (RFC #1153 part 2 B); it is kept so a package consumer that generates
   // without pre-resolving never sends an allocated asset id as an image.
-  const aiCall = async (
-    systemPrompt: string,
-    userPrompt: string,
-    images?: Array<{ id: string; src: string }>,
-  ): Promise<string> => {
-    // 自学模式（二开）：追加发生在发出去之前 —— 原提示词里 30KB 的 schema /
-    // 元素类型 / 坐标规则原样保留，只在末尾追加一段声明为最高优先级的覆盖。
-    // 只对 slide：quiz / interactive / pbl 的 content 是各自的结构，没有
-    // "幻灯片密度"这个概念。见 lib/server/self-study-mode.ts
-    const effectiveSystemPrompt =
-      input.selfStudy && outline.type === 'slide'
-        ? applySelfStudySlideOverride(systemPrompt)
-        : systemPrompt;
-    if (images?.length && hasVision) {
-      const resolvedImages = await ctx.resolveVisionImages(images);
-      const result = await callLLM(
-        {
-          model: languageModel,
-          // A run cancels the call when it loses its lease or its course.
-          abortSignal: ctx.signal,
-          system: effectiveSystemPrompt,
-          messages: [
-            {
-              role: 'user' as const,
-              content: buildVisionUserContent(userPrompt, resolvedImages),
-            },
-          ],
-          maxOutputTokens: modelInfo?.outputWindow,
-          maxRetries: 0,
-        },
-        'scene-content',
-        undefined,
-        thinkingConfig,
-        { serverManaged },
-      );
-      return result.text;
-    }
-    const result = await callLLM(
-      {
-        model: languageModel,
-        abortSignal: ctx.signal,
-        system: effectiveSystemPrompt,
-        prompt: userPrompt,
-        maxOutputTokens: modelInfo?.outputWindow,
-        maxRetries: 0,
-      },
-      'scene-content',
-      undefined,
-      thinkingConfig,
-      { serverManaged },
-    );
-    return result.text;
-  };
+  const baseAiCall = createGenerationAiCall(input.model, 'scene-content', {
+    abortSignal: ctx.signal,
+    resolveVisionImages: (images) => ctx.resolveVisionImages(images),
+  });
+
+  // 自学模式（二开）：覆盖发生在**发出去之前** —— 原提示词里 30KB 的 schema /
+  // 元素类型 / 坐标规则原样保留，只在末尾追加一段声明为最高优先级的覆盖。
+  // 只对 slide：quiz / interactive / pbl 的 content 是各自的结构，没有
+  // "幻灯片密度"这个概念。见 lib/server/self-study-mode.ts
+  //
+  // ★ 包在 `createGenerationAiCall` 外面而不是重写它：上游 v1.5.0 把这段
+  //   调用收进了共享工厂（视觉附件的解析/裁剪也在里面），重写一遍就等于
+  //   分叉出第二个实现，下一次合流又会在这里撞车。
+  const aiCall: AICallFn =
+    input.selfStudy && outline.type === 'slide'
+      ? (systemPrompt, userPrompt, images) =>
+          baseAiCall(applySelfStudySlideOverride(systemPrompt), userPrompt, images)
+      : baseAiCall;
 
   // ── Apply fallbacks ──
   const vocationalActive = resolveVocationalActive(requirements);

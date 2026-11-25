@@ -22,13 +22,19 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from '@/components/ui/alert-dialog';
+import { InteractiveCover } from '@/components/discovery/interactive-cover';
+import { LiveInteractiveCover } from '@/components/discovery/live-interactive-cover';
 import { SlideThumbnail } from '@/components/slide-renderer/SlideThumbnail';
-import type { Slide } from '@openmaic/dsl';
+import { firstInteractiveCover, type CourseThumbnail } from '@/lib/utils/course-cover';
 import type { FolderRecord } from '@/lib/types/folder';
 import type { DeleteFolderMode, StageListItem } from '@/lib/utils/stage-storage';
 
 /** Maximum number of course covers stacked on a folder tile. */
 const MAX_COVERS = 3;
+
+/** A desktop folder tile's 16:9 frame (add the ring colour for its state). */
+export const FOLDER_TILE_FRAME =
+  'relative w-full aspect-[16/9] rounded-2xl bg-gradient-to-br from-violet-50 to-blue-50 dark:from-violet-900/20 dark:to-blue-900/20 overflow-hidden transition-transform duration-200 group-hover:scale-[1.02] ring-1';
 
 /**
  * Folder navigation: compact rows on phones, course-sized tiles on desktop.
@@ -43,7 +49,7 @@ export function FolderCard({
   mobile = false,
   folder,
   courseCount,
-  coverSlides,
+  covers: coverSlides,
   coverCandidates = [],
   requestThumbnail,
   onOpen,
@@ -54,8 +60,8 @@ export function FolderCard({
   mobile?: boolean;
   folder: FolderRecord;
   courseCount: number;
-  /** Up to {@link MAX_COVERS} first-slide thumbnails of the member courses. */
-  coverSlides: Slide[];
+  /** Up to {@link MAX_COVERS} covers of the member courses. */
+  covers: CourseThumbnail[];
   /** The member courses whose thumbnails fill (or may fill) the cover slots. */
   coverCandidates?: readonly StageListItem[];
   /** Loads a member's thumbnail; called for the candidates while the tile is near the viewport. */
@@ -79,7 +85,6 @@ export function FolderCard({
   const dragDepth = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const thumbRef = useRef<HTMLDivElement>(null);
-  const [thumbWidth, setThumbWidth] = useState(0);
   const nearViewport = useNearViewport(thumbRef);
   // A stable key, so a re-render with the same candidates does not re-request.
   const candidateKey = coverCandidates.map((c) => `${c.id}@${c.updatedAt}`).join('|');
@@ -296,10 +301,6 @@ export function FolderCard({
   }
 
   const covers = coverSlides.slice(0, MAX_COVERS);
-  // Emptiness is derived from courseCount (the authoritative source), not from
-  // covers.length — a non-empty folder whose courses have no cached thumbnails
-  // must not show the empty-folder icon. `hasCovers` gates the cover stack.
-  const hasCovers = covers.length > 0;
 
   return (
     <div
@@ -335,40 +336,13 @@ export function FolderCard({
       <div
         ref={thumbRef}
         className={cn(
-          'relative w-full aspect-[16/9] rounded-2xl bg-gradient-to-br from-violet-50 to-blue-50 dark:from-violet-900/20 dark:to-blue-900/20 overflow-hidden transition-transform duration-200 group-hover:scale-[1.02] ring-1',
+          FOLDER_TILE_FRAME,
           dropActive
             ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-background scale-[1.03]'
             : 'ring-violet-200/50 dark:ring-violet-800/40',
         )}
       >
-        {hasCovers ? (
-          <CoverStack covers={covers} thumbWidth={thumbWidth} setThumbWidth={setThumbWidth} />
-        ) : courseCount === 0 ? (
-          // Truly empty folder: folder icon.
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <div className="size-14 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
-              <Folder className="size-7 text-violet-500 dark:text-violet-300" />
-            </div>
-          </div>
-        ) : (
-          // Non-empty but no cached covers: a neutral stacked-card placeholder
-          // distinct from the empty-folder icon, so it does not read as empty.
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div
-              className="w-[60%] aspect-[16/9] rounded-xl bg-violet-200/60 dark:bg-violet-800/30 shadow-md ring-1 ring-violet-300/30 dark:ring-violet-700/30"
-              style={{ transform: 'translate(-3%, 2%)' }}
-            />
-            <div
-              className="absolute w-[60%] aspect-[16/9] rounded-xl bg-violet-300/50 dark:bg-violet-700/20 shadow-md ring-1 ring-violet-300/30 dark:ring-violet-700/30"
-              style={{ transform: 'translate(3%, -1%)' }}
-            />
-          </div>
-        )}
-
-        {/* Course count badge — always visible (bottom-right). */}
-        <span className="absolute bottom-2 right-2 z-10 inline-flex items-center rounded-full bg-black/40 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
-          {courseCount} {t('classroom.folderCourseCountUnit')}
-        </span>
+        <FolderTileCover covers={covers} courseCount={courseCount} live={nearViewport} />
 
         {dropActive && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-violet-500/20 backdrop-blur-[2px]">
@@ -539,6 +513,69 @@ export function FolderCard({
 }
 
 /**
+ * What a desktop folder tile shows inside its 16:9 frame: up to
+ * {@link MAX_COVERS} member covers stacked, an empty-folder glyph, or (members
+ * without cached covers) a neutral stack, and the course count. Shared by the
+ * classic home's tile and the workspace's My courses card, so the two folder
+ * cards are one picture.
+ */
+export function FolderTileCover({
+  covers: coverSlides,
+  courseCount,
+  live = false,
+}: {
+  covers: CourseThumbnail[];
+  courseCount: number;
+  /** Whether the tile is near the viewport; live covers render only on screen. */
+  readonly live?: boolean;
+}) {
+  const { t } = useI18n();
+  const [thumbWidth, setThumbWidth] = useState(0);
+  const covers = coverSlides.slice(0, MAX_COVERS);
+  // Emptiness is derived from courseCount (the authoritative source), not from
+  // covers.length — a non-empty folder whose courses have no cached thumbnails
+  // must not show the empty-folder icon. `hasCovers` gates the cover stack.
+  const hasCovers = covers.length > 0;
+  return (
+    <>
+      {hasCovers ? (
+        <CoverStack
+          covers={covers}
+          thumbWidth={thumbWidth}
+          setThumbWidth={setThumbWidth}
+          live={live}
+        />
+      ) : courseCount === 0 ? (
+        // Truly empty folder: folder icon.
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <div className="size-14 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+            <Folder className="size-7 text-violet-500 dark:text-violet-300" />
+          </div>
+        </div>
+      ) : (
+        // Non-empty but no cached covers: a neutral stacked-card placeholder
+        // distinct from the empty-folder icon, so it does not read as empty.
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="w-[60%] aspect-[16/9] rounded-xl bg-violet-200/60 dark:bg-violet-800/30 shadow-md ring-1 ring-violet-300/30 dark:ring-violet-700/30"
+            style={{ transform: 'translate(-3%, 2%)' }}
+          />
+          <div
+            className="absolute w-[60%] aspect-[16/9] rounded-xl bg-violet-300/50 dark:bg-violet-700/20 shadow-md ring-1 ring-violet-300/30 dark:ring-violet-700/30"
+            style={{ transform: 'translate(3%, -1%)' }}
+          />
+        </div>
+      )}
+
+      {/* Course count badge — always visible (bottom-right). */}
+      <span className="absolute bottom-2 right-2 z-10 inline-flex items-center rounded-full bg-black/40 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+        {courseCount} {t('classroom.folderCourseCountUnit')}
+      </span>
+    </>
+  );
+}
+
+/**
  * Render member course covers as a tidy, slightly-fanned stack: each rear cover
  * peeks out from behind the one in front, offset up and to alternating sides,
  * with a gentle rotation. Inspired by the iOS Photos / macOS folder cover —
@@ -549,10 +586,13 @@ function CoverStack({
   covers,
   thumbWidth,
   setThumbWidth,
+  live,
 }: {
-  covers: Slide[];
+  covers: CourseThumbnail[];
   thumbWidth: number;
   setThumbWidth: (w: number) => void;
+  /** Near-viewport; only the front layer ever renders live. */
+  readonly live: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -598,12 +638,22 @@ function CoverStack({
           >
             {thumbWidth > 0 && (
               <div className="aspect-[16/9] w-full rounded-xl overflow-hidden shadow-md ring-1 ring-black/5 bg-slate-200 dark:bg-slate-700">
-                <SlideThumbnail
-                  slide={cover}
-                  size={Math.round((thumbWidth * widthPct) / 100)}
-                  viewportSize={cover.viewportSize ?? 1000}
-                  viewportRatio={cover.viewportRatio ?? 0.5625}
-                />
+                {cover.kind === 'slide' ? (
+                  <SlideThumbnail
+                    slide={cover.slide}
+                    size={Math.round((thumbWidth * widthPct) / 100)}
+                    viewportSize={cover.slide.viewportSize ?? 1000}
+                    viewportRatio={cover.slide.viewportRatio ?? 0.5625}
+                  />
+                ) : isFront ? (
+                  <LiveInteractiveCover
+                    scene={cover.scene}
+                    size={Math.round((thumbWidth * widthPct) / 100)}
+                    visible={live && thumbWidth > 0}
+                  />
+                ) : (
+                  <InteractiveCover cover={firstInteractiveCover([cover.scene])!} />
+                )}
               </div>
             )}
           </div>

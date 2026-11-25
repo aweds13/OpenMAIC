@@ -11,6 +11,7 @@ import { db } from '@/lib/device-storage/database';
 import type { FolderRecord } from '@/lib/types/folder';
 import { FolderNameError } from './folder-name-validation';
 export { FolderNameError } from './folder-name-validation';
+import type { CourseThumbnail } from './course-cover';
 import {
   ChatStorageLockUnavailableError,
   saveChatSessions,
@@ -26,17 +27,24 @@ import {
   loadCurrentScene,
   mutateDocument,
   saveCurrentScene,
+  type AppDocument,
   type AppDocumentOutline,
 } from '@/lib/document-store';
 import { clearAllForScene } from '@/lib/quiz/persistence';
 import { beginStageRuntimeDeletionSafely } from '@/lib/runtime/store';
 import { clearStageDrainWatermarks } from '@/lib/pbl/v2/runtime/drain';
 import { createLogger } from '@/lib/logger';
+import { settleKnownScenes, unseenScenes } from '@/lib/store/known-scenes';
 import {
   withRuntimeStorageExclusiveLockUntilSettled,
   withRuntimeStorageSharedLock,
 } from './chat-storage-lock';
-import { DocumentVersionError, type DocumentSummary } from '@openmaic/storage';
+import {
+  DocumentVersionError,
+  type DocumentStore,
+  type DocumentSummary,
+  type HttpDocumentWriteOptions,
+} from '@openmaic/storage';
 import { preparePBLScenesForDocumentPersistence } from '@/lib/pbl/v2/runtime/document-persistence';
 import {
   MISSING_ASSET_LEASE,
@@ -70,6 +78,7 @@ import {
   type MediaTaskLookupEntry,
 } from '@/lib/media/media-task-resolution';
 import { slideMediaReferenceSlots } from '@/lib/media/slide-media-slots';
+import { omitUndefinedObjectMembers } from '@/lib/persistence/plain-json';
 
 const log = createLogger('StageStorage');
 
@@ -134,6 +143,46 @@ function stampScene(stageId: string, scene: Scene, index: number, now: number): 
     createdAt: scene.createdAt || now,
     updatedAt: scene.updatedAt || now,
   };
+}
+
+/**
+ * Scenes joining a list, with the order they came with: other writers address a
+ * page by it. Only a scene whose order the list already holds moves, past the rest.
+ */
+function withoutOrderCollisions(list: readonly Scene[], joining: readonly Scene[]): Scene[] {
+  const taken = new Set(list.map((scene) => scene.order));
+  let next = Math.max(0, ...list.map((scene) => scene.order), ...joining.map((s) => s.order));
+  return joining.map((scene) => {
+    const order = taken.has(scene.order) ? ++next : scene.order;
+    taken.add(order);
+    return order === scene.order ? scene : { ...scene, order };
+  });
+}
+
+/**
+ * Write the whole document. The stored scene list is replaced by the one being
+ * saved, which would also delete a scene another writer added since this tab
+ * last synced, so those stay. A scene this tab has held and
+ * no longer lists is one it removed, and goes. The list and the read of what is
+ * stored are one round trip apart: a scene added in between is still deleted.
+ */
+async function saveWholeDocument(
+  store: Pick<DocumentStore<Scene, Stage>, 'saveDocument'>,
+  stageId: string,
+  existing: { readonly scenes?: readonly Scene[] } | null | undefined,
+  document: ReturnType<typeof documentSnapshot>,
+): Promise<void> {
+  const stored = existing?.scenes ?? [];
+  const unseen = unseenScenes(stageId, stored, document.scenes);
+  await store.saveDocument({
+    ...document,
+    scenes: [...document.scenes, ...withoutOrderCollisions(document.scenes, unseen)],
+  });
+  const kept = new Set([...document.scenes, ...unseen].map((scene) => scene.id));
+  settleKnownScenes(
+    stageId,
+    stored.filter((scene) => !kept.has(scene.id)),
+  );
 }
 
 function documentSnapshot(
@@ -263,7 +312,12 @@ export async function saveStageData(
             dropped = true;
             return;
           }
-          await store.saveDocument(documentSnapshot(stageId, data, existingOutline, now));
+          await saveWholeDocument(
+            store,
+            stageId,
+            existing,
+            documentSnapshot(stageId, data, existingOutline, now),
+          );
           if (isStageWriteStale(stageId, capturedEpoch)) {
             dropped = true;
             return;
@@ -286,6 +340,7 @@ export async function saveStageData(
       log.info(`Dropped save mid-write for deleted/stale stage: ${stageId}`);
       return 'stale-dropped';
     }
+    storedDocuments.add(stageId);
     log.info(`Saved stage: ${stageId}`);
     return failedChanges.length > 0 ? { failedChanges } : undefined;
   } catch (error) {
@@ -366,7 +421,10 @@ export async function saveStageDataIncremental(
               dropped = true;
               return;
             }
-            await store.saveDocument(
+            await saveWholeDocument(
+              store,
+              stageId,
+              existing,
               documentSnapshot(
                 stageId,
                 { ...data, scenes: persistedScenes },
@@ -452,6 +510,7 @@ export async function saveStageDataIncremental(
     log.info(`Dropping incremental chat tail for deleted/stale stage: ${stageId}`);
     return 'stale-dropped';
   }
+  if (needsDocumentWrite) storedDocuments.add(stageId);
   const failedChanges: PendingChange[] = [];
   if (has('chats') && !(await saveStageChats(stageId, data))) {
     failedChanges.push({ kind: 'chats' });
@@ -460,33 +519,214 @@ export async function saveStageDataIncremental(
 }
 
 /**
+ * Courses whose document this page has seen on the server: loaded it, or
+ * saved it. The regular save reads the document before writing to find out
+ * (a missing document takes the whole-document path); the unload write below
+ * cannot afford that read and relies on this record instead.
+ */
+const storedDocuments = new Set<string>();
+
+/**
+ * How many request-body bytes the unload write may have in flight at once.
+ * Browsers cap the combined body size of a page's in-flight keepalive
+ * requests at 64 KiB and reject a request that would exceed it; the rest is
+ * headroom for keepalive requests the page sends for other reasons.
+ */
+export const UNLOAD_KEEPALIVE_BUDGET_BYTES = 48 * 1024;
+
+let keepaliveBytesInFlight = 0;
+
+/** What the unload write did with the document changes it was given. */
+export interface UnloadWriteResult {
+  /** Changes handed to keepalive requests (or, for the reading position, written). */
+  readonly sent: readonly PendingChange[];
+  /**
+   * Document changes that could not be sent this way: a structural or outline
+   * change (those need the whole document, and hold back every other document
+   * change of the course with them), a project scene whose learner
+   * state must sync first, a course this page has not seen on the server, or
+   * a body that does not fit the keepalive budget. Leaving now loses them.
+   */
+  readonly deferred: readonly PendingChange[];
+  /**
+   * Settles once every request has: true when all of them succeeded. Only
+   * meaningful while the page stays alive (the user stayed, or the page was
+   * only hidden); after an unload nothing observes it.
+   */
+  readonly settled: Promise<boolean>;
+}
+
+type KeepaliveDocumentStore = {
+  putScene(stageId: string, scene: Scene, options?: HttpDocumentWriteOptions): Promise<void>;
+  putStage(stageId: string, stage: Stage, options?: HttpDocumentWriteOptions): Promise<void>;
+};
+
+function utf8JsonBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+/**
+ * Write pending scene and stage changes while the page is unloading.
+ *
+ * The regular save cannot run here: it reads the document before writing,
+ * and an unload aborts that read, so the write is never sent. This path
+ * writes each changed scene and the stage directly, with keepalive requests
+ * that outlive the page, using what this page already knows about the stored
+ * document instead of reading it. It starts every request synchronously (the
+ * caller is an unload event handler, which gets no later turn), keeps their
+ * combined bodies inside `UNLOAD_KEEPALIVE_BUDGET_BYTES`, and reports what it
+ * could not send so the caller can ask the user before leaving.
+ *
+ * Like the regular incremental save the writes are last-write-wins and are
+ * fenced by the deletion epoch; a refusal from the server (for example a
+ * document at an older DSL version, which only the whole-document save can
+ * upgrade) fails the request, which the caller retries only if the page
+ * stays alive.
+ */
+export function writeStageChangesForUnload(
+  stageId: string,
+  changes: readonly PendingChange[],
+  data: StageStoreData,
+  capturedEpoch: number,
+): UnloadWriteResult {
+  const sent: PendingChange[] = [];
+  const deferred: PendingChange[] = [];
+  const requests: Promise<boolean>[] = [];
+  if (isStageWriteStale(stageId, capturedEpoch)) {
+    return { sent, deferred, settled: Promise.resolve(true) };
+  }
+
+  const documentChanges: Array<{ change: PendingChange; body: Scene | Stage }> = [];
+  data = withKnownMediaAllocations(stageId, data);
+  const now = Date.now();
+  // A structural or outline change needs the whole-document save, and the
+  // course's other document changes belong to that same save: written alone,
+  // a scene could land with an order that collides with its neighbours, or a
+  // stage that no longer lists media of a scene the structure change removes
+  // while that scene survives. So one such change holds back all of them.
+  const wholeDocumentOnly = changes.some(
+    (change) => change.kind === 'structure' || change.kind === 'outline',
+  );
+  for (const change of changes) {
+    if (wholeDocumentOnly && (change.kind === 'scene' || change.kind === 'stage')) {
+      deferred.push(change);
+      continue;
+    }
+    switch (change.kind) {
+      case 'currentScene':
+        // Device-local: the write completes without the network.
+        requests.push(
+          saveCurrentScene(stageId, data.currentSceneId).then(
+            () => true,
+            () => false,
+          ),
+        );
+        sent.push(change);
+        break;
+      case 'chats':
+        // Learner runtime, not the document: left to the regular save.
+        break;
+      case 'structure':
+      case 'outline':
+        deferred.push(change);
+        break;
+      case 'stage':
+        if (!storedDocuments.has(stageId)) deferred.push(change);
+        else documentChanges.push({ change, body: stampStage(stageId, data.stage, now) });
+        break;
+      case 'scene': {
+        const index = data.scenes.findIndex((scene) => scene.id === change.sceneId);
+        const scene = data.scenes[index];
+        // A removed scene is a structure change, which is deferred on its own.
+        if (!scene) break;
+        if (!storedDocuments.has(stageId) || scene.content.type === 'pbl') {
+          deferred.push(change);
+          break;
+        }
+        documentChanges.push({ change, body: stampScene(stageId, scene, index, now) });
+        break;
+      }
+    }
+  }
+
+  if (documentChanges.length > 0) {
+    let store: KeepaliveDocumentStore | undefined;
+    try {
+      store = getDocumentStore() as unknown as KeepaliveDocumentStore;
+    } catch (error) {
+      log.warn('Document storage is unavailable for the unload write:', error);
+    }
+    for (const { change, body } of documentChanges) {
+      const bytes = utf8JsonBytes(omitUndefinedObjectMembers(body));
+      if (!store || keepaliveBytesInFlight + bytes > UNLOAD_KEEPALIVE_BUDGET_BYTES) {
+        deferred.push(change);
+        continue;
+      }
+      keepaliveBytesInFlight += bytes;
+      const request =
+        change.kind === 'stage'
+          ? store.putStage(stageId, body as Stage, { keepalive: true })
+          : store.putScene(stageId, body as Scene, { keepalive: true });
+      requests.push(
+        request
+          .then(
+            () => true,
+            (error: unknown) => {
+              log.warn(`Unload write of ${change.kind} for stage ${stageId} failed:`, error);
+              return false;
+            },
+          )
+          .finally(() => {
+            keepaliveBytesInFlight -= bytes;
+          }),
+      );
+      sent.push(change);
+    }
+  }
+
+  return {
+    sent,
+    deferred,
+    settled: Promise.all(requests).then((results) => results.every(Boolean)),
+  };
+}
+
+/** @internal Test-only reset of the unload write's module state. */
+export function resetUnloadWriteStateForTests(): void {
+  storedDocuments.clear();
+  keepaliveBytesInFlight = 0;
+}
+
+/**
  * Load stage data from IndexedDB
  */
 export async function loadStageData(stageId: string): Promise<StageStoreData | null> {
   try {
+    // Chat runtime data lives in a separate IndexedDB database. Keep the
+    // document available when that independent store is temporarily
+    // unavailable; a later chat load/save can recover without treating the
+    // already-loaded stage as missing. Read alongside the document, not after
+    // it: the chat read is several round trips of its own, and nothing about it
+    // depends on the document.
+    let chatSnapshot: ChatStorageSnapshot = { sessions: [], restoreMarker: undefined };
+    const chatsLoad = loadChatSessions(stageId, {
+      onSnapshot: (snapshot) => {
+        chatSnapshot = snapshot;
+      },
+    }).catch((error: unknown): ChatSession[] => {
+      log.warn(`Failed to load chat sessions for stage ${stageId}:`, error);
+      return [];
+    });
+
     const access = await accessDocument(stageId);
     const document = access.document;
     if (!document) {
       log.info(`Stage not found: ${stageId}`);
       return null;
     }
+    if (!access.readOnlyLegacy) storedDocuments.add(stageId);
     const currentScene = await loadCurrentScene(stageId);
-
-    // Chat runtime data lives in a separate IndexedDB database. Keep the
-    // document available when that independent store is temporarily
-    // unavailable; a later chat load/save can recover without treating the
-    // already-loaded stage as missing.
-    let chats: ChatSession[] = [];
-    let chatSnapshot: ChatStorageSnapshot = { sessions: [], restoreMarker: undefined };
-    try {
-      chats = await loadChatSessions(stageId, {
-        onSnapshot: (snapshot) => {
-          chatSnapshot = snapshot;
-        },
-      });
-    } catch (error) {
-      log.warn(`Failed to load chat sessions for stage ${stageId}:`, error);
-    }
+    const chats = await chatsLoad;
 
     log.info(`Loaded stage: ${stageId}, scenes: ${document.scenes.length}, chats: ${chats.length}`);
 
@@ -900,6 +1140,18 @@ export async function loadFirstSlideThumbnail(
 ): Promise<{ slide: ThumbnailSlide | null; complete: boolean }> {
   const document = (await accessDocument(stageId)).document;
   signal?.throwIfAborted();
+  return slideCoverFromDocument(stageId, document, signal);
+}
+
+/**
+ * {@link loadFirstSlideThumbnail}'s slide pipeline over an already-loaded
+ * document, so {@link loadCourseCover} reads a course only once.
+ */
+async function slideCoverFromDocument(
+  stageId: string,
+  document: AppDocument | null,
+  signal?: AbortSignal,
+): Promise<{ slide: ThumbnailSlide | null; complete: boolean }> {
   const firstSlide = document?.scenes.find((s) => s.content?.type === 'slide');
   if (!firstSlide || firstSlide.content.type !== 'slide') return { slide: null, complete: true };
   const slide = structuredClone(firstSlide.content.canvas);
@@ -1066,6 +1318,32 @@ export async function loadFirstSlideThumbnail(
   }
 
   return { slide, complete };
+}
+
+/**
+ * A course's cover: its first slide ({@link loadFirstSlideThumbnail}), or —
+ * only when the course has no slide at all — its first interactive scene,
+ * which the surfaces render live in a sandboxed thumbnail iframe. A course
+ * with neither has no cover (`null`).
+ *
+ * Interactive covers read only the already-loaded document, so they are
+ * always complete.
+ */
+export async function loadCourseCover(
+  stageId: string,
+  signal?: AbortSignal,
+): Promise<{ cover: CourseThumbnail | null; complete: boolean }> {
+  const document = (await accessDocument(stageId)).document;
+  signal?.throwIfAborted();
+  const slideCover = await slideCoverFromDocument(stageId, document, signal);
+  if (slideCover.slide) {
+    return { cover: { kind: 'slide', slide: slideCover.slide }, complete: slideCover.complete };
+  }
+  const interactive = document?.scenes.find((scene) => scene.content?.type === 'interactive');
+  return {
+    cover: interactive ? { kind: 'interactive', scene: interactive } : null,
+    complete: true,
+  };
 }
 
 /**

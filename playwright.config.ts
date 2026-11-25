@@ -1,7 +1,27 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// CI splits the suite into three jobs by file (E2E_SHARD=1|2|3) instead of
+// `--shard`, which cuts the ordered test list into equal counts: dozens of
+// sub-second specs filled the first shards while the slow PBL and phone specs
+// all landed in the last one, which then set the time of every run. The first
+// two shards take the slow files listed here, of similar total duration, and
+// the third runs every other file, so a new spec always runs somewhere.
+const SHARD_FILES = [
+  /[\\/](pbl-[^\\/]*|whiteboard-pick-transition)\.spec\.ts$/,
+  /[\\/](mobile-[^\\/]*|generation-flow)\.spec\.ts$/,
+];
+const shard = process.env.E2E_SHARD;
+if (shard && !['1', '2', '3'].includes(shard)) {
+  throw new Error(`E2E_SHARD must be 1, 2 or 3, got ${shard}`);
+}
+
 export default defineConfig({
   testDir: './e2e/tests',
+  ...(shard === '1' || shard === '2'
+    ? { testMatch: SHARD_FILES[Number(shard) - 1] }
+    : shard === '3'
+      ? { testIgnore: SHARD_FILES }
+      : {}),
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -15,11 +35,11 @@ export default defineConfig({
   // Every test, its hooks and fixtures included, gets 30 s (Playwright's
   // default, stated so a spec that raises it does so explicitly).
   timeout: 30_000,
-  // The whole run stops inside the job's 15-minute budget (a passing run takes
-  // about 6 minutes after a 4-minute setup): Playwright then reports the tests
-  // still running by name, and the report is uploaded, instead of the job
+  // Each shard's run stops inside the job's 20-minute budget (a passing shard
+  // takes about 3 minutes after a 4-minute setup): Playwright then reports the
+  // tests still running by name, and the report is uploaded, instead of the job
   // being cancelled with neither.
-  globalTimeout: process.env.CI ? 9 * 60_000 : undefined,
+  globalTimeout: process.env.CI ? 13 * 60_000 : undefined,
   use: {
     baseURL: 'http://localhost:3002',
     trace: 'on-first-retry',

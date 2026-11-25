@@ -145,7 +145,8 @@
       "discussionDismiss": "Закрыть",
       "linkedFilesUnavailable": "Не удалось загрузить некоторые изображения, озвучку или видео. Если вы открыли classroom.html прямо из ZIP, сначала распакуйте весь ZIP.",
       "scriptRequired": "Для этого занятия нужен JavaScript. Откройте этот файл в веб-браузере с включённым JavaScript, например в Safari или Chrome.",
-      "startFailed": "Не удалось запустить занятие. Попробуйте открыть файл в другом веб-браузере, например в Safari или Chrome."
+      "startFailed": "Не удалось запустить занятие. Попробуйте открыть файл в другом веб-браузере, например в Safari или Chrome.",
+      "interactiveMoreBelow": "Ниже есть ещё"
     },
     "scriptMd": "Скачать сценарий (.md)",
     "scriptMdDesc": "Текст озвучки в Markdown",
@@ -213,7 +214,11 @@
       "pblDesc": "Проектная работа с ИИ-ролями. Откройте её онлайн или отсканируйте QR-код.",
       "pblGoal": "Цель: {{goal}}",
       "pblMilestoneCount": "Этапов: {{count}}"
-    }
+    },
+    "viewerCopyHint": "Нужна копия для редактирования? Скачайте её через «{{zip}}», затем в разделе «{{courses}}» нажмите «{{importLabel}}».",
+    "videoUploading": "Загрузка видеопроекта...",
+    "videoQueued": "Ожидание в очереди рендеринга...",
+    "videoQueuePosition": "В очереди, позиция {{position}}"
   },
   "import": {
     "classroom": "Импорт класса",
@@ -248,7 +253,9 @@
       "toolCallingRequired": "Для чата класса нужна модель с поддержкой вызова инструментов. Выберите такую модель для слота класса в разделе Настройки → Настройка моделей курса. Если этим параметром управляет администратор, обратитесь к нему.",
       "geminiNativeRequired": "Для общения с Gemini нужен нативный Google. Добавьте Google (пресет google) в Настройки → Сервисы моделей, затем выберите его для «Класс» в разделе «Настройка моделей курса». Если конфигурацией управляет администратор, обратитесь к нему.",
       "emptyAgentResponses": "Агенты вернули пустые ответы; обсуждение остановлено. Попробуйте ещё раз или проверьте настройки модели.",
-      "streamInterrupted": "Поток данных неожиданно прервался; обсуждение не завершено. Попробуйте ещё раз."
+      "streamInterrupted": "Поток данных неожиданно прервался; обсуждение не завершено. Попробуйте ещё раз.",
+      "teacherNoResponse": "Преподаватель не ответил. Попробуйте ещё раз.",
+      "teacherIncomplete": "Преподаватель не смог завершить ответ. Попробуйте ещё раз."
     },
     "elementReference": {
       "whiteboardChanged": "Элемент доски изменился или больше недоступен. Выберите его заново или удалите ссылку перед отправкой.",
@@ -287,7 +294,8 @@
       "qa": "Вопросы",
       "discussion": "ДИСКУС",
       "lecture": "ЛЕКЦ"
-    }
+    },
+    "interactiveMoreBelow": "Ниже есть ещё"
   },
   "actions": {
     "names": {
@@ -355,7 +363,22 @@
     "proModeDisabledHint": "Редактирование недоступно на этой странице — откройте слайд курса, чтобы редактировать в Pro-режиме.",
     "wheelPageTurn": "Перелистывание колесом",
     "wheelPageTurnOff": "Отключить перелистывание колесом",
-    "wheelPageTurnOn": "Включить перелистывание колесом"
+    "wheelPageTurnOn": "Включить перелистывание колесом",
+    "editDisabledHint": "Редактирование недоступно на этой странице — откройте слайд курса, чтобы его отредактировать.",
+    "editToggle": "Правка",
+    "openInWorkspace": "Открыть в рабочем пространстве",
+    "openInWorkspaceHint": "Открыть в рабочем пространстве, чтобы продолжить работу над курсом в диалоге",
+    "makeOwnCourse": "Создать свой урок",
+    "makeOwnCourseHint": "Создайте собственный урок в рабочем пространстве",
+    "dock": {
+      "collapse": "Свернуть панель",
+      "expand": "Развернуть панель",
+      "resize": "Изменить высоту панели"
+    },
+    "chatPanel": {
+      "expand": "Показать панель беседы",
+      "collapse": "Скрыть панель беседы"
+    }
   },
   "edit": {
     "proMode": "Pro",
@@ -585,7 +608,19 @@
       "whiteboardLatex": "Формула",
       "whiteboardTable": "Таблица",
       "action": "Действие",
-      "discussion": "Обсуждение"
+      "discussion": "Обсуждение",
+      "playVideo": "Воспроизвести видео",
+      "whiteboardChart": "Диаграмма",
+      "whiteboardLine": "Линия",
+      "whiteboardClear": "Очистить доску",
+      "whiteboardDelete": "Убрать элемент",
+      "whiteboardClose": "Закрыть доску",
+      "whiteboardCode": "Блок кода",
+      "whiteboardEditCode": "Изменить код",
+      "widgetHighlight": "Выделить в активности",
+      "widgetSetState": "Задать состояние активности",
+      "widgetAnnotation": "Подписать в активности",
+      "widgetReveal": "Показать в активности"
     },
     "element": {
       "toolbar": "Панель элемента",
@@ -669,11 +704,14 @@
       "addDiscussionExists": "Только одно обсуждение на сцену",
       "discussionTerminal": "КОНЕЦ",
       "discussionTerminalHint": "Обсуждение закрепляется в конце сцены (одно на сцену)",
-      "discussionTopicPlaceholder": "Тема обсуждения (обязательно)",
-      "discussionPromptPlaceholder": "Подсказка (необязательно)",
+      "discussionTopicPlaceholder": "Обязательно",
+      "discussionPromptPlaceholder": "Необязательно",
       "discussionAgent": "Инициатор",
       "discussionAgentUnset": "Не указан",
-      "addAction": "Добавить действие"
+      "addAction": "Добавить действие",
+      "discussionTopicLabel": "Тема обсуждения",
+      "discussionPromptLabel": "Подсказка",
+      "fieldState": "Состояние"
     },
     "picker": {
       "title": "Вставить действие",
@@ -769,6 +807,9 @@
     "dock": {
       "elementRefHint": "Ссылки на элементы — выберите элементы для следующего сообщения",
       "globalTools": "Общие инструменты"
+    },
+    "courseHistory": {
+      "stepExpired": "Этот шаг больше нельзя отменить"
     }
   },
   "classroomComplete": {
@@ -801,7 +842,11 @@
     "restore": "Восстановить",
     "noHistory": "Истории пока нет",
     "restored": "Доска восстановлена",
-    "elementCount": "{{count}} элементов"
+    "elementCount": "{{count}} элементов",
+    "mobileEmpty": "На доске пока ничего нет",
+    "mobileEmptyHint": "Здесь появятся выводы, формулы и схемы, которые добавит преподаватель",
+    "zoomIn": "Увеличить",
+    "zoomOut": "Уменьшить"
   },
   "quiz": {
     "title": "Тест",
@@ -1165,7 +1210,8 @@
     "runOutlining": "Составление плана…",
     "runAwaitingConfirmation": "Ожидает подтверждения",
     "runGenerating": "Генерация {{completed}}/{{total}}",
-    "runPaused": "Приостановлено"
+    "runPaused": "Приостановлено",
+    "saveRefused": "Изменения не сохранены: у вас нет прав на редактирование этого урока."
   },
   "upload": {
     "pdfSizeLimit": "Поддержка PDF до 50 МБ",
@@ -1300,7 +1346,8 @@
     "runLoadFailed": "Не удалось загрузить эту генерацию",
     "runLoadRetrying": "Повторная попытка…",
     "mediaGenerationFailed": "Не удалось создать медиа",
-    "mediaGenerationDisabled": "Генерация отключена"
+    "mediaGenerationDisabled": "Генерация отключена",
+    "qwenCloneNewGenerationHint": "Этот сохранённый голос нужно клонировать заново. Загрузите подходящую аудиозапись в настройках голоса, выберите новый голос и начните новую генерацию. Повтор приостановленной генерации по-прежнему использует исходный голос."
   },
   "settings": {
     "title": "Настройки",
@@ -1508,7 +1555,7 @@
     "qwenCloneVoicesTitle": "Qwen TTS Cloned Voices",
     "qwenCloneUploadShort": "Загрузить",
     "qwenCloneRefText": "Enter the verbatim transcript of the reference audio",
-    "qwenCloneRefAudioHint": "Use a clean 1–60 second voice sample. A 10–20 second sample is recommended; audio is converted to 24 kHz mono PCM WAV.",
+    "qwenCloneRefAudioHint": "Use a clean 5–60 second voice sample (10–20 seconds recommended). Audio is converted to 24 kHz mono PCM WAV.",
     "qwenCloneSaved": "Qwen cloned voice registered and saved",
     "qwenCloneSaveFailed": "Failed to register the Qwen cloned voice",
     "qwenCloneUnsupported": "Recording is not supported in this browser; upload an audio file instead.",
@@ -1881,7 +1928,12 @@
       "applyTitle": "Использовать рекомендуемую настройку тарифа?",
       "applyBody": "{{name}} рекомендует свои модели для этих этапов. Их использование заменит то, что каждый этап использует сейчас, включая значения сервера по умолчанию:",
       "applyKeep": "Оставить мою настройку",
-      "applyRecommended": "Использовать рекомендуемую настройку"
+      "applyRecommended": "Использовать рекомендуемую настройку",
+      "region": "Регион",
+      "regionHintDomestic": "Для аккаунтов на сайте для материкового Китая",
+      "regionHintInternational": "Для аккаунтов на международном сайте",
+      "capAsr": "Распознавание речи",
+      "capDocument": "Обработка документов"
     },
     "skills": {
       "nav": "Навыки",
@@ -2020,7 +2072,7 @@
       "international": "Международный"
     },
     "providerName": "Название",
-    "providerNamePlaceholder": "напр., Мой OpenAI Proxy",
+    "providerNamePlaceholder": "напр., my-relay",
     "providers": "LLM",
     "requestUrl": "URL запроса",
     "reset": "Сброс",
@@ -2067,7 +2119,7 @@
       "showKey": "Показать ключ",
       "hideKey": "Скрыть ключ",
       "inUse": "Используется",
-      "modelFromCatalogue": "Название, возможности и окно контекста модели берутся из встроенного каталога.",
+      "modelFromCatalogue": "Название и возможности модели берутся из встроенного каталога.",
       "modelWhenInUse": "Используется, когда этот сервис выбран в настройке моделей курса.",
       "planServer": "Настроено сервером",
       "providerIdHint": "Сохраняется как «{{id}}»",
@@ -2075,7 +2127,8 @@
       "notNarration": "Этот сервис не используется для озвучки рабочего пространства.",
       "useForNarration": "Использовать для озвучки",
       "fetchNotSaved": "Модели найдены, но сохранить их не удалось. Повторите попытку.",
-      "regionalEndpointHint": "Azure Speech принимает только официальный адрес региона вашего ресурса: {{template}}."
+      "regionalEndpointHint": "Azure Speech принимает только официальный адрес региона вашего ресурса: {{template}}.",
+      "providerNameNeedsLatin": "Чтобы сохранить имя как идентификатор, в нём должна быть хотя бы одна латинская буква (a–z) или цифра."
     },
     "modelSettings": {
       "card": {
@@ -2205,6 +2258,10 @@
         "webFetch": {
           "name": "Загрузка веб-страниц",
           "desc": "Позволяет агенту читать разрешённые в сеансе веб-страницы."
+        },
+        "materialChapters": {
+          "name": "Распознавание глав",
+          "desc": "Определяет главы и разделы в длинных документах."
         }
       },
       "source": {
@@ -2220,7 +2277,9 @@
           "search": "Поиск",
           "fetch": "Чтение",
           "image": "Изобр.",
-          "video": "Видео"
+          "video": "Видео",
+          "parse": "Разбор",
+          "chapters": "Главы"
         }
       },
       "empty": {
@@ -2255,7 +2314,20 @@
     "webFetchSettings": "Загрузка веб-страниц",
     "webFetchHint": "Выберите способ чтения веб-страниц. Размещённым сервисам передаются только публичные URL, разрешённые в сеансе. Результаты остаются недоверенными данными; при ошибке сервис не меняется.",
     "webFetchApiKey": "Ключ API",
-    "webFetchSharedKeyHint": "Этот ключ также используется для чата с этим провайдером. Его изменение или удаление влияет на чат."
+    "webFetchSharedKeyHint": "Этот ключ также используется для чата с этим провайдером. Его изменение или удаление влияет на чат.",
+    "providerXiaomiTTS": "Xiaomi MiMo TTS",
+    "providerXiaomiASR": "Xiaomi MiMo ASR",
+    "providerDeepSeekTTS": "DeepSeek TTS",
+    "providerDeepSeekASR": "DeepSeek ASR",
+    "qwenCloneMigrationHint": "Этот сохранённый голос нужно клонировать заново. Загрузите исходную аудиозапись в настройках голоса.",
+    "qwenCloneNeedsReclone": "Нужно клонировать заново",
+    "qwenCloneRecloneRequired": "Этот сохранённый голос несовместим с текущей моделью клонирования. Загрузите исходную аудиозапись ещё раз, чтобы клонировать его заново.",
+    "contextWindowTokens": "Окно контекста (токены)",
+    "contextWindowTokensPlaceholder": "напр., 1000000",
+    "contextWindowHint": "Необязательно. Применяется только к моделям, которых нет во встроенном каталоге; используется при компактации и проверке бюджета контекста. Оставьте пустым для значения по умолчанию.",
+    "contextWindowInvalid": "Введите положительное целое число токенов или оставьте поле пустым.",
+    "autoConfirmRecommended": "Автоматически подтверждать рекомендуемые ответы",
+    "autoConfirmRecommendedDesc": "Если агент задаёт вопрос с рекомендуемым вариантом и вы не отвечаете, он выбирается после короткого отсчёта. Любое действие останавливает отсчёт."
   },
   "workspace": {
     "batchDownload": {
@@ -2326,6 +2398,11 @@
           "description": "В этом PDF {{pages}} стр. — больше лимита обработки в {{maxPages}} стр. Разделите файл и загрузите части или загрузите только нужные главы.",
           "descriptionWithoutCount": "Этот PDF превышает лимит обработки в {{maxPages}} стр. Разделите файл и загрузите части или загрузите только нужные главы.",
           "descriptionWithoutLimit": "В этом PDF больше страниц, чем принимает сервис обработки. Разделите файл и загрузите части или загрузите только нужные главы."
+        },
+        "pages_failed": {
+          "label": "Не удалось обработать страницы PDF",
+          "description": "Не удалось обработать страницы {{firstPage}}–{{lastPage}} PDF, поэтому этот материал пока нельзя прочитать. Попробуйте обработать его позже.",
+          "descriptionWithoutCount": "Не удалось обработать некоторые страницы PDF, поэтому этот материал пока нельзя прочитать. Попробуйте обработать его позже."
         }
       },
       "status": {
@@ -2486,7 +2563,8 @@
       "running": "Running",
       "succeeded": "Ready",
       "failed": "Needs attention",
-      "cancelled": "Stopped"
+      "cancelled": "Stopped",
+      "awaitingAnswer": "Ждёт вашего ответа"
     },
     "backToWorkspace": "Back to workspace",
     "searchPlaceholder": "Filter by name",
@@ -2539,7 +2617,182 @@
     "courseTabsAria": "Открытые курсы",
     "courseTabClose": "Закрыть вкладку: {{name}}",
     "courseTabRunning": "Генерируется",
-    "foldersUnavailable": "Папки недоступны в этой сборке"
+    "foldersUnavailable": "Папки недоступны в этой сборке",
+    "courseLinkOpen": "Открыть",
+    "editGuide": "Руководство по редактированию",
+    "talkAboutCourse": "Изменить с ИИ",
+    "talkAboutCourseHint": "Начать новый разговор об этом уроке",
+    "composer": {
+      "attach": "Прикрепить материал",
+      "mentionCourse": "引用课堂",
+      "mentionCourseOrMaterial": "Упомянуть кабинет или материал из базы знаний",
+      "loadSkill": "加载 skill",
+      "skillMenuTitle": "选择课程设计技能",
+      "skillsLoading": "正在加载 skill…",
+      "noSkillsAvailable": "暂无可用 skill",
+      "userSkillsGroup": "我的 Skill",
+      "builtinSkillsGroup": "内置 Skill",
+      "skillsLoadFailed": "Skill 加载失败，点击重试",
+      "retrySkills": "重试",
+      "noSkillMatch": "没有匹配“{{query}}”的 Skill",
+      "launchPlaceholder": "Опишите учебный опыт, который хотите создать",
+      "launchSend": "Начать сборку"
+    },
+    "nav": {
+      "search": "Поиск",
+      "myCourses": "Мои курсы"
+    },
+    "search": {
+      "placeholder": "Поиск по чатам, курсам и материалам",
+      "recentChats": "Недавние чаты",
+      "recentCourses": "Недавние курсы",
+      "courses": "Курсы",
+      "materials": "Материалы",
+      "actions": "Быстрые действия",
+      "searching": "Поиск…",
+      "empty": "Ничего не найдено по запросу «{{query}}»",
+      "materialsFailed": "Не удалось выполнить поиск в базе знаний",
+      "themeAction": "Тема: {{name}}",
+      "languageAction": "Язык: {{name}}"
+    },
+    "account": {
+      "signIn": "Войти",
+      "menu": "Аккаунт и настройки",
+      "profileSaved": "Сохранено",
+      "language": "Язык",
+      "about": "Об OpenMAIC",
+      "aboutBody": "Платформа с открытым исходным кодом, которая превращает любую тему в интерактивный класс с ИИ-преподавателями и одноклассниками. Распространяется по лицензии MIT.",
+      "viewOnGithub": "Открыть на GitHub",
+      "docs": "Документация",
+      "signOut": "Выйти",
+      "onboarding": "С чего начать"
+    },
+    "coursesPage": {
+      "searchPlaceholder": "Поиск по моим курсам",
+      "results": "Результаты поиска",
+      "allCourses": "Все курсы",
+      "emptyHint": "Опишите тему на главной странице, и здесь появится ваш первый урок.",
+      "makeCourse": "Создать урок",
+      "pin": "Закрепить вверху",
+      "unpin": "Открепить",
+      "pinned": "Закреплено"
+    },
+    "fullscreen": {
+      "expand": "Во весь экран",
+      "collapse": "Выйти из полноэкранного режима (Esc)"
+    },
+    "onboarding": {
+      "paneTitle": "Учиться или редактировать",
+      "paneLearn": "«Учиться»: ИИ-преподаватель ведёт урок, задавайте вопросы в любой момент.",
+      "paneEdit": "«Редактировать»: меняйте страницы напрямую.",
+      "paneChat": "Или попросите в чате, например: «сделай страницу 2 проще».",
+      "gotIt": "Понятно"
+    },
+    "tour": {
+      "skip": "Пропустить",
+      "prev": "Назад",
+      "next": "Далее",
+      "done": "Написать своё",
+      "count": "{{index}} / {{total}}",
+      "openGuide": "Пройти пробный урок",
+      "welcome": {
+        "title": "Добро пожаловать в OpenMAIC",
+        "body": "Скажите, что хотите изучить, и OpenMAIC создаст интерактивный урок с ИИ-преподавателем и однокурсниками."
+      },
+      "start": {
+        "title": "Начните здесь",
+        "body": "«Новый чат» начинает новый урок. Поиск (⌘K) находит уроки, чаты и материалы."
+      },
+      "courses": {
+        "title": "Пробный урок",
+        "body": "Этот 5-минутный урок тоже сделан в OpenMAIC. Откройте его и посмотрите, где идёт урок."
+      },
+      "library": {
+        "title": "База знаний",
+        "body": "Загрузите конспекты и PDF один раз и используйте их в любом уроке."
+      },
+      "conversations": {
+        "title": "Чаты",
+        "body": "Каждый урок создаётся в чате. Чтобы изменить его, вернитесь в этот чат и попросите."
+      },
+      "mode": {
+        "title": "Учиться или редактировать",
+        "body": "«Учиться» — урок с ИИ-преподавателем, «Редактировать» — правка по страницам."
+      },
+      "dock": {
+        "title": "Класс",
+        "body": "Воспроизведение, страницы, вопросы ИИ-преподавателю в любой момент; однокурсники тоже обсуждают."
+      },
+      "chat": {
+        "title": "Меняйте в чате",
+        "body": "Просто напишите в чате рядом «сделай страницу 2 проще», и ИИ изменит урок."
+      },
+      "account": {
+        "title": "Аккаунт и настройки",
+        "body": "Профиль, настройки, язык и тема — здесь, и это руководство тоже."
+      },
+      "try": {
+        "title": "Попробуйте сейчас",
+        "body": "Введите тему или выберите пример, чтобы начать сразу.",
+        "attach": "Материал: загрузите конспект как основу урока",
+        "mention": "Ссылка: @ урок или материал из базы знаний",
+        "skill": "Навыки: выберите стиль, например «Глубокое взаимодействие»"
+      },
+      "examples": {
+        "sky": {
+          "label": "Почему небо голубое?",
+          "prompt": "Почему небо голубое? Объясни на том, что я вижу каждый день"
+        },
+        "interest": {
+          "label": "Как работают сложные проценты",
+          "prompt": "Объясни на бытовых примерах, как работают сложные проценты"
+        },
+        "teach": {
+          "label": "Преподать: Пифагор, 8 класс",
+          "prompt": "Урок по теореме Пифагора для 8 класса с коротким тестом в конце"
+        }
+      },
+      "coursesNav": {
+        "title": "Мои курсы",
+        "body": "Здесь ваши готовые уроки. Нажмите, чтобы посмотреть."
+      },
+      "openLook": "Открыть",
+      "edit": {
+        "canvas": {
+          "title": "Страница",
+          "body": "Нажмите на текст, изображение или фигуру, чтобы изменить; перетаскивайте, чтобы двигать и менять размер."
+        },
+        "pages": {
+          "title": "Страницы",
+          "body": "Здесь открывается список страниц: добавляйте, перетаскивайте, удаляйте."
+        },
+        "bar": {
+          "title": "Панель управления",
+          "body": "Добавить действие, озвучить текст, листать и добавлять страницы, выбрать преподавателя и однокурсников; справа — обвести элементы для ИИ."
+        },
+        "timeline": {
+          "title": "Дорожка действий",
+          "body": "Каждая карточка — действие: объяснение, подсветка, обсуждение. Перетаскивайте для порядка, нажмите для правки."
+        },
+        "dock": {
+          "title": "Нижняя панель",
+          "body": "Потяните за верхний край, чтобы изменить высоту, или сверните её, чтобы освободить место."
+        },
+        "learn": {
+          "title": "Предпросмотр",
+          "body": "Вернитесь в «Учиться», чтобы увидеть урок глазами ученика."
+        },
+        "chat": {
+          "title": "Попросите ИИ",
+          "body": "Не хотите вручную? Напишите в чате, например: «добавь упражнение на страницу 2»."
+        }
+      },
+      "editDone": "Начать правку"
+    },
+    "mobile": {
+      "openMenu": "Открыть навигацию",
+      "closeMenu": "Закрыть навигацию"
+    }
   },
   "profile": {
     "title": "Профиль",
@@ -2648,5 +2901,755 @@
     "minutes": "{{minutes}} min",
     "detail": "{{events}} events · {{pages}} pages · {{answers}} submitted · {{hints}} hints",
     "open": "in progress"
+  },
+  "classroomEnd": {
+    "close": "Вернуться на последнюю страницу",
+    "learned": "Страниц пройдено: {{count}}",
+    "result": "Верно: {{correct}} из {{total}}",
+    "actions": {
+      "reviewWrong": "Разобрать ошибки",
+      "doQuiz": "К тесту",
+      "restart": "Начать заново"
+    }
+  },
+  "sandbox": {
+    "errors": {
+      "learningManaged": "Это рабочее пространство принадлежит учебному проекту. Используйте элементы управления учебного пространства.",
+      "sourcePath": "Этот файл не входит в исходные файлы проекта.",
+      "sourceCount": "Учебные проекты поддерживают не более 256 исходных файлов.",
+      "sourceSize": "Общий объём исходного содержимого проекта не должен превышать 1 MiB.",
+      "commandSize": "Сформированная команда сборки или тестирования слишком велика для запуска в песочнице.",
+      "teachingContextSize": "Учебный контекст слишком длинный. Сократите PLAN.md или вопрос для проверки и повторите попытку.",
+      "commandActive": "Остановите выполняющиеся команды и получите их результаты перед чтением или сохранением снимка рабочего пространства.",
+      "terminalActive": "Закройте терминалы перед чтением или сохранением снимка рабочего пространства.",
+      "environmentBusy": "Другая операция изменяет эту среду. Повторите попытку после её завершения.",
+      "environmentChanged": "Учебная среда изменилась. Обновите страницу, прежде чем продолжить.",
+      "progressChanged": "Учебный прогресс изменился. Обновите страницу и повторите операцию.",
+      "workbenchAccessDenied": "Эта операция недоступна на текущем этапе обучения. Используйте разрешённые средства управления проектом.",
+      "fileConflict": "Файл изменён или целевой путь уже существует. Перезагрузите рабочую область и повторите попытку.",
+      "stopped": "Рабочая область остановлена. Повторите операцию, чтобы запустить её снова.",
+      "invalidRequest": "Некорректный запрос. Проверьте введённые значения и повторите попытку.",
+      "unsupported": "Настроенный поставщик песочницы не поддерживает эту операцию.",
+      "environmentUnavailable": "The learning environment is not ready. Restore it before continuing.",
+      "unavailable": "The environment service is temporarily unavailable. Refresh its state and retry."
+    },
+    "settings": {
+      "title": "Sandbox",
+      "advanced": "Advanced: connection, desktop and limits",
+      "description": "Configure the shared execution environment for this OpenMAIC installation. Only the installation owner or a verified administrator can change it.",
+      "enabled": "Enable sandboxes and project workspace",
+      "enabledStatus": "Sandbox configured",
+      "disabledStatus": "Sandbox disabled or incomplete",
+      "settings": "Using saved settings",
+      "preview": "Web preview",
+      "checkpoint": "Project saving",
+      "configured": "Configured",
+      "notConfigured": "Not configured",
+      "dependencyHint": "Preview and file storage are deployment services. These indicators check configuration only, not network connectivity.",
+      "activeWarning": "Release or reconcile all environments before changing configuration. Outstanding environments",
+      "connectionId": "Connection ID",
+      "apiUrl": "API URL (HTTPS)",
+      "domain": "Runtime domain",
+      "template": "Code template ID",
+      "desktopTemplate": "Desktop template ID (optional)",
+      "keyStored": "Key configured — leave blank to keep it",
+      "keyMissing": "Enter the sandbox service API key",
+      "keyUnreadable": "The saved key cannot be decrypted. Enter it again before enabling.",
+      "keyHint": "Stored encrypted on the server, never returned to the browser. Changing the endpoint, domain or connection ID requires a new key.",
+      "lifetimeMs": "Lifetime (seconds)",
+      "maxActivePerOwner": "Per-owner concurrency",
+      "maxActive": "Installation concurrency",
+      "limitsHint": "These limits apply to this OpenMAIC installation. Other deployments and direct SDK calls are not included.",
+      "save": "Save configuration",
+      "saving": "Saving…",
+      "refresh": "Refresh configuration",
+      "retry": "Retry",
+      "loading": "Loading…",
+      "failed": "Unable to save sandbox configuration.",
+      "saved": "Configuration saved. New requests use it immediately; no sandbox was created. Open the project workspace to verify execution.",
+      "openWorkspace": "Open project workspace",
+      "deployment": "Using deployment configuration",
+      "locked": "Sandbox settings are locked by the deployment. Deployment values apply; saved web overrides are ignored.",
+      "reset": "Reset to deployment configuration"
+    },
+    "requestFailed": "Request failed.",
+    "loadFailed": "Unable to load workspace.",
+    "discardChanges": "Discard the unsaved editor changes?",
+    "savedReleased": "Project saved and environment released.",
+    "saved": "Project checkpoint saved.",
+    "workspace": "Project workspace",
+    "notRunning": "Not running",
+    "openProject": "Open / restore project",
+    "refresh": "Refresh",
+    "reconnect": "Reconnect",
+    "keepWorking": "Keep working",
+    "saveAdvice": "Save a project checkpoint before leaving. Environment expiry removes changes made after the last checkpoint. Stop commands and close the terminal before saving.",
+    "storageUnavailable": "Project saving is unavailable in this installation. Files in the running environment are temporary and will be lost when it expires or is released.",
+    "retryRestore": "Retry project restoration",
+    "files": "Files",
+    "noFiles": "No project files loaded.",
+    "filePath": "File path",
+    "fileEditor": "File editor",
+    "fileWritten": "File written to the running environment. Save a checkpoint to retain it after release.",
+    "writeFile": "Write file",
+    "saveCheckpoint": "Save checkpoint",
+    "saveRelease": "Save and release",
+    "noCheckpoint": "No checkpoint saved",
+    "run": "Run",
+    "shellCommand": "Shell command",
+    "runCommand": "Run command",
+    "stop": "Stop",
+    "truncated": " · output truncated",
+    "terminal": "Terminal",
+    "openTerminal": "Open terminal",
+    "closeShell": "Close shell",
+    "preview": "Application preview",
+    "previewUnavailable": "Application preview is unavailable in this installation.",
+    "port": "Application port",
+    "openPreview": "Open preview",
+    "newTab": "Open in new tab",
+    "closePreview": "Close preview access",
+    "previewAdvice": "If the embedded preview cannot authorize, use Open in new tab. Browser cookie settings can restrict embedded previews.",
+    "application": "Project application",
+    "connectAgent": "Connect an OpenMAIC agent session",
+    "agentAdvice": "Attach an existing session you own. Tools become available on its next turn. Access lasts one hour; shell access permits any action inside this environment.",
+    "agentSession": "Agent session ID",
+    "sessionId": "Session ID",
+    "allowWrites": "Allow file changes",
+    "allowCommands": "Allow commands",
+    "sessionConnected": "Session connected. Send its next message in OpenMAIC to use the project tools.",
+    "sessionRevoked": "Session sandbox access revoked. Commands already started must be stopped separately.",
+    "connectSession": "Connect session",
+    "revokeAccess": "Revoke access",
+    "deleteSaved": "Delete saved project",
+    "deleteAdvice": "Permanently remove the saved files for this project.",
+    "deleteConfirm": "Permanently delete this saved project?",
+    "deleteCheckpoint": "Delete checkpoint",
+    "releaseWithoutSave": "Release without saving",
+    "releaseAdvice": "Only the last saved checkpoint will survive. Unsaved environment files will be lost.",
+    "releaseConfirm": "Release this environment and discard changes since the last checkpoint?",
+    "release": "Release environment",
+    "connecting": "Connecting shell…",
+    "terminalConnectFailed": "Unable to connect terminal.",
+    "terminalBufferLimit": "Terminal stream exceeded its buffer limit.",
+    "terminalConnected": "Connected shell. Earlier output is not replayed.",
+    "terminalEnded": "Stream ended. Reconnect to the same shell.",
+    "terminalDisconnected": "Terminal disconnected.",
+    "inputUnconfirmed": "Terminal input was not confirmed. Reconnect and check the shell before repeating it.",
+    "inputFull": "Input queue is full. Reconnect before continuing.",
+    "sandboxRequestFailed": "Sandbox request failed.",
+    "terminalConnectionFailed": "Terminal connection failed.",
+    "terminalReconnect": "Terminal disconnected. Reconnect to continue.",
+    "lab": "Sandbox development lab",
+    "openWorkspace": "Open project workspace",
+    "labAdvice": "Paid, temporary environments. Release after use. Files are not retained after release or expiry.",
+    "labDescription": "Commands, a line-oriented PTY console, and desktop screenshots. For project checkpoints and application preview, open the project workspace.",
+    "createCode": "Create code environment",
+    "createDesktop": "Create desktop environment",
+    "refreshEnvironments": "Refresh environments",
+    "environment": "Environment",
+    "selectEnvironment": "Select an environment",
+    "reconcile": "Reconcile state",
+    "releaseFiles": "Release environment and files",
+    "workspaceFile": "Workspace file",
+    "absolutePath": "Absolute path",
+    "fileContents": "File contents",
+    "saveFile": "Save file",
+    "readFile": "Read file",
+    "command": "Command",
+    "cancelCommand": "Cancel command",
+    "pending": "pending",
+    "ptyConsole": "PTY line console",
+    "connectTerminal": "Connect / reconnect terminal",
+    "terminalInput": "Terminal input",
+    "sendLine": "Send line",
+    "desktop": "Desktop",
+    "screenshot": "Take screenshot",
+    "desktopImage": "Current sandbox desktop",
+    "renewed": "Environment renewed for {{minutes}} minutes.",
+    "checkpoint": "Checkpoint {{revision}} · {{time}}",
+    "readCommand": "Read {{id}}",
+    "exit": "exit {{code}}",
+    "states": {
+      "creating": "Creating",
+      "running": "Running",
+      "stopping": "Stopping",
+      "destroyed": "Released",
+      "error": "Error",
+      "paused": "Paused",
+      "starting": "Starting",
+      "exited": "Exited",
+      "unknown": "Unknown",
+      "closed": "Closed",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "missing": "Missing",
+      "destroying": "Releasing",
+      "timed_out": "Timed out"
+    },
+    "profiles": {
+      "code": "Code",
+      "desktop": "Desktop"
+    },
+    "inputBusy": "The workspace remained busy; this input was not sent. Reconnect the terminal before typing again."
+  },
+  "pblV3": {
+    "connectingUpdates": "Connecting live updates…",
+    "reconnectingUpdates": "Live updates interrupted. Reconnecting automatically; you can also refresh.",
+    "updatesUnavailable": "Live updates unavailable. Refresh to reconnect.",
+    "title": "Programming projects · Preview",
+    "refresh": "Refresh progress",
+    "cancel": "Cancel response",
+    "retry": "Retry the same request",
+    "loading": "Loading learning progress…",
+    "environmentUnavailable": "The project environment could not be prepared. Retry setup; learning records are kept, and an expired workspace can recover its latest checkpoint.",
+    "restoredCheckpoint": "Рабочая область восстановлена из последней контрольной точки без последующих изменений.",
+    "restartedWorkspace": "Контрольной точки нет. Рабочая область создана заново с начальными файлами проекта.",
+    "restoredProgress": "Прогресс возвращён к первому затронутому этапу. Повторно проверьте и протестируйте восстановленные файлы.",
+    "environmentNotice": "Preparing or restoring the environment. The editor is read-only; existing drafts are kept. Type after recovery.",
+    "prepare": "Retry project setup",
+    "completed": "Project completed. Your learning progress is saved.",
+    "learning": "Learning conversation",
+    "thinking": "The teaching assistant is working…",
+    "message": "Your message",
+    "send": "Send",
+    "submitQuiz": "Submit answers",
+    "submitting": "Отправка…",
+    "submitted": "Отправлено",
+    "resubmit": "Отправить изменения",
+    "quizPassed": "Тест пройден: {{score}} из {{total}} ответов верны. Можно продолжить.",
+    "quizRetry": "Верных ответов: {{score}} из {{total}}. Проверьте ответы и попробуйте снова.",
+    "quizCorrect": "Последний ответ: верно",
+    "quizIncorrect": "Последний ответ: проверьте ещё раз",
+    "quizReviewHint": "Повторите понятие из вопроса и условия выбранного утверждения, затем попробуйте снова.",
+    "quizChanged": "Выбор изменён. Отправьте снова, чтобы обновить пояснение.",
+    "next": "Continue",
+    "files": "Project files",
+    "editor": "File contents",
+    "reloadFile": "Reload file",
+    "saveFile": "Save file",
+    "testResult": {
+      "stale": "Files changed during the test run. Run tests again for the current version.",
+      "idle": "Ready to run tests",
+      "running": "Running tests…",
+      "collecting": "Confirming test results…",
+      "passed": "Tests passed",
+      "failed": "Tests did not pass",
+      "error": "Evaluation could not complete",
+      "unavailable": "Test result needs attention",
+      "retryCollect": "Retry getting results",
+      "count": "{{passed}}/{{total}} passed",
+      "casePassed": "passed",
+      "reasons": {
+        "output": "Output did not satisfy the contract",
+        "execution": "Code could not execute successfully",
+        "timeout": "Check timed out",
+        "environment": "Test environment unavailable",
+        "not_run": "Not run because the build failed"
+      },
+      "hints": {
+        "idle": "Run tests using the green button on the task bar. Detailed results appear here.",
+        "running": "The test runner is working. Results will be saved automatically; you do not need to send a message.",
+        "collecting": "Execution finished. The server is checking the file version and saving the result.",
+        "passed": "The result is saved. Choose “{{action}}” on the task bar to enter the next step.",
+        "failed": "Review the failed checks and ask the coding assistant for help, then rerun tests. Hidden tests and expected answers are not shown.",
+        "error": "No reliable code verdict is available. Check the environment and rerun; this is not a confirmed code failure.",
+        "unavailable": "The result is not confirmed. Retry getting results on the task bar; an earlier pass cannot authorize progression."
+      },
+      "compile": "Код не скомпилирован; тесты ещё не запущены.",
+      "diagnostics": {
+        "cannot_find_symbol": "Символ не найден",
+        "type_mismatch": "Несовместимые типы",
+        "invalid_method_call": "Неверные аргументы метода",
+        "missing_package": "Пакет не найден",
+        "compile_error": "Ошибка компиляции или синтаксиса"
+      }
+    },
+    "runTests": "Run tests",
+    "collect": "Collect test result",
+    "sampleNotice": "Open a prepared Java or Python project in the classroom. This Preview uses installed projects; project generation is not enabled.",
+    "openSample": "Open selected sample",
+    "checks": "Checks",
+    "roles": {
+      "mentor": "Mentor",
+      "discussion": "Discussion",
+      "planner": "Planner",
+      "coder": "Coder"
+    },
+    "retryResponse": "Retry response",
+    "run": {
+      "recoveryTitle": "This reply needs to resume",
+      "recoveryHint": "Your message and learning record have been kept.",
+      "retrying": "Retrying…",
+      "contextCapacity": "The current course material or message exceeds the selected model’s context capacity. Your records are saved. Ask the course maintainer to check the model configuration or material before retrying.",
+      "contextTurnCapacity": "Содержимое, накопленное за этот ход, превышает объём, который модель может обработать за один раз. Отправьте новое короткое сообщение, заново изложив текущий вопрос или нужную помощь. Повтор того же ответа не освободит место. Прогресс и записи сохранены.",
+      "contextPreparation": "Conversation preparation failed temporarily. Your records are saved; you can retry this reply.",
+      "incomplete": "This reply did not finish recording the current review. Retry this reply to continue; your progress is unchanged.",
+      "authentication": "The teaching model could not authenticate. Check the model configuration before retrying.",
+      "timeout": "The teaching response timed out. You can retry this turn.",
+      "unavailable": "The teaching response could not finish. Please retry shortly.",
+      "cancelled": "This teaching turn was cancelled. Retry it or send a new message.",
+      "missing": "The teaching session is unavailable. Send a message to restart this review step; your learning progress is preserved."
+    },
+    "learningPath": "Learning path",
+    "optional": "Optional",
+    "report": "Learning report",
+    "backLearning": "Return to learning",
+    "evidenceReportNotice": "This report uses saved learning records. Each entry refers to the version and result at that time; it does not certify the files currently in your workspace. Viewing it does not advance your progress.",
+    "requiredComplete": "Project learning completed.",
+    "inProgress": "Learning is still in progress.",
+    "reportEvidence": "Decisions, artifacts and results",
+    "reportConversations": "Learning conversations",
+    "conversationLimited": "Some activity is omitted from this view to keep it responsive. The complete records remain saved.",
+    "truncatedEvidence": "Здесь показана часть учебных записей. Полные оригиналы сохранены.",
+    "evidenceVersion": "Recorded version",
+    "learner": "Learner",
+    "build": "Build / check syntax",
+    "sampleSelect": "Choose a project",
+    "stageNames": {
+      "mentor_say": "Teaching and reflection",
+      "dialogue": "Decisions",
+      "plan": "Plan and review",
+      "code": "Implementation and review",
+      "tests": "Tests",
+      "quiz": "Quiz",
+      "course": "Course"
+    },
+    "evidenceKinds": {
+      "decision_recorded": "Decision",
+      "artifact_recorded": "Artifact",
+      "evaluation_recorded": "Test result",
+      "quiz_recorded": "Quiz attempt",
+      "milestone_completed": "Milestone completed",
+      "recap_completed": "Reflection completed",
+      "teaching_completed": "Teaching completed",
+      "artifact_review_completed": "Review completed",
+      "artifact": "Artifact snapshot",
+      "file-edit": "File edit",
+      "workspace-run": "Workspace run"
+    },
+    "overview": {
+      "startLearning": "Начать обучение",
+      "title": "Обзор проекта",
+      "expand": "Развернуть",
+      "collapse": "Свернуть",
+      "projectGoal": "Цель проекта",
+      "finishedWork": "Готовое приложение",
+      "roadmap": "План проекта",
+      "goalAndResult": "Цель и результат",
+      "goal": "Цель",
+      "result": "Результат",
+      "eachStage": "Порядок каждой стадии",
+      "yourRole": "Вы принимаете решения и проверяете; ИИ помогает написать план и код.",
+      "preview": "Испытайте приложение в области предпросмотра и проверьте результат.",
+      "advance": "Фиолетовая кнопка над полем ввода появляется только тогда, когда можно перейти дальше. Когда она появится, нажмите её, чтобы продолжить.",
+      "startBlocked": {
+        "guide": "Завершите или закройте руководство по рабочей области, чтобы начать обучение.",
+        "connecting": "Подключаем обновления в реальном времени перед началом обучения…",
+        "retrying": "Восстанавливаем подключение к обновлениям. Дождитесь восстановления связи перед началом обучения.",
+        "unavailable": "Обновления недоступны. Обновите страницу для подключения перед началом обучения.",
+        "pending": "Выполняется действие. Дождитесь его завершения перед началом обучения.",
+        "busy": "Помощник ещё отвечает. Дождитесь конца ответа перед началом обучения.",
+        "environment": "Дождитесь готовности учебной среды перед началом обучения. Если подготовка не удалась, повторите попытку выше.",
+        "unsaved": "В файлах проекта есть несохранённые изменения. Сохраните или отмените их перед началом обучения.",
+        "preparing": "Рабочая область готовится. Подождите перед началом обучения."
+      },
+      "singleFlow": "Ход работы над проектом",
+      "concepts": "Инженерные понятия",
+      "deliverables": "Реализованные функции"
+    },
+    "journey": {
+      "currentMilestone": "Текущий этап",
+      "milestoneGoal": "Цель:",
+      "milestoneResult": "Результат:",
+      "completionHandoff": "This step is complete. See the task bar at the bottom of the Learning Assistant pane for the next action.",
+      "startConversation": "Your assistant will open this step when the learning environment is ready.",
+      "latest": "Go to the latest message",
+      "expand": "Expand project workspace",
+      "returnClassroom": "Return to classroom layout",
+      "fullscreenUnavailable": "Fullscreen is unavailable. You can continue in the classroom layout.",
+      "currentTask": "Current learning step",
+      "collectResult": "Collect the execution result before continuing.",
+      "ready": "This step is ready. Choose “{{action}}” when you are ready to move on.",
+      "followStep": "Follow the current step below. The assistant may need your answer or confirmation.",
+      "steps": {
+        "intro": "Project introduction",
+        "teaching": "Learn before deciding",
+        "dialogue": "Make your decisions",
+        "plan": "Understand and review the plan",
+        "code": "Understand and review the implementation",
+        "tests": "Test and repair",
+        "quiz": "Check your understanding",
+        "recap": "Reflect on your work",
+        "explore": "Explore your own idea",
+        "course": "Course"
+      },
+      "hints": {
+        "intro": "Discuss the project goal with your mentor, then confirm when you are ready.",
+        "teaching": "Learn the concepts and ask for help when something is unclear. Your explanation matters more than keywords.",
+        "dialogue": "Discuss alternatives if needed, choose your decisions below, then continue.",
+        "plan": "Open PLAN.md, understand the proposed steps, review a meaningful risk and confirm the current version.",
+        "code": "Inspect the implementation, trace a meaningful path, review a risk and confirm the current version.",
+        "tests": "Run and collect the tests. If they fail, discuss the feedback, repair the code and test again.",
+        "quiz": "Answer the questions below. Read the feedback and retry any missed questions before continuing.",
+        "recap": "Explain a choice or correction using your actual implementation, test and quiz results.",
+        "explore": "Choose an extension. You can save, leave and return; exploration is optional.",
+        "course": "Return to the classroom for course learning."
+      },
+      "outcomes": "Your learning results",
+      "noTests": "No retained test result",
+      "noQuiz": "No retained quiz result",
+      "reflected": "Reflection recorded",
+      "notReflected": "Reflection not yet recorded",
+      "taskDetails": "Current task details",
+      "closeDetails": "Close task details",
+      "reviewDetails": "Посмотреть детали",
+      "milestoneSteps": "Milestone learning steps",
+      "enterStep": "Continue to {{step}}",
+      "enterMilestone": "Следующий этап",
+      "planArtifact": "Open PLAN.md in the IDE to read the current plan. Discuss, review and approve it in the conversation.",
+      "codeArtifact": "Inspect the current project files in the IDE. Review the implementation and save edits before continuing.",
+      "taskTitle": "Current task",
+      "confirmedDecisions": "Confirmed decisions",
+      "noDecisions": "No decisions required for this step.",
+      "approvedPlan": "Implementation plan",
+      "planOutput": "Plan output",
+      "codeOutput": "Implementation progress",
+      "savedVersion": "Version {{version}} · saved",
+      "planReview": "Plan review and approval",
+      "codeReview": "Implementation review and confirmation",
+      "reviewApproved": "Confirmed",
+      "reviewPending": "Awaiting review"
+    },
+    "activity": {
+      "read": "Reading project files",
+      "write": "Updating project files",
+      "build": "Building the current implementation",
+      "collect": "Checking the build result",
+      "review": "Waiting for your review",
+      "complete": "Checking stage completion",
+      "running": "In progress",
+      "succeeded": "Done",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "readHint": "The assistant reads the allowed project files before explaining or changing them.",
+      "writeHint": "Files in the running environment were updated. A durable checkpoint is a separate save.",
+      "buildHint": "Building checks the current implementation. It is not the project assessment.",
+      "collectHint": "The result belongs to the source version that was built.",
+      "reviewHint": "Read the question in the conversation and respond in your own words.",
+      "completeHint": "The assistant signalled completion. Server checks and your Continue action still control progression."
+    },
+    "workbench": {
+      "unsaved": "Unsaved changes. Save or discard before switching files or running commands.",
+      "staleBuffer": "The environment or file changed. Your unsaved text is preserved; copy it before reloading.",
+      "discard": "Discard changes and reload",
+      "manageFiles": "Manage source files",
+      "newPath": "Project-relative file path",
+      "create": "Create file",
+      "rename": "Rename / move file",
+      "delete": "Delete file",
+      "confirmDelete": "Delete {{path}}? This cannot be undone without a saved checkpoint.",
+      "execution": "Run and preview",
+      "executionNotice": "Commands and terminals can modify project files. Stop them before review or formal tests. New execution is unavailable while awaiting teaching review.",
+      "command": "Project command",
+      "run": "Run command",
+      "openTerminal": "Open terminal",
+      "stop": "Stop commands and close terminals",
+      "commandStates": {
+        "starting": "Starting",
+        "running": "Running",
+        "exited": "Exited",
+        "cancelled": "Cancelled",
+        "timed_out": "Timed out",
+        "failed": "Execution failed",
+        "unknown": "Execution status unknown"
+      }
+    },
+    "ide": {
+      "recoveryConflict": "Восстановленный файл отличается от исходной версии черновика. Черновик сохранён. Скопируйте его перед перезагрузкой, чтобы сверить изменения.",
+      "copyDraft": "Копировать сохранённый черновик",
+      "workspace": "Code workspace",
+      "resize": "Resize workspace and assistant",
+      "resizeFiles": "Resize file explorer",
+      "toggleFiles": "Toggle file explorer",
+      "openFiles": "Open files",
+      "closeFile": "Close {{path}}",
+      "discard": "Discard unsaved changes in {{path}}?",
+      "console": "Console",
+      "terminal": "Terminal",
+      "output": "Run & output",
+      "buildOutput": "Build output",
+      "hideConsole": "Hide console",
+      "connected": "Environment connected",
+      "disconnected": "Environment unavailable",
+      "messagePlaceholder": "Ask a question or explain your understanding…",
+      "sendHint": "Enter to send · Shift+Enter for a new line",
+      "theme": "Switch color theme",
+      "hideFiles": "Hide file tree",
+      "toggleWorkspace": "Toggle code workspace",
+      "toggleAssistant": "Toggle learning assistant",
+      "environmentDetails": "Environment details",
+      "saving": "Сохранение…",
+      "readOnly": "Read-only",
+      "saved": "Сохранено",
+      "saveFailed": "Ошибка · Повторить",
+      "draftRetained": "Изменения сохранены в этом браузере",
+      "retryRead": "Повторить чтение"
+    },
+    "inputBlocked": {
+      "pending": "Processing your action. Your draft is kept.",
+      "busy": "The assistant is replying. Stop the reply before sending another message.",
+      "environment": "The project environment is not ready. If setup failed, retry above; your draft is kept.",
+      "unsaved": "В файлах проекта есть несохранённые изменения. Сохраните или отмените их перед отправкой; ваше сообщение останется здесь.",
+      "opening": "The assistant has not opened this step yet. Retry the opening; your draft is kept."
+    },
+    "recoverEnvironment": "Restore learning environment",
+    "retryOpening": "Retry step opening",
+    "reportCopy": {
+      "waitFinal": "Wait for the final teaching response to finish before preparing the report.",
+      "generating": "Preparing your project report…",
+      "failed": "The analysis could not be generated. Your learning records are saved; you can retry.",
+      "retry": "Generate report / retry",
+      "analysis": "What your project records show",
+      "omitted": "Some records were shortened or omitted from this analysis. The saved evidence below remains available.",
+      "source": "Evidence",
+      "journey": "Your project journey",
+      "strength": "What went well",
+      "change": "How your approach changed",
+      "collaboration": "Working with AI",
+      "next": "A useful next step",
+      "facts": "Your project in numbers",
+      "countNotice": "These describe the recorded process; more is not a better score.",
+      "learnerTurns": "Your messages",
+      "assistantTurns": "Assistant replies",
+      "decisions": "Decisions made",
+      "decisionChanges": "Decisions reconsidered",
+      "testRuns": "Test runs",
+      "quizAttempts": "Quiz attempts",
+      "fileEdits": "Recorded file edits",
+      "interruptedRuns": "Interrupted or failed assistant runs",
+      "completed": "Project completed. You can open your learning report.",
+      "subtitle": "Ваш результат, принятые решения и записи о вашем прогрессе.",
+      "completedMilestones": "Этапов завершено",
+      "completedSteps": "Шагов завершено",
+      "concepts": "Отработанные понятия",
+      "projectResults": "Что вы создали",
+      "workflow": "Ход работы",
+      "decisionQuestion": "Вопрос для решения",
+      "decisionChoice": "Ваше решение",
+      "decisionReason": "Ваше обоснование",
+      "viewWorkbench": "Открыть рабочую область для чтения",
+      "completedTitle": "Проект завершён",
+      "completionHint": "Работа сохранена. Откройте отчёт или вернитесь к рабочей области.",
+      "close": "Закрыть отчёт",
+      "finalizing": "Сохраняется последний ответ. Отчёт скоро будет доступен.",
+      "skillLabels": {
+        "decisions": "Инженерные решения",
+        "planReview": "Проверка плана",
+        "codeReview": "Проверка реализации",
+        "verification": "Проверка тестами",
+        "reflection": "Рефлексия по записям"
+      },
+      "congratulations": "Поздравляем, проект завершён!",
+      "celebrationSubtitle": "Ваша идея стала работающим проектом. Посмотрите, сколько вы уже сделали.",
+      "shareTitle": "Момент, которым стоит поделиться",
+      "shareHint": "Сохраните достижения и главное из обучения на карточке и поделитесь прогрессом.",
+      "recordsTitle": "Посмотреть записи обучения",
+      "recordsHint": "Просмотрите сохранённые решения, работы и беседы или перейдите по ссылке из анализа."
+    },
+    "draftStorageUnavailable": "Browser draft storage is unavailable. This page keeps your text; save files to the workspace and copy unsent text before leaving the page.",
+    "pendingActions": {
+      "open": "Opening project…",
+      "prepare": "Preparing environment…",
+      "begin": "Opening this step…",
+      "chat": "Sending message…",
+      "next": "Entering the next step…",
+      "decide": "Submitting decision…",
+      "quiz": "Submitting quiz…",
+      "evaluate": "Starting tests…",
+      "collect": "Collecting results…",
+      "compile": "Starting build…",
+      "retry": "Retrying response…",
+      "cancel": "Cancelling response…",
+      "refresh": "Refreshing progress…",
+      "read": "Reading file…",
+      "create": "Creating file…",
+      "rename": "Renaming file…",
+      "delete": "Deleting file…",
+      "run": "Starting command…",
+      "terminal": "Connecting terminal…",
+      "stop": "Stopping execution…",
+      "working": "Processing…"
+    },
+    "editAccess": {
+      "completed": "The project is complete. Files are read-only to preserve the final work.",
+      "paused": "Learning is paused. Resume before editing.",
+      "stopped": "Learning has stopped. Files are read-only.",
+      "testing": "Tests are running or results are being collected. Files are read-only to keep the tested version consistent.",
+      "building": "A build is running or awaiting collection. Edit after its result is collected.",
+      "agent": "The assistant is working. Editing resumes when it finishes to avoid concurrent changes.",
+      "teaching": "This is the teaching step. File editing opens during planning and coding.",
+      "discussion": "This step is for discussing decisions. File editing opens during planning and coding.",
+      "quiz": "This is the understanding quiz. Project files are read-only.",
+      "recap": "This is the reflection step. Project files are read-only.",
+      "assessment": "This is the test step. Files are read-only until a failure opens repair.",
+      "stage": "Project files are read-only in this step.",
+      "planOnly": "Planning allows edits to PLAN.md only. Source files are read-only.",
+      "planLocked": "PLAN.md is approved and read-only during coding.",
+      "planEditable": "You can edit PLAN.md. Changes are saved automatically.",
+      "codeEditable": "You can edit source files. Changes are saved automatically.",
+      "stale": "The environment or file changed. Your draft is kept; copy it or reload before editing.",
+      "environment": "The project environment is not ready. Your draft is kept.",
+      "operation": "A workspace operation is being processed. Edit after it settles.",
+      "request": "A learning operation is being processed. Editing resumes after the response.",
+      "loading": "Synchronizing this file and its permissions. Please wait."
+    },
+    "toolDetails": {
+      "input": "Input",
+      "progress": "Progress",
+      "output": "Output",
+      "display": "Display",
+      "stopped": "Stopped"
+    },
+    "environmentReleasing": "The environment is being released. The editor is read-only. Wait, then click the workbench or use the restore button. Existing browser drafts are kept.",
+    "environmentSleeping": "The environment is inactive and the editor is read-only. Click in the workbench to restore automatically, or use Restore project files. Existing browser drafts are kept; type after recovery.",
+    "recoverWorkspace": "Восстановить файлы проекта",
+    "checkpointUnavailable": "Не удалось сохранить последние изменения в архив. Повторите сохранение. При бездействии среда может быть освобождена, а несохранённые изменения — потеряны.",
+    "checkpointSkipped": "Архивация постоянно завершается ошибкой. При восстановлении изменения новее сохранённой версии могут быть потеряны.",
+    "lastDurableCheckpoint": "Сохранение, доступное для этого освобождения среды: {{time}}.",
+    "noDurableCheckpoint": "Архив недоступен; файлы проекта будут восстановлены из исходной версии.",
+    "checkpointReasons": {
+      "source-limit": "Превышен предел количества или размера файлов.",
+      "archive-limit": "Превышен предел количества или размера файлов.",
+      "unsupported-files": "Некоторые файлы нельзя добавить в архив.",
+      "workspace-permission": "Файлы проекта недоступны для чтения.",
+      "workspace-full": "Диск рабочей среды заполнен.",
+      "storage-quota": "Квота хранилища архивов исчерпана.",
+      "storage-config": "Проверьте настройки и права доступа к хранилищу.",
+      "storage-permission": "Проверьте настройки и права доступа к хранилищу.",
+      "timeout": "Хранилище или рабочая среда недоступны, либо истекло время ожидания.",
+      "unavailable": "Хранилище или рабочая среда недоступны, либо истекло время ожидания.",
+      "workspace-changed": "Файлы изменились во время архивации.",
+      "execution-unsettled": "Не удалось подтвердить остановку задачи."
+    },
+    "history": {
+      "title": "Conversation history",
+      "description": "Saved messages at the time you open this view. Earlier records load on demand.",
+      "older": "Load earlier records",
+      "failed": "Could not load history. Please retry.",
+      "empty": "No saved messages in this page."
+    },
+    "decisionResponse": "Your decision",
+    "decisionRationale": "Why did you choose this?",
+    "submitDecision": "Submit decision",
+    "decisionSaved": "Response saved",
+    "decisionUnsaved": "Unsaved changes",
+    "decisionTooLong": "Responses and reasons can contain up to {max} characters each and must fit the combined encoded size limit. Shorten the text to submit.",
+    "decisionInvalidText": "The response or reason contains unsupported characters. Replace them before submitting.",
+    "application": {
+      "yourChoice": "Ваш выбор",
+      "updating": "Обновление предпросмотра…",
+      "open": "Open application",
+      "restart": "Restart application",
+      "newTab": "Открыть временный предпросмотр в новой вкладке",
+      "saveFirst": "Wait for your edits to save before opening the application.",
+      "wait": "Wait for the environment, Agent or assessment to finish.",
+      "notice": "Запускает сохранённый код. Открытый предпросмотр обновляется после завершения работы.",
+      "changed": "Saved sources changed after this application started. Restart to try the current version.",
+      "expired": "Application access expired. Reopen to renew it.",
+      "reopen": "Reopen application",
+      "starting": "Starting your application…",
+      "failed": "The application exited. Read the output or ask your current assistant for help.",
+      "unavailable": "The application is not responding yet. Reopen, or share the error with your assistant.",
+      "restore": "Restore application environment",
+      "restoreNotice": "Your saved source and report remain available. Restore the environment to run your application again; completed source stays read-only.",
+      "collapse": "Свернуть приложение",
+      "help": "Справка приложения",
+      "ready": "Запустите приложение, чтобы проверить сохранённый код."
+    },
+    "share": {
+      "open": "Создать изображение",
+      "title": "Поделиться достижениями",
+      "description": "Сохраните основные результаты обучения в виде изображения.",
+      "theme": "Оформление",
+      "light": "Светлое",
+      "dark": "Тёмное",
+      "preview": "Мои достижения в OpenMAIC",
+      "save": "Сохранить изображение",
+      "saveHint": "На телефоне можно также удерживать изображение, чтобы увидеть варианты сохранения.",
+      "imageFailed": "Не удалось создать изображение. Повторите попытку.",
+      "rendering": "Подготовка изображения…",
+      "achievement": "Результат проекта",
+      "invite": "Создавайте с OpenMAIC",
+      "tagline": "Начните с небольшого проекта. Практикуйтесь писать код вместе с ИИ.",
+      "testsPassed": "Проверки поведения пройдены",
+      "decisionsLabel": "Принятые решения",
+      "quizLabel": "Викторина",
+      "conceptsLabel": "Открытые понятия",
+      "workshop": "Мастерская Vibe Coding",
+      "entryLabel": "Вводный курс мастерской Vibe Coding"
+    },
+    "onboarding": {
+      "replay": "Руководство по рабочей области",
+      "counter": "Руководство по рабочей области {{current}}/{{total}}",
+      "previous": "Назад",
+      "next": "Понятно, далее",
+      "finish": "Понятно, начать",
+      "waiting": "Руководство будет доступно, когда учебная среда будет готова.",
+      "loading": "Загрузка рабочей области",
+      "loadingDetail": "Подключаем учебную среду и подготавливаем файлы проекта. Пожалуйста, подождите.",
+      "loadingSlowDetail": "Подготовка занимает больше времени. Можно вернуться к описанию проекта — уже начатая подготовка среды продолжится в фоновом режиме.",
+      "loadingReturn": "Вернуться к описанию проекта",
+      "steps": {
+        "progress": {
+          "title": "Просмотр прогресса и текущей задачи",
+          "body": "Нажмите на эти числа, чтобы увидеть шаги текущего этапа. Кнопка M наверху показывает все этапы проекта. Панель задач под помощником показывает, что делать сейчас. Когда нужен выбор или ответ, появляется кнопка текущей задачи."
+        },
+        "discussion": {
+          "title": "Чтение и общение с помощником",
+          "body": "В панели помощника находятся объяснения, вопросы и обратная связь. Сначала прочитайте сообщение. Когда появится поле ввода, задайте вопрос или поделитесь идеей. Enter отправляет, Shift+Enter добавляет строку."
+        },
+        "code": {
+          "title": "Просмотр планов и кода",
+          "body": "Открывайте файлы через дерево, вкладки или ссылки помощника. Если редактирование доступно, изменения сохраняются автоматически; следите за статусом сохранения. Значки наверху показывают и скрывают панели, а разделители позволяют менять их размер."
+        },
+        "application": {
+          "title": "Попробуйте своё приложение",
+          "body": "Предпросмотр открывается автоматически. Попробуйте реализованные функции и обсудите результат. Кнопка открытия приложения на панели инструментов позволяет свернуть или снова открыть предпросмотр."
+        },
+        "replay": {
+          "title": "Повторный просмотр руководства",
+          "body": "Кнопка «Руководство по рабочей области» позволяет вернуться к этим пояснениям. Выберите «Понятно, начать», чтобы прочитать сообщение помощника и приступить к работе."
+        }
+      },
+      "close": "Закрыть руководство"
+    }
+  },
+  "mobileClassroom": {
+    "soundSettings": "Настройки звука",
+    "playSound": "Воспроизводить звук",
+    "materials": "Материалы",
+    "classroom": "Урок",
+    "directory": "Содержание",
+    "lecture": "Заметки",
+    "volume": "Громкость",
+    "mute": "Без звука",
+    "roundtable": "Участники",
+    "captions": "Субтитры",
+    "controls": "Управление воспроизведением",
+    "send": "Отправить",
+    "join": "Присоединиться",
+    "skip": "Пропустить",
+    "play": "Воспроизвести",
+    "pause": "Пауза",
+    "pblDesktop": "Предпросмотр на телефоне недоступен. Откройте проект на компьютере, чтобы попробовать.",
+    "chat": "Чат",
+    "askTeacher": "Спросите преподавателя…",
+    "viewInNotes": "Посмотреть в заметках",
+    "viewInChat": "Посмотреть в чате",
+    "fullSpeech": "Полное сообщение",
+    "me": "Я",
+    "listening": "Слушаю",
+    "whiteboardTitle": "Доска занятия"
   }
 }

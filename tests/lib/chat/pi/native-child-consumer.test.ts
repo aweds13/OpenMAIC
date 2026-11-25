@@ -12,6 +12,11 @@ vi.mock('@/lib/web-search', async (importOriginal) => {
 });
 
 import { buildCallAgentTool } from '@/lib/chat/pi/tools/call-agent';
+import {
+  AGENT_TOOL_TIMEOUT_ENV,
+  AgentToolTimeoutError,
+  withAgentToolTimeout,
+} from '@/lib/agent/runtime/tool-timeout';
 
 const ZERO_USAGE = {
   inputTokens: 0,
@@ -73,6 +78,16 @@ function resultFrom(parts: Array<Record<string, unknown>>) {
   return {
     fullStream: (async function* () {
       for (const part of parts) yield part;
+    })(),
+    usage: new Promise(() => {}),
+  };
+}
+
+function resultFromThenHang(parts: Array<Record<string, unknown>>) {
+  return {
+    fullStream: (async function* () {
+      for (const part of parts) yield part;
+      await new Promise(() => {});
     })(),
     usage: new Promise(() => {}),
   };
@@ -195,7 +210,7 @@ function makeHarness(
       elementIds: readonly string[];
     };
     body?: StatelessChatRequest;
-    maxActionsPerAgent?: number;
+
     abortController?: AbortController;
   } = {},
 ) {
@@ -217,11 +232,10 @@ function makeHarness(
     thinkingConfig: { mode: 'disabled', enabled: false },
     maxOutputTokens: 384,
     abortSignal: options.abortController?.signal ?? new AbortController().signal,
-    maxAgentTurns: 3,
-    getAgentTurnCount: () => summaries.length,
+
     getAgentResponses: () => summaries,
     getWhiteboardLedger: () => [],
-    maxActionsPerAgent: options.maxActionsPerAgent ?? 8,
+
     enableWhiteboardTools: true,
     childRuntimeMode: 'native',
     enableNativeChildSpotlight: options.spotlightEnabled ?? true,
@@ -254,6 +268,52 @@ describe('Native Child production consumer', () => {
   beforeEach(() => {
     mocks.streamLLM.mockReset();
     mocks.searchWeb.mockReset();
+  });
+
+  it('discovers classroom guidance without preloading, then retains a model-issued read only within that Child', async () => {
+    const { listClassroomSkills, listSkills } = await import('@/lib/server/agent-runtime/skills');
+    const skills = await listClassroomSkills();
+    const skill = skills.find((s) => s.name === 'classroom-explanation')!;
+    expect(skill).toBeDefined();
+    expect((await listSkills()).some((s) => s.name === skill.name)).toBe(false);
+    useResponses([
+      [
+        {
+          type: 'tool-call',
+          toolCallId: 'skill-read',
+          toolName: 'read',
+          input: { path: skill.filePath },
+        },
+        finish('tool-calls'),
+      ],
+      [finish('stop')],
+      [finish('stop')],
+    ]);
+    const harness = makeHarness();
+    const first = await execute(harness);
+    const second = await execute(harness);
+    const firstRequest = JSON.stringify(mocks.streamLLM.mock.calls[0]![0]);
+    const continuation = JSON.stringify(transportMessages(1));
+    const nextChild = JSON.stringify(mocks.streamLLM.mock.calls[2]![0]);
+    expect(firstRequest).toContain(skill.description);
+    expect(firstRequest).not.toContain('Start with one short, substantive answer');
+    expect(continuation).toContain('Start with one short, substantive answer');
+    expect(nextChild).not.toContain('Start with one short, substantive answer');
+    expect(first.details).toMatchObject({
+      availableSkills: [skill.name],
+      activatedSkills: [skill.name],
+    });
+    expect(second.details).toMatchObject({ availableSkills: [skill.name], activatedSkills: [] });
+    expect(first.details).toMatchObject({ nativeChildRun: { dispatchedActionCount: 0 } });
+  });
+
+  it('offers classroom guidance to the fallback assistant but not simulated students', async () => {
+    useResponses([[finish('stop')], [finish('stop')]]);
+    const assistant = await execute(makeHarness({ agent: { ...teacher, role: 'assistant' } }));
+    const student = await execute(makeHarness({ agent: { ...teacher, role: 'student' } }));
+    expect(assistant.details).toMatchObject({ availableSkills: ['classroom-explanation'] });
+    expect(student.details).toMatchObject({ availableSkills: [], activatedSkills: [] });
+    expect(mocks.streamLLM.mock.calls[1]![0].tools).not.toHaveProperty('read');
   });
 
   it('rejects an invalid delegation before starting a grounded Child', async () => {
@@ -362,11 +422,11 @@ describe('Native Child production consumer', () => {
       'Selected element evidence: scene-other/other-element',
     );
     expect(first.details).toMatchObject({
-      availableToolNames: ['web_search'],
+      availableToolNames: ['read', 'web_search'],
       elementReferenceEvidence: packet.metadata,
     });
     expect(second.details).toMatchObject({
-      availableToolNames: ['web_search'],
+      availableToolNames: ['read', 'web_search'],
       elementReferenceEvidence: packet.metadata,
     });
     expect(harness.events.some((event) => event.type === 'action')).toBe(false);
@@ -384,11 +444,11 @@ describe('Native Child production consumer', () => {
     const second = await execute(harness);
 
     expect(first.details).toMatchObject({
-      availableToolNames: ['web_search'],
+      availableToolNames: ['read', 'web_search'],
       elementReferenceEvidence: packet.metadata,
     });
     expect(second.details).toMatchObject({
-      availableToolNames: ['web_search'],
+      availableToolNames: ['read', 'web_search'],
       elementReferenceEvidence: packet.metadata,
     });
     expect(harness.events.some((event) => event.type === 'action')).toBe(false);
@@ -423,7 +483,9 @@ describe('Native Child production consumer', () => {
       },
     });
     expect(second.details).not.toHaveProperty('sceneEvidence');
-    expect(second.details).toMatchObject({ availableToolNames: ['spotlight', 'web_search'] });
+    expect(second.details).toMatchObject({
+      availableToolNames: ['read', 'spotlight', 'web_search'],
+    });
     expect(takeSceneEvidence).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(mocks.streamLLM.mock.calls[0]?.[0])).toContain(
       'Scene evidence (sceneId=scene-current)',
@@ -479,7 +541,7 @@ describe('Native Child production consumer', () => {
     expect(result).toMatchObject({
       details: {
         runtimeMode: 'native',
-        availableToolNames: ['spotlight', 'web_search'],
+        availableToolNames: ['read', 'spotlight', 'web_search'],
         text: 'This is the key idea.',
         sceneEvidence: [expect.objectContaining({ sceneId: 'scene-current' })],
         nativeChildRun: {
@@ -493,32 +555,33 @@ describe('Native Child production consumer', () => {
     });
   });
 
-  it('does not use the Legacy action limit as a Native execution budget', async () => {
+  it('executes nine Native actions in the same Child', async () => {
     useResponses([
-      [spotlightCall('current-element', 'spotlight-1'), finish('tool-calls')],
-      [spotlightCall('current-element', 'spotlight-2'), finish('tool-calls')],
-      [{ type: 'text-delta', text: 'Both pointers were accepted.' }, finish('stop')],
+      [
+        ...Array.from({ length: 9 }, (_, i) => spotlightCall('current-element', `spotlight-${i}`)),
+        finish('tool-calls'),
+      ],
+      [{ type: 'text-delta', text: 'All pointers were accepted.' }, finish('stop')],
     ]);
     const harness = makeHarness({
       evidence: sceneEvidence(),
-      maxActionsPerAgent: 1,
     });
 
     const result = await execute(harness);
 
-    expect(mocks.streamLLM).toHaveBeenCalledTimes(3);
-    expect(harness.events.filter((event) => event.type === 'action')).toHaveLength(2);
-    expect(harness.onActionDone).toHaveBeenCalledTimes(2);
+    expect(mocks.streamLLM).toHaveBeenCalledTimes(2);
+    expect(harness.events.filter((event) => event.type === 'action')).toHaveLength(9);
+    expect(harness.onActionDone).toHaveBeenCalledTimes(9);
     expect(result).not.toHaveProperty('isError');
     expect(result).toMatchObject({
       details: {
-        text: 'Both pointers were accepted.',
+        text: 'All pointers were accepted.',
         nativeChildRun: {
           status: 'completed',
-          attemptCount: 2,
-          executionCount: 2,
-          dispatchedActionCount: 2,
-          providerTransportCount: 3,
+          attemptCount: 9,
+          executionCount: 9,
+          dispatchedActionCount: 9,
+          providerTransportCount: 2,
         },
       },
     });
@@ -553,7 +616,7 @@ describe('Native Child production consumer', () => {
     );
     expect(result).toMatchObject({
       details: {
-        availableToolNames: ['web_search'],
+        availableToolNames: ['read', 'web_search'],
         sceneEvidence: [expect.objectContaining({ sceneId: 'scene-other' })],
       },
     });
@@ -575,7 +638,7 @@ describe('Native Child production consumer', () => {
     expect(result).toMatchObject({
       details: {
         runtimeMode: 'native',
-        availableToolNames: ['web_search'],
+        availableToolNames: ['read', 'web_search'],
         nativeChildRun: { status: 'completed' },
       },
     });
@@ -622,7 +685,7 @@ describe('Native Child production consumer', () => {
     );
     expect(result.details).toMatchObject({
       runtimeMode: 'native',
-      availableToolNames: ['web_search'],
+      availableToolNames: ['read', 'web_search'],
     });
   });
 
@@ -644,7 +707,7 @@ describe('Native Child production consumer', () => {
     expect((mocks.streamLLM.mock.calls[0]?.[0] as { tools?: object }).tools).toHaveProperty(
       'web_search',
     );
-    expect(result.details).toMatchObject({ availableToolNames: ['web_search'] });
+    expect(result.details).toMatchObject({ availableToolNames: ['read', 'web_search'] });
   });
 
   it('does not instantiate or read the Legacy whiteboard shadow state', async () => {
@@ -698,10 +761,12 @@ describe('Native Child production consumer', () => {
     expect(toolMessage?.content?.[0]?.output?.type).toBe('text');
     expect(toolMessage?.content?.[0]?.output?.value).toContain('https://example.test/current');
     expect(harness.onActionDone).not.toHaveBeenCalled();
-    expect(harness.events.some((event) => event.type === 'action')).toBe(false);
+    expect(harness.events.filter((event) => event.type === 'action')).toMatchObject([
+      { data: { actionName: 'web_search', params: {} } },
+    ]);
     expect(result).toMatchObject({
       details: {
-        availableToolNames: ['web_search'],
+        availableToolNames: ['read', 'web_search'],
         nativeChildRun: {
           status: 'completed',
           attemptCount: 1,
@@ -930,6 +995,73 @@ describe('Native Child production consumer', () => {
         },
       },
     });
+  });
+
+  it('finalizes a timed-out native child before propagating the timeout', async () => {
+    vi.useFakeTimers();
+    const previousTimeout = process.env[AGENT_TOOL_TIMEOUT_ENV];
+    process.env[AGENT_TOOL_TIMEOUT_ENV] = '5000';
+    try {
+      mocks.streamLLM.mockImplementation(() =>
+        resultFromThenHang([{ type: 'text-delta', text: 'Partial explanation' }]),
+      );
+      const harness = makeHarness();
+      const tool = withAgentToolTimeout(harness.tool);
+      const promise = tool.execute('delegate-timeout', {
+        agentId: teacher.id,
+        instruction: 'Explain briefly.',
+      });
+      const settled = expect(promise).rejects.toBeInstanceOf(AgentToolTimeoutError);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settled;
+
+      expect(harness.events.filter((event) => event.type === 'agent_start')).toHaveLength(1);
+      expect(harness.events.filter((event) => event.type === 'agent_end')).toHaveLength(1);
+      expect(
+        harness.events
+          .filter((event) => event.type === 'text_delta')
+          .map((event) => event.data.content)
+          .join(''),
+      ).toBe('Partial explanation');
+      expect(harness.summaries).toEqual([
+        expect.objectContaining({
+          agentId: teacher.id,
+          contentPreview: 'Partial explanation',
+          actionCount: 0,
+        }),
+      ]);
+      expect(harness.onActionDone).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(harness.events.filter((event) => event.type === 'agent_end')).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      if (previousTimeout === undefined) delete process.env[AGENT_TOOL_TIMEOUT_ENV];
+      else process.env[AGENT_TOOL_TIMEOUT_ENV] = previousTimeout;
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not finalize a partially streamed native child on caller cancellation', async () => {
+    const abortController = new AbortController();
+    mocks.streamLLM.mockImplementation(() =>
+      resultFromThenHang([{ type: 'text-delta', text: 'Partial before cancellation' }]),
+    );
+    const harness = makeHarness({ abortController });
+    const pending = execute(harness);
+    await vi.waitFor(() =>
+      expect(harness.events.some((event) => event.type === 'text_delta')).toBe(true),
+    );
+
+    abortController.abort(new DOMException('request cancelled', 'AbortError'));
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(harness.events.filter((event) => event.type === 'agent_start')).toHaveLength(1);
+    expect(harness.events.filter((event) => event.type === 'agent_end')).toHaveLength(0);
+    expect(harness.summaries).toEqual([]);
+    expect(harness.onActionDone).not.toHaveBeenCalled();
   });
 
   it('performs zero Child transport and zero search request when already aborted', async () => {

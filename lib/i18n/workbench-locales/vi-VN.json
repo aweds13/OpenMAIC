@@ -21,7 +21,9 @@
     "stop": "Dừng lượt dựng này",
     "waiting": "Đang xử lý",
     "emptyTitle": "Bắt đầu một cuộc trò chuyện",
-    "emptyHint": "Hãy mô tả thay đổi bạn muốn, hoặc dùng @ để chỉ một lớp học"
+    "emptyHint": "Hãy mô tả thay đổi bạn muốn, hoặc dùng @ để chỉ một lớp học",
+    "copyReply": "Sao chép câu trả lời",
+    "copied": "Đã sao chép"
   },
   "question": {
     "waiting": "Đang chờ bạn trả lời",
@@ -33,10 +35,16 @@
     "placeholder": "Viết câu trả lời của bạn",
     "confirm": "Xác nhận",
     "submit": "Gửi",
-    "dismiss": "Bỏ qua",
+    "dismiss": "Thu gọn",
     "inFormBelow": "Hãy trả lời trong biểu mẫu bên dưới",
     "inPreview": "Trả lời trong bản xem trước",
-    "multiAnswerSeparator": ", "
+    "multiAnswerSeparator": ", ",
+    "recommended": "Đề xuất",
+    "autoConfirm": "Tự động xác nhận",
+    "autoConfirmed": "Đã tự chọn phương án đề xuất — bạn có thể đổi bất cứ lúc nào",
+    "showDetails": "Xem thêm",
+    "hideDetails": "Thu gọn",
+    "orAnswerInChat": "Bạn cũng có thể trả lời ngay trong cuộc trò chuyện"
   },
   "material": {
     "maxSelected": "Mỗi lần chỉ chọn được tối đa {{count}} tài liệu",
@@ -47,7 +55,9 @@
     "fileTooLargeWithLimit": "Tệp quá lớn. Vui lòng chọn tệp không vượt quá {{limit}} MB.",
     "unsupportedType": "Loại tệp không được hỗ trợ. Vui lòng chọn tệp được hỗ trợ.",
     "quotaExceeded": "Đã đạt giới hạn tải tài liệu lên.",
-    "storageFull": "Dung lượng lưu trữ đã đầy. Không thể tải tài liệu này lên."
+    "storageFull": "Dung lượng lưu trữ đã đầy. Không thể tải tài liệu này lên.",
+    "uploadFailedShort": "Tải lên thất bại",
+    "retryFailed": "Không thể phân tích lại. Vui lòng thử lại."
   },
   "skill": {
     "listFailed": "Không tải được danh sách skill",
@@ -130,7 +140,15 @@
     "retryHint": "Gửi thêm một tin nhắn để thử lại",
     "stopped": "Lượt dựng này đã dừng",
     "workerInterrupted": "Bị ngắt do worker khởi động lại. Lần gọi này không có kết quả; agent sẽ gọi lại nếu cần.",
-    "userStopped": "Bị ngắt do dừng. Lần gọi này không có kết quả."
+    "userStopped": "Bị ngắt do dừng. Lần gọi này không có kết quả.",
+    "retryOrNewChatHint": "Gửi thêm một tin nhắn để thử lại, hoặc bắt đầu cuộc trò chuyện mới nếu vẫn thất bại",
+    "contextCompacted": "Các tin nhắn trước đó đã được tóm tắt để tiếp tục cuộc trò chuyện này",
+    "contextCompactedMeta": "Ngữ cảnh: {{messagesBefore}} → {{messagesAfter}} tin nhắn · khoảng {{tokensBefore}} → {{tokensAfter}} token",
+    "contextSummaryFailed": "Cuộc trò chuyện này đã chạm giới hạn ngữ cảnh và việc tóm tắt các tin nhắn trước đó thất bại, nên lượt này đã dừng",
+    "contextStillTooLarge": "Cuộc trò chuyện này vượt quá giới hạn ngữ cảnh của mô hình",
+    "contextNoBoundary": "Một tin nhắn hoặc tệp đính kèm quá lớn so với giới hạn ngữ cảnh của mô hình",
+    "shortenOrNewChatHint": "Hãy rút gọn tin nhắn hoặc tệp đính kèm, hoặc bắt đầu cuộc trò chuyện mới",
+    "contextBudgetInvalid": "Ngân sách ngữ cảnh của mô hình hiện tại bị cấu hình sai. Lượt này đã dừng."
   },
   "tool": {
     "errorSeparator": ": ",
@@ -141,7 +159,8 @@
       "skills": "{{count}} skill",
       "running": "Đang chạy",
       "error": "Có lỗi",
-      "done": "Hoàn tất"
+      "done": "Hoàn tất",
+      "failed": "{{count}} thất bại"
     },
     "section": {
       "input": "Đầu vào",
@@ -205,7 +224,16 @@
       "listFolderCourses": "Xem thư viện lớp học",
       "createStage": "Tạo lớp học",
       "renameStage": "Đổi tên lớp học",
-      "readStageOutline": "Đọc dàn ý lớp học"
+      "readStageOutline": "Đọc dàn ý lớp học",
+      "writeFile": "Write file",
+      "listFiles": "List project files",
+      "manageFile": "Manage project file",
+      "runBuild": "Run build",
+      "collectBuild": "Collect build result",
+      "readTeachingSkill": "Read teaching section",
+      "requestReview": "Ask for review",
+      "completeTeachingStage": "Complete teaching step",
+      "respondToLearner": "Answer your question"
     },
     "chip": {
       "seconds": "{{count}} giây",
@@ -288,7 +316,9 @@
       "createStage": "Không tạo được lớp học",
       "renameStage": "Không đổi được tên lớp học",
       "readStageOutline": "Không đọc được dàn ý lớp học",
-      "generic": "Lần gọi tool thất bại"
+      "generic": "Lần gọi tool thất bại",
+      "interrupted": "Tool call interrupted",
+      "materialExtraction": "Bóc tách tài liệu thất bại"
     },
     "progress": {
       "scene": {

@@ -153,6 +153,34 @@ describe('行高/内边距：检查器读的是同一个数', () => {
   });
 });
 
+describe('行高/内边距：包内渲染器（v1.5.0 起默认）也守同一个数', () => {
+  /**
+   * v1.5.0 把播放与编辑器的默认渲染器换成了包内 canvas
+   * （`packages/@openmaic/renderer`，`lib/config/feature-flags.ts` 里未设 env 即为真）。
+   * 包内那侧原来把 `lineHeight` 原样写出，元素不带这个字段时浏览器回落到
+   * `normal`（≈1.2）—— 而检查器仍按 1.5 算 ⇒ 本来装得下的页面会被判成溢出。
+   *
+   * 这条判据守的是：包内渲染器的回落值与宿主那份**是同一个数**。
+   * 变异一次就知道有没有用：把 `DEFAULT_TEXT_LINE_HEIGHT` 改成 1.2 ⇒ 红。
+   */
+  const PACKAGE_SITE = 'packages/@openmaic/renderer/src/elements/text/BaseTextElement.tsx';
+
+  it('★ 包内渲染器的回落值与 TEXT_LINE_HEIGHT 相同', () => {
+    const source = read(PACKAGE_SITE);
+    const declared = /export const DEFAULT_TEXT_LINE_HEIGHT = ([\d.]+);/.exec(source);
+    expect(declared).not.toBeNull();
+    expect(Number(declared![1])).toBe(TEXT_LINE_HEIGHT);
+  });
+
+  it('★ 包内渲染器把回落值写进 style，且没有留下裸 elementInfo.lineHeight', () => {
+    const source = read(PACKAGE_SITE);
+    // 阳性对照：尺子抓得到裸写法。
+    expect(/lineHeight: elementInfo\.lineHeight,\s*\n/.test('lineHeight: elementInfo.lineHeight,\n')).toBe(true);
+    expect(source).toContain('lineHeight: elementInfo.lineHeight ?? DEFAULT_TEXT_LINE_HEIGHT');
+    expect(/lineHeight: elementInfo\.lineHeight,\s*\n/.test(source)).toBe(false);
+  });
+});
+
 describe('行高/内边距：只许有一个来源', () => {
   it('★★ 两个渲染站点 + 检查器都 import 同一份，且没有谁再写字面量', () => {
     const sites = RENDER_SITES.map((path) => ({ path, text: read(path) }));

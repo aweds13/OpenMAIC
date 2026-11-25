@@ -6,7 +6,19 @@ import { useElementShadow } from '../shared/useElementShadow';
 import { ElementOutline } from '../shared/ElementOutline';
 import { preservesPlainTextLineBreaks } from '../../utils/richText';
 import { useInlineMath, useInnerHtml } from '../../utils/inlineMath';
+import { useOptionalSlideContext } from '../../context';
 import { hasTextInsets } from '../shared/hasTextInsets';
+
+/**
+ * Fallback line height for text elements that do not set one.
+ *
+ * The DSL documents 1.5 (packages/@openmaic/dsl/src/slides.ts:196), and the host's
+ * layout estimator uses the same number (lib/slide/text-metrics.ts in the app).
+ * Keep these two equal: the estimator is only meaningful if it measures what is
+ * actually drawn. `tests/components/slide-renderer/text-line-height-pin.test.ts`
+ * pins the agreement.
+ */
+export const DEFAULT_TEXT_LINE_HEIGHT = 1.5;
 
 export interface BaseTextElementProps {
   elementInfo: PPTTextElement;
@@ -30,7 +42,8 @@ export function BaseTextElement({
   // Adding the editor's default inset again shifts the label and reduces line width.
   const contentHasTextInsets = hasTextInsets(elementInfo.content);
 
-  const vAlign = elementInfo.vAlign ?? 'top';
+  const classroomSizing = useOptionalSlideContext()?.classroomSizing;
+  const vAlign = classroomSizing && !fillHeight ? 'top' : (elementInfo.vAlign ?? 'top');
   const justifyContent =
     vAlign === 'middle' ? 'center' : vAlign === 'bottom' ? 'flex-end' : 'flex-start';
   const defaultContent = (
@@ -77,7 +90,7 @@ export function BaseTextElement({
           style={{
             position: 'relative',
             boxSizing: 'border-box',
-            padding: contentHasTextInsets ? 0 : '10px',
+            padding: contentHasTextInsets && (!classroomSizing || fillHeight) ? 0 : '10px',
             overflowWrap: 'break-word',
             width: elementInfo.vertical ? 'auto' : '100%',
             height: elementInfo.vertical || fillHeight ? '100%' : 'auto',
@@ -85,7 +98,13 @@ export function BaseTextElement({
             flexDirection: fillHeight ? 'column' : undefined,
             justifyContent: fillHeight ? justifyContent : undefined,
             textShadow: shadowStyle,
-            lineHeight: elementInfo.lineHeight,
+            // The DSL documents `lineHeight` as optional with a default of 1.5
+            // (packages/@openmaic/dsl/src/slides.ts). Rendering `undefined` would
+            // let the browser fall back to `normal` (~1.2), which silently
+            // disagrees with every host-side height estimate: the editor's
+            // layout check computes `lines × fontSize × TEXT_LINE_HEIGHT`, so a
+            // 1.2 render reads as "overflows" on pages that actually fit.
+            lineHeight: elementInfo.lineHeight ?? DEFAULT_TEXT_LINE_HEIGHT,
             letterSpacing:
               elementInfo.wordSpace !== undefined ? `${elementInfo.wordSpace}px` : undefined,
             color: elementInfo.defaultColor,

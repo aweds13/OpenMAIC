@@ -21,7 +21,9 @@
     "stop": "이번 생성 중지",
     "waiting": "처리 중",
     "emptyTitle": "새 대화를 시작하세요",
-    "emptyHint": "원하는 변경을 설명하거나 @ 로 교실을 지정해 주세요"
+    "emptyHint": "원하는 변경을 설명하거나 @ 로 교실을 지정해 주세요",
+    "copyReply": "답변 복사",
+    "copied": "복사됨"
   },
   "question": {
     "waiting": "답변을 기다리고 있습니다",
@@ -33,10 +35,16 @@
     "placeholder": "답변을 적어 주세요",
     "confirm": "확인",
     "submit": "제출",
-    "dismiss": "취소",
+    "dismiss": "접기",
     "inFormBelow": "아래 양식에서 답해 주세요",
     "inPreview": "미리보기에서 답하세요",
-    "multiAnswerSeparator": ", "
+    "multiAnswerSeparator": ", ",
+    "recommended": "추천",
+    "autoConfirm": "자동 확인",
+    "autoConfirmed": "추천 항목이 자동으로 선택되었습니다. 언제든지 바꿀 수 있습니다",
+    "showDetails": "더 보기",
+    "hideDetails": "접기",
+    "orAnswerInChat": "채팅에서 바로 답할 수도 있습니다"
   },
   "material": {
     "maxSelected": "한 번에 최대 {{count}}개의 자료를 선택할 수 있습니다",
@@ -47,7 +55,9 @@
     "fileTooLargeWithLimit": "파일이 너무 큽니다. {{limit}} MB 이하의 파일을 선택해 주세요.",
     "unsupportedType": "지원하지 않는 파일 형식입니다. 지원되는 파일을 선택해 주세요.",
     "quotaExceeded": "자료 업로드 한도에 도달했습니다.",
-    "storageFull": "저장 공간이 한도에 도달해 이 자료를 업로드할 수 없습니다."
+    "storageFull": "저장 공간이 한도에 도달해 이 자료를 업로드할 수 없습니다.",
+    "uploadFailedShort": "업로드 실패",
+    "retryFailed": "다시 분석을 시작하지 못했습니다. 다시 시도해 주세요."
   },
   "skill": {
     "listFailed": "스킬 목록을 불러오지 못했습니다",
@@ -130,7 +140,15 @@
     "retryHint": "메시지를 한 번 더 보내면 다시 시도합니다",
     "stopped": "이번 생성이 중지되었습니다",
     "workerInterrupted": "워커 재시작으로 중단되었습니다. 이 호출은 결과를 만들지 못했으며, 필요하면 에이전트가 다시 시도합니다.",
-    "userStopped": "중지로 중단되었습니다. 이 호출은 결과를 만들지 못했습니다."
+    "userStopped": "중지로 중단되었습니다. 이 호출은 결과를 만들지 못했습니다.",
+    "retryOrNewChatHint": "메시지를 다시 보내면 재시도해요. 계속 실패하면 새 채팅을 시작해 주세요",
+    "contextCompacted": "이전 메시지를 요약으로 압축하여 대화를 이어갑니다",
+    "contextCompactedMeta": "컨텍스트: 메시지 {{messagesBefore}} → {{messagesAfter}}개 · 약 {{tokensBefore}} → {{tokensAfter}} 토큰",
+    "contextSummaryFailed": "이 대화가 컨텍스트 한도에 도달했고 이전 메시지의 요약 생성에 실패하여 이번 실행을 중단했어요",
+    "contextStillTooLarge": "이 대화가 모델의 컨텍스트 한도를 초과했어요",
+    "contextNoBoundary": "개별 메시지나 첨부 파일이 모델의 컨텍스트 한도를 초과했어요",
+    "shortenOrNewChatHint": "메시지나 첨부 파일을 줄이거나 새 채팅을 시작해 보세요",
+    "contextBudgetInvalid": "현재 모델의 컨텍스트 예산 설정이 잘못되었습니다. 이번 턴은 중지되었습니다."
   },
   "tool": {
     "errorSeparator": ": ",
@@ -141,7 +159,8 @@
       "skills": "스킬 {{count}}개",
       "running": "실행 중",
       "error": "오류 있음",
-      "done": "완료"
+      "done": "완료",
+      "failed": "{{count}}개 실패"
     },
     "section": {
       "input": "입력",
@@ -205,7 +224,16 @@
       "listFolderCourses": "수업 목록 보기",
       "createStage": "수업 만들기",
       "renameStage": "수업 이름 변경",
-      "readStageOutline": "수업 개요 읽기"
+      "readStageOutline": "수업 개요 읽기",
+      "writeFile": "Write file",
+      "listFiles": "List project files",
+      "manageFile": "Manage project file",
+      "runBuild": "Run build",
+      "collectBuild": "Collect build result",
+      "readTeachingSkill": "Read teaching section",
+      "requestReview": "Ask for review",
+      "completeTeachingStage": "Complete teaching step",
+      "respondToLearner": "Answer your question"
     },
     "chip": {
       "seconds": "{{count}}초",
@@ -288,7 +316,9 @@
       "createStage": "수업을 만들지 못했습니다",
       "renameStage": "수업 이름을 바꾸지 못했습니다",
       "readStageOutline": "수업 개요를 읽지 못했습니다",
-      "generic": "도구 호출에 실패했습니다"
+      "generic": "도구 호출에 실패했습니다",
+      "interrupted": "Tool call interrupted",
+      "materialExtraction": "자료 분석에 실패했습니다"
     },
     "progress": {
       "scene": {

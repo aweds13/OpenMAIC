@@ -1,4 +1,6 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { getModelInfo } from '@/lib/ai/providers';
+import type { ProviderId } from '@/lib/types/provider';
 
 import { slotLanguageModel } from '@/lib/server/model-config/llm';
 import {
@@ -7,6 +9,7 @@ import {
   SlotUnassignedError,
 } from '@/lib/server/model-config/runtime';
 import type { ResolvedModel } from '@/lib/server/resolve-model';
+import { ContextBudgetError } from '@/lib/agent/runtime/context-budget-error';
 
 export const AGENT_DRIVER_STAGE = 'maic-agent-driver' as const;
 export const UNKNOWN_MODEL_RESERVED_OUTPUT_TOKENS = 8_192;
@@ -45,7 +48,9 @@ export function buildPiDriverModel(
     // Pi requires Model.maxTokens. For known models this is the real catalog
     // output window. For unknown models 8192 is only a deterministic internal
     // compaction reservation; resolveAgentDriverModel deliberately exposes an
-    // independent undefined wireMaxOutputTokens so it never becomes an API cap.
+    // independent undefined wireMaxOutputTokens when output capacity is unknown.
+    // Teaching reserves this space when preparing input too, but sends an
+    // output allowance only when the connector declares a real output window.
     maxTokens: connection.modelInfo?.outputWindow ?? UNKNOWN_MODEL_RESERVED_OUTPUT_TOKENS,
   } as Model<Api>;
 }
@@ -58,10 +63,12 @@ export function buildPiDriverModel(
 export async function resolveAgentDriverModel(workspaceId: string | null = null): Promise<{
   connection: ResolvedModel;
   piModel: Model<Api>;
-  /** Catalog-backed API limit; undefined means omit max_tokens on the wire. */
+  /** Catalog limit clamped to the context window; undefined omits max_tokens on the wire. */
   wireMaxOutputTokens?: number;
   /** Internal compaction output-space estimate; never used as a conversation API limit. */
   reservedOutputTokens: number;
+  /** Teaching prepares one request that either configured slot target can serve. */
+  teaching: { piModel: Model<Api>; wireMaxOutputTokens?: number };
 }> {
   const resolution = await lookupSlot('agent', workspaceId);
   if (resolution.status === 'disabled') throw new SlotDisabledError('agent');
@@ -82,15 +89,76 @@ export async function resolveAgentDriverModel(workspaceId: string | null = null)
     );
   }
   const connection = await slotLanguageModel(resolution);
-  const wireMaxOutputTokens = connection.modelInfo?.outputWindow;
+  const piModel = buildPiDriverModel(
+    connection,
+    resolution.api ?? DEFAULT_DRIVER_API,
+    resolution.contextWindow,
+  );
+  // Reconcile the output reservation with the effective context window so the
+  // conversation, its compaction summary and the context budget check agree.
+  // Only a reservation that consumes the entire window is repaired (to half
+  // the window, sent on the wire too); every other cap is kept as configured.
+  const outputCeiling = Math.floor(piModel.contextWindow / 2);
+  const requestedOutput =
+    connection.modelInfo?.outputWindow ?? UNKNOWN_MODEL_RESERVED_OUTPUT_TOKENS;
+  if (
+    !Number.isFinite(outputCeiling) ||
+    outputCeiling < 1 ||
+    !Number.isFinite(requestedOutput) ||
+    requestedOutput < 1
+  ) {
+    throw new ContextBudgetError('invalid_output_budget');
+  }
+  const needsOutputFallback = requestedOutput >= piModel.contextWindow;
+  const reservedOutputTokens = needsOutputFallback ? outputCeiling : requestedOutput;
+  const wireMaxOutputTokens =
+    connection.modelInfo?.outputWindow !== undefined || needsOutputFallback
+      ? reservedOutputTokens
+      : undefined;
+  piModel.maxTokens = reservedOutputTokens;
+  const capacity = (value: number | undefined) =>
+    value !== undefined && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined;
+  const fallback = resolution.fallbackRequirements?.some((check) => check.status === 'unmet')
+    ? undefined
+    : resolution.fallback;
+  const fallbackInfo =
+    fallback?.catalogue !== false && fallback?.modelId
+      ? getModelInfo(fallback.registryId as ProviderId, fallback.modelId)
+      : undefined;
+  // A context window declared for the fallback covers one the catalogue does
+  // not describe. A fallback on an endpoint that distrusts the catalogue is
+  // never looked up there, so its declaration also wins a name collision.
+  const fallbackContextWindow = fallbackInfo?.contextWindow ?? fallback?.declaredContextWindow;
+  const primaryOutput = capacity(wireMaxOutputTokens);
+  const fallbackOutput = capacity(fallbackInfo?.outputWindow);
+  // Do not copy a primary-only allowance/window to a smaller fallback. Unknown
+  // metadata keeps max_tokens omitted, just as for an unknown primary. The
+  // existing 128K/8192 estimates remain input-planning estimates only.
+  const teaching = {
+    piModel: fallback
+      ? {
+          ...piModel,
+          contextWindow: Math.min(
+            capacity(piModel.contextWindow) ?? 128_000,
+            capacity(fallbackContextWindow) ?? 128_000,
+          ),
+          maxTokens: Math.min(
+            primaryOutput ?? UNKNOWN_MODEL_RESERVED_OUTPUT_TOKENS,
+            fallbackOutput ?? UNKNOWN_MODEL_RESERVED_OUTPUT_TOKENS,
+          ),
+        }
+      : piModel,
+    wireMaxOutputTokens: fallback
+      ? primaryOutput && fallbackOutput
+        ? Math.min(primaryOutput, fallbackOutput)
+        : undefined
+      : primaryOutput,
+  };
   return {
     connection,
-    piModel: buildPiDriverModel(
-      connection,
-      resolution.api ?? DEFAULT_DRIVER_API,
-      resolution.contextWindow,
-    ),
+    piModel,
     wireMaxOutputTokens,
-    reservedOutputTokens: wireMaxOutputTokens ?? UNKNOWN_MODEL_RESERVED_OUTPUT_TOKENS,
+    reservedOutputTokens,
+    teaching,
   };
 }

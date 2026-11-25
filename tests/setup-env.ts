@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { beforeEach } from 'vitest';
+import { beforeEach, vi } from 'vitest';
 
 // ★ 阶段冻结的状态文件必须**不能**落到真实 data/plan-freeze/ —— 否则测试会读写真实文件，
 //   破坏 hermetic（见 AGENTS.md §3.1）。指到临时目录，测试之间互不影响。
@@ -54,4 +54,22 @@ if (process.env.TEST_LOAD_LOCAL_ENV === '1') {
 // not clear. Each test starts without it, so it is read from that test's env.
 beforeEach(() => {
   delete (globalThis as Record<symbol, unknown>)[Symbol.for('openmaic.model-config.deployment')];
+});
+
+/**
+ * Suites fake the product's event streams by stubbing the global `EventSource`.
+ * While one is stubbed, a stream the product opens lands on the fake; otherwise
+ * the real class runs, on whatever `fetch` the suite provides.
+ */
+vi.mock('@/lib/utils/fetch-event-source', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/utils/fetch-event-source')>();
+  return {
+    ...actual,
+    FetchEventSource: new Proxy(actual.FetchEventSource, {
+      construct(target, args: [string], newTarget) {
+        const stub = (globalThis as { EventSource?: new (url: string) => object }).EventSource;
+        return stub ? new stub(...args) : Reflect.construct(target, args, newTarget);
+      },
+    }),
+  };
 });

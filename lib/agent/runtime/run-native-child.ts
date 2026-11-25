@@ -10,7 +10,7 @@ import type {
   AgentToolResult,
   StreamFn,
 } from '@earendil-works/pi-agent-core';
-import { buildAgent } from './build-agent';
+import { buildAgent, type BuildAgentOptions } from './build-agent';
 
 const EMPTY_USAGE = {
   input: 0,
@@ -40,9 +40,10 @@ export interface RunNativeChildOptions {
   tools: AgentTool[];
   allowedToolNames: ReadonlySet<string>;
   history?: AgentMessage[];
+  transformContext?: BuildAgentOptions['transformContext'];
   abortSignal?: AbortSignal;
-  timeoutMs: number;
-  maxProviderTransports: number;
+  timeoutMs?: number;
+  maxProviderTransports?: number;
   onVisibleTextDelta?: (delta: string) => Promise<string> | string;
   onDispatchedAction?: () => void;
 }
@@ -187,10 +188,13 @@ function isDispatchedActionResult(result: AgentToolResult<unknown>): boolean {
 }
 
 export async function runNativeChild(opts: RunNativeChildOptions): Promise<NativeChildRunResult> {
-  if (!Number.isFinite(opts.timeoutMs) || opts.timeoutMs <= 0) {
+  if (opts.timeoutMs !== undefined && (!Number.isFinite(opts.timeoutMs) || opts.timeoutMs <= 0)) {
     throw new Error('runNativeChild requires a positive finite timeoutMs');
   }
-  if (!Number.isInteger(opts.maxProviderTransports) || opts.maxProviderTransports <= 0) {
+  if (
+    opts.maxProviderTransports !== undefined &&
+    (!Number.isInteger(opts.maxProviderTransports) || opts.maxProviderTransports <= 0)
+  ) {
     throw new Error('runNativeChild requires a positive maxProviderTransports');
   }
 
@@ -229,7 +233,10 @@ export async function runNativeChild(opts: RunNativeChildOptions): Promise<Nativ
     if (args[2]?.signal?.aborted) {
       return abortAwareStream(opts.streamFn, args);
     }
-    if (providerTransportCount >= opts.maxProviderTransports) {
+    if (
+      opts.maxProviderTransports !== undefined &&
+      providerTransportCount >= opts.maxProviderTransports
+    ) {
       claimInternalTerminal('native_provider_transport_budget');
       return abortAwareStream(opts.streamFn, args);
     }
@@ -243,6 +250,7 @@ export async function runNativeChild(opts: RunNativeChildOptions): Promise<Nativ
     tools: trackedTools,
     allowedToolNames: opts.allowedToolNames,
     history: opts.history,
+    transformContext: opts.transformContext,
     afterToolCall: (context) => {
       if (
         !context.isError &&
@@ -297,7 +305,7 @@ export async function runNativeChild(opts: RunNativeChildOptions): Promise<Nativ
   else opts.abortSignal?.addEventListener('abort', abortForCaller, { once: true });
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  if (!settlementOwner) {
+  if (!settlementOwner && opts.timeoutMs !== undefined) {
     timeout = setTimeout(() => {
       if (settlementOwner || runFinished) return;
       settlementOwner = 'deadline';

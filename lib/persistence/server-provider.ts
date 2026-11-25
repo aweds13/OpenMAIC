@@ -25,6 +25,8 @@ import { ensureXqLearnerSchema } from '@/lib/persistence/xq-learner';
 import { ensureStageMetaSchema } from '@/lib/persistence/stage-meta';
 import { APP_RUNTIME_PAYLOAD_VALIDATORS } from '@/lib/runtime/payload-validators';
 import { ensureOwnerAgentSchema } from '@/lib/server/agents/store';
+import { ensurePBLProjectSchema } from './pbl-projects';
+import { ensurePBLStudySchema } from './pbl-studies';
 
 export type PersistencePoolFactory = (connectionString: string) => Pool;
 
@@ -98,6 +100,8 @@ async function createServerPersistenceProvider(
       await ensureStageMetaSchema(locked);
       await ensureOwnerMaterialSchema(locked);
       await ensureAssetSchema(locked);
+      await ensurePBLProjectSchema(locked);
+      await ensurePBLStudySchema(locked);
       await ensureLegacyClassroomImportSchema(locked);
       await ensureWorkspaceModelConfigSchema(locked);
       await ensureOwnerAgentSchema(locked);

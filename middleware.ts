@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { isAgentRuntimeConfigured, isProWorkbenchEnabled } from '@/lib/config/feature-flags';
+import { isAgentRuntimeConfigured, isWorkbenchEnabled } from '@/lib/config/feature-flags';
 import { verifyAccessTokenEdge } from '@/lib/server/access-token-edge';
 import {
   anonymousOwnerForNavigation,
@@ -25,13 +25,16 @@ function next(request: NextRequest, identity: NavigationIdentity | undefined): N
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // This machine-only route verifies its own signed gateway request in Node.
+  if (pathname === '/api/sandbox/preview/resolve') return NextResponse.next();
+
   // Return an actual server-side 404 when either half of the workbench is off.
   // Edge middleware cannot reliably inspect server-only deployment variables,
   // so it enforces the public gate and leaves the complete runtime/database
   // check to Node. A Node-hosted middleware uses the same gate as startup.
   const canInspectServerRuntime = process.env.NEXT_RUNTIME !== 'edge';
   const workbenchEnabled =
-    isProWorkbenchEnabled() && (!canInspectServerRuntime || isAgentRuntimeConfigured());
+    isWorkbenchEnabled() && (!canInspectServerRuntime || isAgentRuntimeConfigured());
   if (!workbenchEnabled && (pathname === '/workbench' || pathname.startsWith('/workbench/'))) {
     return new NextResponse('Not found', { status: 404 });
   }
@@ -73,5 +76,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|logos/).*)'],
+  // The duplex machine route authenticates its signed descriptor itself. Middleware
+  // forwarding buffers POST bodies and would deadlock a bidirectional stream.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|logos/|api/sandbox/preview/tunnel$).*)'],
 };

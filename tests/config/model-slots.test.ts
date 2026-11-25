@@ -39,6 +39,7 @@ const EXPECTED_STAGE_SLOTS: Record<LlmStage, SlotId> = {
   // 二开加的 stage（对抗性内容审查）：上游没有这个调用点，见
   // lib/server/model-routes.ts 的注释与 lib/config/model-slots.ts 的落点说明。
   'course-review': 'course.content',
+  'material-chapters': 'material.chapters',
 };
 
 const EXPECTED_ROOTS = {

@@ -21,7 +21,9 @@
     "stop": "Остановить эту сборку",
     "waiting": "Обработка",
     "emptyTitle": "Начните новый разговор",
-    "emptyHint": "Опишите нужное изменение или укажите класс через @"
+    "emptyHint": "Опишите нужное изменение или укажите класс через @",
+    "copyReply": "Скопировать ответ",
+    "copied": "Скопировано"
   },
   "question": {
     "waiting": "Ожидает вашего ответа",
@@ -33,10 +35,16 @@
     "placeholder": "Напишите ответ",
     "confirm": "Подтвердить",
     "submit": "Отправить",
-    "dismiss": "Отклонить",
+    "dismiss": "Свернуть",
     "inFormBelow": "Ответьте в форме ниже",
     "inPreview": "Ответьте в превью",
-    "multiAnswerSeparator": ", "
+    "multiAnswerSeparator": ", ",
+    "recommended": "Рекомендуется",
+    "autoConfirm": "Автоподтверждение",
+    "autoConfirmed": "Рекомендуемый вариант выбран автоматически — его можно изменить в любой момент",
+    "showDetails": "Показать больше",
+    "hideDetails": "Свернуть",
+    "orAnswerInChat": "Можно ответить и прямо в чате"
   },
   "material": {
     "maxSelected": "За один раз можно выбрать не более {{count}} материалов",
@@ -47,7 +55,9 @@
     "fileTooLargeWithLimit": "Файл слишком большой. Выберите файл размером не более {{limit}} МБ.",
     "unsupportedType": "Этот тип файла не поддерживается. Выберите поддерживаемый файл.",
     "quotaExceeded": "Достигнут лимит загрузки материалов.",
-    "storageFull": "Хранилище заполнено. Не удалось загрузить этот материал."
+    "storageFull": "Хранилище заполнено. Не удалось загрузить этот материал.",
+    "uploadFailedShort": "Не удалось загрузить",
+    "retryFailed": "Не удалось запустить повторный разбор. Попробуйте ещё раз."
   },
   "skill": {
     "listFailed": "Не удалось загрузить список скиллов",
@@ -130,7 +140,15 @@
     "retryHint": "Отправьте ещё одно сообщение, чтобы повторить",
     "stopped": "Эта сборка остановлена",
     "workerInterrupted": "Прервано перезапуском воркера. Этот вызов не дал результата; агент повторит его при необходимости.",
-    "userStopped": "Прервано остановкой. Этот вызов не дал результата."
+    "userStopped": "Прервано остановкой. Этот вызов не дал результата.",
+    "retryOrNewChatHint": "Отправьте ещё одно сообщение, чтобы повторить попытку, или начните новый чат, если ошибка повторяется",
+    "contextCompacted": "Более ранние сообщения были сжаты в краткое содержание, чтобы продолжить диалог",
+    "contextCompactedMeta": "Контекст: {{messagesBefore}} → {{messagesAfter}} сообщений · примерно {{tokensBefore}} → {{tokensAfter}} токенов",
+    "contextSummaryFailed": "Диалог достиг лимита контекста, и сжать ранние сообщения в краткое содержание не удалось — этот запуск остановлен",
+    "contextStillTooLarge": "Этот диалог слишком велик для лимита контекста модели",
+    "contextNoBoundary": "Одно сообщение или вложение слишком велико для лимита контекста модели",
+    "shortenOrNewChatHint": "Сократите сообщение или вложения либо начните новый чат",
+    "contextBudgetInvalid": "Бюджет контекста текущей модели настроен неверно. Этот ход остановлен."
   },
   "tool": {
     "errorSeparator": ": ",
@@ -141,7 +159,8 @@
       "skills": "Скиллов: {{count}}",
       "running": "Выполняется",
       "error": "Есть ошибки",
-      "done": "Завершено"
+      "done": "Завершено",
+      "failed": "Ошибок: {{count}}"
     },
     "section": {
       "input": "Входные данные",
@@ -205,7 +224,16 @@
       "listFolderCourses": "Посмотреть библиотеку классов",
       "createStage": "Создать класс",
       "renameStage": "Переименовать класс",
-      "readStageOutline": "Прочитать план класса"
+      "readStageOutline": "Прочитать план класса",
+      "writeFile": "Write file",
+      "listFiles": "List project files",
+      "manageFile": "Manage project file",
+      "runBuild": "Run build",
+      "collectBuild": "Collect build result",
+      "readTeachingSkill": "Read teaching section",
+      "requestReview": "Ask for review",
+      "completeTeachingStage": "Complete teaching step",
+      "respondToLearner": "Answer your question"
     },
     "chip": {
       "seconds": "{{count}} с",
@@ -288,7 +316,9 @@
       "createStage": "Не удалось создать класс",
       "renameStage": "Не удалось переименовать класс",
       "readStageOutline": "Не удалось прочитать план класса",
-      "generic": "Вызов инструмента не удался"
+      "generic": "Вызов инструмента не удался",
+      "interrupted": "Tool call interrupted",
+      "materialExtraction": "Не удалось разобрать материал"
     },
     "progress": {
       "scene": {

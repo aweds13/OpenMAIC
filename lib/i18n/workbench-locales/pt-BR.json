@@ -21,7 +21,9 @@
     "stop": "Parar esta construção",
     "waiting": "Processando",
     "emptyTitle": "Comece uma conversa",
-    "emptyHint": "Descreva a mudança que você quer, ou use @ para indicar uma turma"
+    "emptyHint": "Descreva a mudança que você quer, ou use @ para indicar uma turma",
+    "copyReply": "Copiar resposta",
+    "copied": "Copiado"
   },
   "question": {
     "waiting": "Aguardando sua resposta",
@@ -33,10 +35,16 @@
     "placeholder": "Escreva sua resposta",
     "confirm": "Confirmar",
     "submit": "Enviar",
-    "dismiss": "Descartar",
+    "dismiss": "Recolher",
     "inFormBelow": "Responda no formulário abaixo",
     "inPreview": "Responda na pré-visualização",
-    "multiAnswerSeparator": ", "
+    "multiAnswerSeparator": ", ",
+    "recommended": "Recomendada",
+    "autoConfirm": "Confirmação automática",
+    "autoConfirmed": "Opção recomendada escolhida automaticamente — você pode mudar quando quiser",
+    "showDetails": "Mostrar mais",
+    "hideDetails": "Mostrar menos",
+    "orAnswerInChat": "Você também pode responder no chat"
   },
   "material": {
     "maxSelected": "Você pode selecionar no máximo {{count}} materiais por vez",
@@ -47,7 +55,9 @@
     "fileTooLargeWithLimit": "O arquivo é muito grande. Selecione um arquivo de no máximo {{limit}} MB.",
     "unsupportedType": "Tipo de arquivo não compatível. Selecione um arquivo compatível.",
     "quotaExceeded": "Limite de upload de materiais atingido.",
-    "storageFull": "O armazenamento está cheio. Não foi possível enviar este material."
+    "storageFull": "O armazenamento está cheio. Não foi possível enviar este material.",
+    "uploadFailedShort": "Falha no envio",
+    "retryFailed": "Não foi possível analisar novamente. Tente de novo."
   },
   "skill": {
     "listFailed": "Não foi possível carregar a lista de skills",
@@ -130,7 +140,15 @@
     "retryHint": "Envie outra mensagem para tentar de novo",
     "stopped": "Esta construção foi interrompida",
     "workerInterrupted": "Interrompido pelo reinício de um worker. Esta chamada não produziu resultado; o agente repetirá se necessário.",
-    "userStopped": "Interrompido pela parada. Esta chamada não produziu resultado."
+    "userStopped": "Interrompido pela parada. Esta chamada não produziu resultado.",
+    "retryOrNewChatHint": "Envie outra mensagem para tentar novamente, ou comece um novo chat se continuar falhando",
+    "contextCompacted": "As mensagens anteriores foram resumidas para continuar esta conversa",
+    "contextCompactedMeta": "Contexto: {{messagesBefore}} → {{messagesAfter}} mensagens · cerca de {{tokensBefore}} → {{tokensAfter}} tokens",
+    "contextSummaryFailed": "Esta conversa atingiu o limite de contexto e o resumo das mensagens anteriores falhou, então esta rodada foi interrompida",
+    "contextStillTooLarge": "Esta conversa é longa demais para o limite de contexto do modelo",
+    "contextNoBoundary": "Uma única mensagem ou anexo é grande demais para o limite de contexto do modelo",
+    "shortenOrNewChatHint": "Encurte a mensagem ou os anexos, ou comece um novo chat",
+    "contextBudgetInvalid": "O orçamento de contexto do modelo atual está configurado incorretamente. Este turno foi interrompido."
   },
   "tool": {
     "errorSeparator": ": ",
@@ -141,7 +159,8 @@
       "skills": "{{count}} skills",
       "running": "Em execução",
       "error": "Com erros",
-      "done": "Concluído"
+      "done": "Concluído",
+      "failed": "{{count}} com falha"
     },
     "section": {
       "input": "Entrada",
@@ -205,7 +224,16 @@
       "listFolderCourses": "Ver a biblioteca de salas",
       "createStage": "Criar sala",
       "renameStage": "Renomear sala",
-      "readStageOutline": "Ler a estrutura da sala"
+      "readStageOutline": "Ler a estrutura da sala",
+      "writeFile": "Write file",
+      "listFiles": "List project files",
+      "manageFile": "Manage project file",
+      "runBuild": "Run build",
+      "collectBuild": "Collect build result",
+      "readTeachingSkill": "Read teaching section",
+      "requestReview": "Ask for review",
+      "completeTeachingStage": "Complete teaching step",
+      "respondToLearner": "Answer your question"
     },
     "chip": {
       "seconds": "{{count}} s",
@@ -288,7 +316,9 @@
       "createStage": "Não foi possível criar a sala",
       "renameStage": "Não foi possível renomear a sala",
       "readStageOutline": "Não foi possível ler a estrutura da sala",
-      "generic": "A chamada do tool falhou"
+      "generic": "A chamada do tool falhou",
+      "interrupted": "Tool call interrupted",
+      "materialExtraction": "O processamento do material falhou"
     },
     "progress": {
       "scene": {

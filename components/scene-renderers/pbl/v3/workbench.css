@@ -1,0 +1,567 @@
+/* The transcript portal shares the workspace palette without size containment. */
+.pbl-workbench {
+  container-type: size;
+}
+.pbl-workbench,
+.pbl-history {
+  --background: #ffffff;
+  --foreground: #243248;
+  --card: #ffffff;
+  --card-foreground: #243248;
+  --popover: #ffffff;
+  --popover-foreground: #243248;
+  --muted: #edf2f7;
+  --muted-foreground: #607087;
+  --border: #dce3ec;
+  --input: #dce3ec;
+  --primary: #0b7a52;
+  --primary-foreground: #ffffff;
+  --accent: #e5f3ed;
+  --accent-foreground: #135d43;
+  --ring: #0b7a52;
+  --pbl-guidance: #6440bc;
+  --pbl-guidance-foreground: #ffffff;
+  --pbl-assistant-bubble: #f0f4f8;
+  --pbl-chrome: #f8fafc;
+}
+.dark .pbl-workbench,
+.dark .pbl-history {
+  color-scheme: dark;
+  --background: #111827;
+  --foreground: #dce4ef;
+  --card: #151d2b;
+  --card-foreground: #dce4ef;
+  --popover: #1a2332;
+  --popover-foreground: #dce4ef;
+  --muted: #223046;
+  --muted-foreground: #a4b0c2;
+  --border: #2b384c;
+  --input: #2b384c;
+  --primary: #3bf0a4;
+  --primary-foreground: #012417;
+  --accent: #153b30;
+  --accent-foreground: #63f5ba;
+  --ring: #3bf0a4;
+  --pbl-guidance: #baa4ff;
+  --pbl-guidance-foreground: #20123d;
+  --pbl-assistant-bubble: #202b3d;
+  --pbl-chrome: #151d2b;
+}
+.pbl-workbench .pbl-chrome {
+  background: var(--pbl-chrome);
+}
+
+/* Every pane in the workbench shares one chrome height, so their headers line up
+   across columns and stay the same height when a pane narrows or stacks. */
+.pbl-pane-header {
+  height: 36px;
+  min-height: 36px;
+  padding-block: 0;
+}
+
+/* Tabs scroll horizontally; the strip keeps its own scrollbar out of the chrome. */
+.pbl-tab-strip {
+  scrollbar-width: none;
+}
+.pbl-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* Fade only the edge where more tabs continue, so hidden overflow stays discoverable. */
+.pbl-tab-strip[data-overflow-start='true'] {
+  mask-image: linear-gradient(to right, transparent, #000 16px);
+}
+.pbl-tab-strip[data-overflow-end='true'] {
+  mask-image: linear-gradient(to left, transparent, #000 16px);
+}
+.pbl-tab-strip[data-overflow-start='true'][data-overflow-end='true'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 16px,
+    #000 calc(100% - 16px),
+    transparent
+  );
+}
+:is(.pbl-workbench, .pbl-history) .pbl-assistant-bubble {
+  background: var(--pbl-assistant-bubble);
+  font-size: var(--wb-text-base);
+}
+
+/* Reserve one gutter so the conversation does not shift as it grows. */
+.pbl-workbench .pbl-conversation-scroll {
+  scrollbar-gutter: stable;
+}
+
+/* Activity cards stay compact; prose retains extra breathing room on either side. */
+:is(.pbl-workbench, .pbl-history) .pbl-assistant-bubble > .pbl-teaching-prose:not(:first-child),
+:is(.pbl-workbench, .pbl-history) .pbl-assistant-bubble > .pbl-teaching-prose + * {
+  margin-block-start: 7px;
+}
+
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose {
+  --wb-h1: 20px;
+  --wb-h2: 20px;
+  --wb-h3: 16px;
+  line-height: 1.8;
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose p {
+  margin-block: 0 0.85em;
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose :is(h1, h2, h3, h4) {
+  margin-block: 1.5em 0.55em;
+  line-height: 1.45;
+  color: var(--foreground);
+  font-weight: 650;
+}
+/* Emphasis changes weight, never the body font size. */
+:is(.pbl-workbench, .pbl-history)
+  .pbl-teaching-prose
+  .wb-prose
+  :is(h1, h2, h3, h4, p[data-pbl-lead='true']):first-child {
+  margin-block-start: 0;
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose :is(ul, ol) {
+  margin-block: 0.6em 1em;
+  padding-inline-start: 1.45em;
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose li {
+  margin-block: 0.4em;
+  padding-inline-start: 0.15em;
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose li > p {
+  margin-block: 0;
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose blockquote {
+  margin-block: 1em;
+  padding: 0.75em 1em;
+  border-inline-start: 3px solid color-mix(in srgb, var(--primary) 60%, transparent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--primary) 7%, var(--background));
+  color: var(--foreground);
+}
+
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose :is(h1, h2) {
+  font-size: var(--wb-h2);
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose :is(h3, h4) {
+  font-size: var(--wb-h3);
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose :is(h5, h6) {
+  font-size: var(--wb-text-base);
+}
+:is(.pbl-workbench, .pbl-history) .pbl-teaching-prose .wb-prose > div > :last-child {
+  margin-block-end: 0;
+}
+
+.pbl-workbench .pbl-recovery-notice {
+  --pbl-recovery-ink: #92400e;
+  --pbl-recovery-surface: #fffbeb;
+  --pbl-recovery-line: #f2d49a;
+  --pbl-recovery-button: #92400e;
+  --pbl-recovery-button-ink: #ffffff;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  flex-shrink: 0;
+  margin: 10px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--pbl-recovery-line);
+  border-radius: 12px;
+  background: var(--pbl-recovery-surface);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.04);
+  color: var(--foreground);
+}
+.dark .pbl-workbench .pbl-recovery-notice {
+  --pbl-recovery-ink: #fcd58a;
+  --pbl-recovery-surface: #292319;
+  --pbl-recovery-line: #705833;
+  --pbl-recovery-button: #fcd58a;
+  --pbl-recovery-button-ink: #302311;
+}
+.pbl-workbench .pbl-recovery-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  align-self: flex-start;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--pbl-recovery-ink) 12%, transparent);
+  color: var(--pbl-recovery-ink);
+}
+.pbl-workbench .pbl-recovery-copy {
+  flex: 1 1 190px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+.pbl-workbench .pbl-recovery-copy h4 {
+  margin-bottom: 3px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--pbl-recovery-ink);
+}
+.pbl-workbench .pbl-recovery-hint {
+  margin-top: 3px;
+  color: var(--muted-foreground);
+}
+.pbl-workbench .pbl-recovery-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--pbl-recovery-button);
+  color: var(--pbl-recovery-button-ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pbl-workbench .pbl-recovery-action:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+.pbl-workbench .pbl-recovery-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pbl-workbench .pbl-task-area {
+  /* This flex area excludes the actual toolbar, notices and composer height. */
+  container-type: size;
+}
+.pbl-workbench :is(.pbl-project-overview, .pbl-advance-bar) {
+  --primary: var(--pbl-guidance);
+  --primary-foreground: var(--pbl-guidance-foreground);
+  --ring: var(--pbl-guidance);
+}
+.pbl-workbench .pbl-project-overview {
+  container: pbl-overview / inline-size;
+  width: 100%;
+  --pbl-overview-ink: #302a48;
+  --pbl-overview-muted: #6d6383;
+  --pbl-overview-accent: #7045bd;
+  --pbl-overview-surface: #f3edff;
+  --pbl-overview-surface-border: #cbb9e8;
+  overflow-wrap: anywhere;
+  color: var(--pbl-overview-ink);
+  border-color: #a780e6;
+  background: linear-gradient(135deg, #dfcff8, #dcdcf9 55%, #ccebf3);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    inset 0 0 20px rgb(162 111 244 / 0.12),
+    0 0 0 1px rgb(168 119 242 / 0.25),
+    0 0 16px rgb(151 92 240 / 0.36),
+    0 0 32px rgb(143 97 226 / 0.22),
+    8px 8px 30px rgb(78 193 219 / 0.2);
+}
+.pbl-workbench .pbl-project-overview::before {
+  content: '';
+  position: absolute;
+  inset: 0 12px auto;
+  height: 2px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, #a06aff, #aba0ff 60%, #7be2f2);
+  box-shadow: 0 0 10px rgb(166 124 255 / 0.7);
+  pointer-events: none;
+}
+.dark .pbl-workbench .pbl-project-overview {
+  --pbl-overview-ink: #eee9fb;
+  --pbl-overview-muted: #c7bddb;
+  --pbl-overview-accent: #c6acff;
+  --pbl-overview-surface: #44385e;
+  --pbl-overview-surface-border: #71608e;
+  border-color: #aa82eb;
+  background: linear-gradient(135deg, #382853, #2e2c4f 55%, #234354);
+  box-shadow:
+    inset 0 1px 0 rgb(232 214 255 / 0.3),
+    inset 0 0 22px rgb(172 114 255 / 0.12),
+    0 0 0 1px rgb(178 128 255 / 0.3),
+    0 0 18px rgb(159 96 255 / 0.48),
+    0 0 36px rgb(133 82 229 / 0.3),
+    8px 8px 32px rgb(67 192 217 / 0.2);
+}
+@container pbl-overview (min-width: 34rem) {
+  .pbl-overview-roadmap:not([data-single='true']) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.pbl-workbench .pbl-overview-accent {
+  color: var(--pbl-overview-accent);
+}
+.pbl-workbench .pbl-overview-label {
+  color: var(--pbl-overview-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pbl-workbench .pbl-overview-icon {
+  color: var(--pbl-overview-accent);
+  border-color: color-mix(in srgb, var(--pbl-overview-accent) 20%, transparent);
+  background: color-mix(in srgb, var(--pbl-overview-accent) 7%, transparent);
+}
+.pbl-workbench .pbl-overview-result p {
+  color: var(--pbl-overview-ink);
+}
+.pbl-workbench .pbl-overview-result,
+.pbl-workbench .pbl-overview-milestone {
+  border-color: var(--pbl-overview-surface-border);
+  background: var(--pbl-overview-surface);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.15);
+}
+.pbl-workbench .pbl-overview-result {
+  background: #e4d8fa;
+  border-color: #bca0df;
+}
+.dark .pbl-workbench .pbl-overview-result {
+  background: #55416f;
+  border-color: #9b7cba;
+}
+.pbl-workbench .pbl-overview-guide {
+  border-color: color-mix(in srgb, var(--pbl-overview-accent) 18%, transparent);
+}
+.pbl-workbench .pbl-overview-guide summary {
+  border-color: var(--pbl-overview-surface-border);
+  background: var(--pbl-overview-surface);
+}
+.pbl-workbench .pbl-overview-guide summary:hover {
+  border-color: var(--pbl-overview-accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--pbl-overview-accent) 20%, transparent);
+}
+.pbl-workbench .pbl-overview-disclosure {
+  color: var(--pbl-guidance-foreground);
+  background: var(--pbl-guidance);
+}
+.pbl-workbench .pbl-overview-guide summary:focus-visible {
+  outline: 2px solid var(--pbl-overview-accent);
+  outline-offset: 3px;
+}
+.pbl-workbench .pbl-milestone-summary {
+  border-color: color-mix(in srgb, var(--pbl-guidance) 25%, var(--border));
+  background: color-mix(in srgb, var(--pbl-guidance) 6%, var(--popover));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--pbl-guidance) 55%, transparent);
+}
+.pbl-workbench .pbl-milestone-caption {
+  color: var(--pbl-guidance);
+  background: color-mix(in srgb, var(--pbl-guidance) 12%, transparent);
+}
+.pbl-workbench .pbl-milestone-label {
+  color: var(--pbl-guidance);
+}
+.pbl-workbench .pbl-task-drawer {
+  /* Keep its close control inside the chat area, even in a short scene. */
+  max-height: min(560px, max(0px, calc(100cqh - 64px)));
+  transform-origin: bottom center;
+  animation: pbl-task-open 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes pbl-task-open {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pbl-workbench .pbl-task-drawer {
+    animation: none;
+  }
+}
+@container (max-width: 500px) {
+  .pbl-workbench .pbl-task-trigger .pbl-task-step,
+  .pbl-workbench .pbl-task-trigger .pbl-task-hint {
+    display: none;
+  }
+}
+/* OpenPBL's filled ready action, with a neutral unavailable state. */
+.pbl-workbench .pbl-stage-action {
+  cursor: pointer;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+.pbl-workbench .pbl-stage-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 85%, transparent);
+}
+.pbl-workbench .pbl-stage-action:disabled {
+  cursor: not-allowed;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--muted-foreground);
+  box-shadow: none;
+}
+/* The whole strip is the action. Its decorative layers never intercept input. */
+.pbl-workbench .pbl-advance-bar {
+  --pbl-advance-start: #e4d6fc;
+  --pbl-advance-middle: #d5dafa;
+  --pbl-advance-end: #cce8f3;
+  --pbl-advance-ink: #382453;
+  --pbl-advance-edge: #ae8adf;
+  position: relative;
+  isolation: isolate;
+}
+.dark .pbl-workbench .pbl-advance-bar {
+  --pbl-advance-start: #655885;
+  --pbl-advance-middle: #555f84;
+  --pbl-advance-end: #426878;
+  --pbl-advance-ink: #f5f0ff;
+  --pbl-advance-edge: #b9a0eb;
+}
+.pbl-workbench .pbl-advance-bar::before {
+  content: '';
+  position: absolute;
+  inset: 2px 8px -2px;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--primary);
+  filter: blur(10px);
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.pbl-workbench .pbl-advance-bar[data-ready='true']::before {
+  opacity: 0.35;
+}
+.pbl-workbench .pbl-advance-bar .pbl-stage-action:not(:disabled) {
+  position: relative;
+  overflow: hidden;
+  color: var(--pbl-advance-ink);
+  border-color: var(--pbl-advance-edge);
+  background: linear-gradient(
+    110deg,
+    var(--pbl-advance-start),
+    var(--pbl-advance-middle) 55%,
+    var(--pbl-advance-end)
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.35),
+    0 0 8px rgb(168 127 239 / 0.4),
+    0 0 20px rgb(155 119 228 / 0.28);
+  transition:
+    filter 160ms ease-out,
+    box-shadow 160ms ease-out;
+}
+.pbl-workbench .pbl-advance-bar .pbl-stage-action:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    0 0 10px rgb(168 127 239 / 0.5),
+    0 0 24px rgb(155 119 228 / 0.35);
+}
+.pbl-workbench .pbl-advance-bar .pbl-stage-action:active:not(:disabled) {
+  filter: brightness(0.97);
+}
+.pbl-workbench .pbl-advance-bar .pbl-stage-action::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 38%;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.18), transparent);
+  transform: translateX(-150%) skewX(-18deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pbl-workbench .pbl-advance-bar[data-attention='true'] {
+    animation: pbl-advance-float 2.8s ease-in-out infinite;
+  }
+  .pbl-workbench .pbl-advance-bar[data-attention='true']::before {
+    animation: pbl-advance-glow 2.8s ease-in-out infinite;
+  }
+  .pbl-workbench .pbl-advance-bar[data-attention='true'] .pbl-stage-action::after {
+    animation: pbl-advance-sheen 3.8s ease-in-out infinite;
+  }
+}
+@keyframes pbl-advance-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes pbl-advance-glow {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+  50% {
+    opacity: 0.46;
+  }
+}
+@keyframes pbl-advance-sheen {
+  0%,
+  12% {
+    transform: translateX(-150%) skewX(-18deg);
+  }
+  58%,
+  100% {
+    transform: translateX(420%) skewX(-18deg);
+  }
+}
+.pbl-workbench button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@container (max-width: 850px) {
+  .pbl-workbench .pbl-environment-label {
+    display: none;
+  }
+}
+
+@container (max-width: 560px) {
+  .pbl-workbench .pbl-topbar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .pbl-workbench .pbl-topbar h2 {
+    flex-basis: 100%;
+  }
+}
+
+/* Keep Monaco's cursor-side lock message compact and consistent with the workbench. */
+.pbl-workbench .monaco-editor-overlaymessage .message {
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 6px 9px;
+  border-color: var(--border);
+  border-radius: 6px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+/* Version-matched AI edits; selection itself remains Monaco's native selection. */
+.pbl-change-added {
+  background-color: rgb(34 197 94 / 15%);
+}
+.pbl-change-modified {
+  background-color: rgb(34 197 94 / 10%);
+}
+.pbl-change-gutter-added,
+.pbl-change-gutter-modified {
+  border-left: 3px solid #22c55e;
+}
+.pbl-change-gutter-added::after {
+  content: '+';
+  color: #16a34a;
+  font-weight: 700;
+  padding-left: 2px;
+}
+.pbl-change-gutter-modified::after {
+  content: '~';
+  color: #16a34a;
+  font-weight: 700;
+  padding-left: 2px;
+}
+.pbl-change-gutter-deleted {
+  border-top: 3px solid #ef4444;
+}

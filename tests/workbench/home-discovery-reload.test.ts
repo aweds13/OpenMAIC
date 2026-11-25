@@ -12,6 +12,11 @@ const mocks = vi.hoisted(() => ({
   deleteStageData: vi.fn(async () => undefined),
   setStageFolder: vi.fn(async () => undefined),
   toastError: vi.fn(),
+  gateOpen: true,
+}));
+
+vi.mock('@/components/access-code-guard', () => ({
+  useAccessCodeGateOpen: () => mocks.gateOpen,
 }));
 
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError, success: vi.fn() } }));
@@ -42,7 +47,6 @@ vi.mock('@/lib/utils/folder-name-validation', () => ({
   displayNameWidth: (value: string) => value.length,
   FOLDER_NAME_MAX_WIDTH: 30,
 }));
-vi.mock('@/components/discovery/folder-dialogs', () => ({ NewFolderDialog: () => null }));
 vi.mock('@/lib/import/use-import-classroom', () => ({
   useImportClassroom: () => ({
     importing: false,
@@ -75,6 +79,7 @@ const course = { id: 'stage-1', name: 'Generated course', updatedAt: 1 };
 
 beforeEach(() => {
   discovery = null;
+  mocks.gateOpen = true;
   mocks.listStages.mockReset().mockResolvedValue([course]);
   mocks.listFolders.mockClear();
   mocks.deleteStageData.mockClear();
@@ -151,5 +156,63 @@ describe('home discovery authoritative reloads', () => {
 
     expect(mocks.listFolders).toHaveBeenCalledTimes(3);
     expect(discovery?.folders).toEqual(latest);
+  });
+
+  it('reports the folder list as loading until it lands, apart from the courses', async () => {
+    const folders = deferred<Array<{ id: string; name: string }>>();
+    mocks.listFolders.mockReturnValueOnce(folders.promise);
+
+    await mountDiscovery();
+    expect(discovery?.state).toBe('ready');
+    expect(discovery?.foldersState).toBe('loading');
+
+    await act(async () => folders.resolve([{ id: 'f1', name: 'Math' }]));
+    expect(discovery?.foldersState).toBe('ready');
+  });
+
+  it('reports a failed first folder load, and keeps ready on a failed background one', async () => {
+    mocks.listFolders.mockRejectedValueOnce(new Error('down'));
+    await mountDiscovery();
+    expect(discovery?.foldersState).toBe('error');
+
+    await act(async () => discovery?.reload());
+    expect(discovery?.foldersState).toBe('ready');
+
+    mocks.listFolders.mockRejectedValueOnce(new Error('transient'));
+    await act(async () => discovery?.reload());
+    expect(discovery?.foldersState).toBe('ready');
+  });
+});
+
+describe('home discovery behind an access-code gate', () => {
+  it('does not load or report a persistence error while the gate is closed', async () => {
+    mocks.gateOpen = false;
+    mocks.listStages.mockRejectedValue(new Error('HTTP 401'));
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const render = () =>
+      root?.render(
+        createElement(Harness, {
+          onDiscovery: (value) => {
+            discovery = value;
+          },
+        }),
+      );
+    await act(async () => render());
+
+    expect(mocks.listStages).not.toHaveBeenCalled();
+    expect(mocks.listFolders).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(discovery?.state).toBe('loading');
+
+    mocks.gateOpen = true;
+    mocks.listStages.mockReset().mockResolvedValue([course]);
+    await act(async () => render());
+
+    expect(mocks.listStages).toHaveBeenCalledTimes(1);
+    expect(discovery?.state).toBe('ready');
+    expect(discovery?.classrooms).toEqual([course]);
+    expect(mocks.toastError).not.toHaveBeenCalled();
   });
 });

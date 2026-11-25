@@ -2,12 +2,6 @@ import type { NextConfig } from 'next';
 import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 
 const nextConfig: NextConfig = {
-  /**
-   * 允许 `127.0.0.1` 访问 dev server 自己的资源。Next 16 的 dev server 默认只允许
-   * localhost，会把其它来源对自己 `/_next/*` 的请求当跨域拦掉 —— 页面能打开、JS 分块
-   * 全 403，看起来正常但所有按钮都没反应。只在开发期有意义，生产构建不看这个键。
-   */
-  allowedDevOrigins: ['127.0.0.1', 'localhost'],
   // Keep Next dev from creating or rewriting repository agent instructions.
   agentRules: false,
   output: 'standalone',
@@ -20,6 +14,7 @@ const nextConfig: NextConfig = {
       'lib/server/agent-runtime/import-pptx-worker.mjs',
       'skills/openmaic/**',
       'skills/agent-runtime/**',
+      'skills/classroom/**',
       // Loaded through a runtime-only `import('undici')` (see the LLM
       // dispatcher in lib/ai/providers.ts and the Google proxy transport), so
       // the output tracer never sees it and standalone builds ship without it.
@@ -57,6 +52,24 @@ const nextConfig: NextConfig = {
     // egress cannot resolve their SDK in the shipped deployment.
     '@aws-sdk/client-s3',
     '@aws-sdk/s3-request-presigner',
+    // Native canvas backend for server-side PDF page rendering (DeepSeek OCR
+    // figure crops). Its platform binary is a `.node` file that cannot be
+    // bundled; it is loaded natively from node_modules instead.
+    '@napi-rs/canvas',
+  ],
+  // Testing the app on a phone over the LAN: Next serves dev resources only to
+  // the origins listed here, and a page from another host renders but cannot
+  // hydrate — it looks like a page whose buttons do nothing. Set
+  // `OPENMAIC_DEV_ORIGINS=192.168.1.5,dev.example.com` for those sessions;
+  // unset in a normal `pnpm dev`, where the default (localhost) is right.
+  // The local names stay on the list: setting the variable must ADD a phone's
+  // address, never take the developer's own away.
+  allowedDevOrigins: [
+    'localhost',
+    '127.0.0.1',
+    ...[
+      ...(process.env.OPENMAIC_DEV_ORIGINS ?? '').split(',').map((origin) => origin.trim()),
+    ].filter(Boolean),
   ],
   experimental: {
     proxyClientMaxBodySize: '200mb',

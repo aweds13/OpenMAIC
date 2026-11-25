@@ -145,7 +145,8 @@
       "discussionDismiss": "Schließen",
       "linkedFilesUnavailable": "Einige Bilder, Sprecherton- oder Videodateien konnten nicht geladen werden. Wenn Sie classroom.html direkt aus dem ZIP geöffnet haben, entpacken Sie zuerst das gesamte ZIP.",
       "scriptRequired": "Dieser Kurs benötigt JavaScript. Öffne diese Datei in einem Webbrowser mit aktiviertem JavaScript, z. B. Safari oder Chrome.",
-      "startFailed": "Dieser Kurs konnte nicht gestartet werden. Versuche, die Datei in einem anderen Webbrowser wie Safari oder Chrome zu öffnen."
+      "startFailed": "Dieser Kurs konnte nicht gestartet werden. Versuche, die Datei in einem anderen Webbrowser wie Safari oder Chrome zu öffnen.",
+      "interactiveMoreBelow": "Weiter unten geht es weiter"
     },
     "scriptMd": "Skript herunterladen (.md)",
     "scriptMdDesc": "Erzähltext als Markdown",
@@ -213,7 +214,11 @@
       "pblDesc": "Projektbasierte Aktivität mit KI-Rollen. Online öffnen oder den QR-Code scannen.",
       "pblGoal": "Ziel: {{goal}}",
       "pblMilestoneCount": "Meilensteine: {{count}}"
-    }
+    },
+    "viewerCopyHint": "Eine bearbeitbare Kopie? Mit „{{zip}}“ herunterladen und dann unter „{{courses}}“ über „{{importLabel}}“ importieren.",
+    "videoUploading": "Videoprojekt wird hochgeladen...",
+    "videoQueued": "Warte in der Rendering-Warteschlange...",
+    "videoQueuePosition": "In der Warteschlange, Position {{position}}"
   },
   "import": {
     "classroom": "Kurs importieren",
@@ -248,7 +253,9 @@
       "toolCallingRequired": "Der Klassenzimmer-Chat benötigt ein Modell, das Tool-Aufrufe unterstützt. Wählen Sie unter Einstellungen → Kursmodell-Konfiguration ein solches Modell für „Klassenzimmer“ aus. Falls diese Einstellung administrativ verwaltet wird, wenden Sie sich an die Administration.",
       "geminiNativeRequired": "Für die Interaktion mit Gemini wird Google nativ benötigt. Fügen Sie Google (Preset google) unter Einstellungen → Modelldienste hinzu und wählen Sie es für „Klassenzimmer“ unter „Kursmodell-Konfiguration“. Bei verwalteter Konfiguration wenden Sie sich an die Administration.",
       "emptyAgentResponses": "Die Agenten haben leere Antworten zurückgegeben; die Diskussion wurde beendet. Versuche es erneut oder prüfe deine Modelleinstellungen.",
-      "streamInterrupted": "Der Stream wurde unerwartet beendet; die Diskussion konnte nicht abgeschlossen werden. Versuche es erneut."
+      "streamInterrupted": "Der Stream wurde unerwartet beendet; die Diskussion konnte nicht abgeschlossen werden. Versuche es erneut.",
+      "teacherNoResponse": "Die Lehrkraft hat nicht geantwortet. Bitte versuchen Sie es erneut.",
+      "teacherIncomplete": "Die Lehrkraft konnte die Antwort nicht abschließen. Bitte versuchen Sie es erneut."
     },
     "elementReference": {
       "whiteboardChanged": "Das referenzierte Whiteboard-Element wurde geändert oder ist nicht mehr verfügbar. Wählen Sie es erneut aus oder entfernen Sie die Referenz vor dem Senden.",
@@ -287,7 +294,8 @@
       "qa": "Q&A",
       "discussion": "Disk.",
       "lecture": "Vortrag"
-    }
+    },
+    "interactiveMoreBelow": "Weiter unten geht es weiter"
   },
   "actions": {
     "names": {
@@ -355,7 +363,22 @@
     "proModeDisabledHint": "Diese Seite kann nicht bearbeitet werden — öffne eine Kursfolie, um sie im Pro-Modus zu bearbeiten.",
     "wheelPageTurn": "Mausrad blättert um",
     "wheelPageTurnOff": "Mausrad-Blättern ausschalten",
-    "wheelPageTurnOn": "Mausrad-Blättern einschalten"
+    "wheelPageTurnOn": "Mausrad-Blättern einschalten",
+    "editDisabledHint": "Diese Seite kann nicht bearbeitet werden — öffne eine Kursfolie, um sie zu bearbeiten.",
+    "editToggle": "Bearbeiten",
+    "openInWorkspace": "Im Arbeitsbereich öffnen",
+    "openInWorkspaceHint": "Im Arbeitsbereich öffnen, um im Gespräch an diesem Kurs weiterzuarbeiten",
+    "makeOwnCourse": "Eigenen Kurs erstellen",
+    "makeOwnCourseHint": "Im Arbeitsbereich einen eigenen Kurs erstellen",
+    "dock": {
+      "collapse": "Leiste einklappen",
+      "expand": "Leiste ausklappen",
+      "resize": "Leistenhöhe ändern"
+    },
+    "chatPanel": {
+      "expand": "Gesprächsbereich einblenden",
+      "collapse": "Gesprächsbereich ausblenden"
+    }
   },
   "edit": {
     "proMode": "Pro",
@@ -585,7 +608,19 @@
       "whiteboardLatex": "Formel",
       "whiteboardTable": "Tabelle",
       "action": "Aktion",
-      "discussion": "Diskussionsrunde"
+      "discussion": "Diskussionsrunde",
+      "playVideo": "Video abspielen",
+      "whiteboardChart": "Diagramm",
+      "whiteboardLine": "Linie zeichnen",
+      "whiteboardClear": "Tafel leeren",
+      "whiteboardDelete": "Element entfernen",
+      "whiteboardClose": "Tafel schließen",
+      "whiteboardCode": "Codeblock",
+      "whiteboardEditCode": "Code bearbeiten",
+      "widgetHighlight": "Aktivität hervorheben",
+      "widgetSetState": "Aktivitätsstatus setzen",
+      "widgetAnnotation": "Aktivität annotieren",
+      "widgetReveal": "In Aktivität einblenden"
     },
     "element": {
       "toolbar": "Elementwerkzeuge",
@@ -669,11 +704,14 @@
       "addDiscussionExists": "Pro Szene ist nur eine Diskussionsrunde möglich",
       "discussionTerminal": "ENDE",
       "discussionTerminalHint": "Eine Diskussionsrunde bleibt am Ende der Szene (eine pro Szene)",
-      "discussionTopicPlaceholder": "Diskussionsthema (erforderlich)",
-      "discussionPromptPlaceholder": "Anweisung (optional)",
+      "discussionTopicPlaceholder": "Erforderlich",
+      "discussionPromptPlaceholder": "Optional",
       "discussionAgent": "Startrolle",
       "discussionAgentUnset": "Nicht festgelegt",
-      "addAction": "Aktion hinzufügen"
+      "addAction": "Aktion hinzufügen",
+      "discussionTopicLabel": "Diskussionsthema",
+      "discussionPromptLabel": "Anweisung",
+      "fieldState": "Status"
     },
     "picker": {
       "title": "Aktion einfügen",
@@ -769,6 +807,9 @@
     "dock": {
       "elementRefHint": "Elementverweise – Elemente für die nächste Nachricht auswählen",
       "globalTools": "Globale Werkzeuge"
+    },
+    "courseHistory": {
+      "stepExpired": "Dieser Schritt kann nicht mehr rückgängig gemacht werden"
     }
   },
   "classroomComplete": {
@@ -801,7 +842,11 @@
     "restore": "Wiederherstellen",
     "noHistory": "Noch kein Verlauf",
     "restored": "Whiteboard wiederhergestellt",
-    "elementCount": "Elemente: {{count}}"
+    "elementCount": "Elemente: {{count}}",
+    "mobileEmpty": "Noch kein Tafelanschrieb",
+    "mobileEmptyHint": "Herleitungen, Formeln und Skizzen der Lehrkraft erscheinen hier",
+    "zoomIn": "Vergrößern",
+    "zoomOut": "Verkleinern"
   },
   "quiz": {
     "title": "Quiz",
@@ -1165,7 +1210,8 @@
     "runOutlining": "Gliederung wird erstellt…",
     "runAwaitingConfirmation": "Wartet auf Bestätigung",
     "runGenerating": "Wird generiert {{completed}}/{{total}}",
-    "runPaused": "Pausiert"
+    "runPaused": "Pausiert",
+    "saveRefused": "Deine Änderungen wurden nicht gespeichert: Du darfst diesen Kurs nicht bearbeiten."
   },
   "upload": {
     "pdfSizeLimit": "Unterstützt PDF-Dateien bis zu 50 MB",
@@ -1300,7 +1346,8 @@
     "runLoadFailed": "Diese Generierung konnte nicht geladen werden",
     "runLoadRetrying": "Neuer Versuch…",
     "mediaGenerationFailed": "Mediengenerierung fehlgeschlagen",
-    "mediaGenerationDisabled": "Generierung deaktiviert"
+    "mediaGenerationDisabled": "Generierung deaktiviert",
+    "qwenCloneNewGenerationHint": "Diese gespeicherte Stimme muss erneut geklont werden. Laden Sie in den Stimmeinstellungen eine geeignete Referenzaufnahme hoch, wählen Sie die neue Stimme und starten Sie eine neue Generierung. Ein erneuter Versuch dieses pausierten Laufs verwendet weiterhin die ursprüngliche Stimme."
   },
   "settings": {
     "title": "Einstellungen",
@@ -1508,7 +1555,7 @@
     "qwenCloneVoicesTitle": "Qwen TTS Cloned Voices",
     "qwenCloneUploadShort": "Hochladen",
     "qwenCloneRefText": "Enter the verbatim transcript of the reference audio",
-    "qwenCloneRefAudioHint": "Use a clean 1–60 second voice sample. A 10–20 second sample is recommended; audio is converted to 24 kHz mono PCM WAV.",
+    "qwenCloneRefAudioHint": "Use a clean 5–60 second voice sample (10–20 seconds recommended). Audio is converted to 24 kHz mono PCM WAV.",
     "qwenCloneSaved": "Qwen cloned voice registered and saved",
     "qwenCloneSaveFailed": "Failed to register the Qwen cloned voice",
     "qwenCloneUnsupported": "Recording is not supported in this browser; upload an audio file instead.",
@@ -1881,7 +1928,12 @@
       "applyTitle": "Empfohlene Einrichtung dieses Plans verwenden?",
       "applyBody": "{{name}} empfiehlt eigene Modelle für diese Schritte. Damit wird ersetzt, was jeder Schritt jetzt verwendet, Serverstandards eingeschlossen:",
       "applyKeep": "Aktuelle Einrichtung behalten",
-      "applyRecommended": "Empfehlung des Plans verwenden"
+      "applyRecommended": "Empfehlung des Plans verwenden",
+      "region": "Region",
+      "regionHintDomestic": "Für Konten auf der Website für Festlandchina",
+      "regionHintInternational": "Für Konten auf der internationalen Website",
+      "capAsr": "Spracherkennung",
+      "capDocument": "Dokumentanalyse"
     },
     "skills": {
       "nav": "Skills",
@@ -2020,7 +2072,7 @@
       "international": "International"
     },
     "providerName": "Name",
-    "providerNamePlaceholder": "z. B. Mein OpenAI-Proxy",
+    "providerNamePlaceholder": "z. B. my-relay",
     "providers": "LLM",
     "requestUrl": "Anfrage-URL",
     "reset": "Zurücksetzen",
@@ -2067,7 +2119,7 @@
       "showKey": "Schlüssel anzeigen",
       "hideKey": "Schlüssel ausblenden",
       "inUse": "In Verwendung",
-      "modelFromCatalogue": "Name, Fähigkeiten und Kontextfenster des Modells stammen aus dem integrierten Katalog.",
+      "modelFromCatalogue": "Name und Fähigkeiten des Modells stammen aus dem integrierten Katalog.",
       "modelWhenInUse": "Wird verwendet, sobald dieser Dienst in der Kursmodell-Konfiguration ausgewählt ist.",
       "planServer": "Vom Server konfiguriert",
       "providerIdHint": "Gespeichert als „{{id}}“",
@@ -2075,7 +2127,8 @@
       "notNarration": "Dieser Dienst ist nicht die Sprachausgabe des Arbeitsbereichs.",
       "useForNarration": "Für die Sprachausgabe verwenden",
       "fetchNotSaved": "Die Modelle wurden gefunden, konnten aber nicht gespeichert werden. Versuchen Sie es erneut.",
-      "regionalEndpointHint": "Azure Speech akzeptiert nur den offiziellen Endpunkt der Region Ihrer Ressource: {{template}}."
+      "regionalEndpointHint": "Azure Speech akzeptiert nur den offiziellen Endpunkt der Region Ihrer Ressource: {{template}}.",
+      "providerNameNeedsLatin": "Der Name braucht mindestens einen Buchstaben a–z oder eine Ziffer, um als ID gespeichert zu werden."
     },
     "modelSettings": {
       "card": {
@@ -2205,6 +2258,10 @@
         "webFetch": {
           "name": "Webseiten abrufen",
           "desc": "Lässt den Agent in der Sitzung zugelassene Webseiten lesen."
+        },
+        "materialChapters": {
+          "name": "Kapitelerkennung",
+          "desc": "Erkennt Kapitel und Abschnitte in langen Dokumenten."
         }
       },
       "source": {
@@ -2220,7 +2277,9 @@
           "search": "Suche",
           "fetch": "Abruf",
           "image": "Bild",
-          "video": "Video"
+          "video": "Video",
+          "parse": "Analyse",
+          "chapters": "Kapitel"
         }
       },
       "empty": {
@@ -2255,7 +2314,20 @@
     "webFetchSettings": "Webseiten abrufen",
     "webFetchHint": "Wählen Sie, wie Webseiten gelesen werden. Gehostete Dienste erhalten nur öffentliche URLs, die in der Sitzung zugelassen sind. Ergebnisse bleiben nicht vertrauenswürdig; bei Fehlern wird der Dienst nicht gewechselt.",
     "webFetchApiKey": "API-Schlüssel",
-    "webFetchSharedKeyHint": "Dieser Schlüssel wird auch für den Chat mit diesem Anbieter verwendet. Änderungen oder das Entfernen wirken sich auf den Chat aus."
+    "webFetchSharedKeyHint": "Dieser Schlüssel wird auch für den Chat mit diesem Anbieter verwendet. Änderungen oder das Entfernen wirken sich auf den Chat aus.",
+    "providerXiaomiTTS": "Xiaomi MiMo TTS",
+    "providerXiaomiASR": "Xiaomi MiMo ASR",
+    "providerDeepSeekTTS": "DeepSeek TTS",
+    "providerDeepSeekASR": "DeepSeek ASR",
+    "qwenCloneMigrationHint": "Diese gespeicherte Stimme muss erneut geklont werden. Laden Sie das Referenzaudio in den Stimmeinstellungen hoch.",
+    "qwenCloneNeedsReclone": "Erneut klonen",
+    "qwenCloneRecloneRequired": "Diese gespeicherte Stimme ist mit dem aktuellen Klonmodell nicht kompatibel. Laden Sie ihr Referenzaudio erneut hoch, um sie neu zu klonen.",
+    "contextWindowTokens": "Kontextfenster (Tokens)",
+    "contextWindowTokensPlaceholder": "z. B. 1000000",
+    "contextWindowHint": "Optional. Gilt nur für Modelle, die der integrierte Katalog nicht kennt; Verdichtung und Kontextbudget-Prüfung planen damit. Leer lassen für den Standardwert.",
+    "contextWindowInvalid": "Geben Sie eine positive ganze Anzahl an Tokens ein, oder lassen Sie das Feld leer.",
+    "autoConfirmRecommended": "Empfohlene Antworten automatisch bestätigen",
+    "autoConfirmRecommendedDesc": "Wenn der Agent eine Frage mit einer empfohlenen Option stellt, wird sie nach einem kurzen Countdown gewählt, falls du nicht reagierst. Jede Interaktion stoppt den Countdown."
   },
   "workspace": {
     "batchDownload": {
@@ -2326,6 +2398,11 @@
           "description": "Dieses PDF hat {{pages}} Seiten und überschreitet das Analyselimit von {{maxPages}} Seiten. Teilen Sie es auf und laden Sie die Teile hoch, oder laden Sie nur die benötigten Kapitel hoch.",
           "descriptionWithoutCount": "Dieses PDF überschreitet das Analyselimit von {{maxPages}} Seiten. Teilen Sie es auf und laden Sie die Teile hoch, oder laden Sie nur die benötigten Kapitel hoch.",
           "descriptionWithoutLimit": "Dieses PDF hat mehr Seiten, als der Analysedienst verarbeitet. Teilen Sie es auf und laden Sie die Teile hoch, oder laden Sie nur die benötigten Kapitel hoch."
+        },
+        "pages_failed": {
+          "label": "PDF-Seiten konnten nicht analysiert werden",
+          "description": "Die Analyse der PDF-Seiten {{firstPage}}–{{lastPage}} ist fehlgeschlagen. Dieses Material kann daher noch nicht gelesen werden. Versuche es später erneut.",
+          "descriptionWithoutCount": "Die Analyse einiger PDF-Seiten ist fehlgeschlagen. Dieses Material kann daher noch nicht gelesen werden. Versuche es später erneut."
         }
       },
       "status": {
@@ -2486,7 +2563,8 @@
       "running": "Running",
       "succeeded": "Ready",
       "failed": "Needs attention",
-      "cancelled": "Stopped"
+      "cancelled": "Stopped",
+      "awaitingAnswer": "Wartet auf deine Antwort"
     },
     "backToWorkspace": "Back to workspace",
     "searchPlaceholder": "Filter by name",
@@ -2539,7 +2617,182 @@
     "courseTabsAria": "Open courses",
     "courseTabClose": "Close tab: {{name}}",
     "courseTabRunning": "Generating",
-    "foldersUnavailable": "Ordner sind in dieser Version nicht verfügbar"
+    "foldersUnavailable": "Ordner sind in dieser Version nicht verfügbar",
+    "courseLinkOpen": "Öffnen",
+    "editGuide": "Bearbeitungshilfe",
+    "talkAboutCourse": "Mit KI bearbeiten",
+    "talkAboutCourseHint": "Ein neues Gespräch über diesen Kurs beginnen",
+    "composer": {
+      "attach": "Attach material",
+      "mentionCourse": "引用课堂",
+      "mentionCourseOrMaterial": "Auf einen Kursraum oder ein Material der Wissensbasis verweisen",
+      "loadSkill": "加载 skill",
+      "skillMenuTitle": "选择课程设计技能",
+      "skillsLoading": "正在加载 skill…",
+      "noSkillsAvailable": "暂无可用 skill",
+      "userSkillsGroup": "我的 Skill",
+      "builtinSkillsGroup": "内置 Skill",
+      "skillsLoadFailed": "Skill 加载失败，点击重试",
+      "retrySkills": "重试",
+      "noSkillMatch": "没有匹配“{{query}}”的 Skill",
+      "launchPlaceholder": "Describe the learning experience you want to create",
+      "launchSend": "Start build"
+    },
+    "nav": {
+      "search": "Suchen",
+      "myCourses": "Meine Kurse"
+    },
+    "search": {
+      "placeholder": "Chats, Kurse und Materialien durchsuchen",
+      "recentChats": "Letzte Chats",
+      "recentCourses": "Letzte Kurse",
+      "courses": "Kurse",
+      "materials": "Materialien",
+      "actions": "Schnellaktionen",
+      "searching": "Suche läuft…",
+      "empty": "Keine Treffer für „{{query}}“",
+      "materialsFailed": "Die Wissensdatenbank konnte nicht durchsucht werden",
+      "themeAction": "Design: {{name}}",
+      "languageAction": "Sprache: {{name}}"
+    },
+    "account": {
+      "signIn": "Anmelden",
+      "menu": "Konto und Einstellungen",
+      "profileSaved": "Gespeichert",
+      "language": "Sprache",
+      "about": "Über OpenMAIC",
+      "aboutBody": "Eine Open-Source-Plattform, die jedes Thema in ein interaktives Klassenzimmer mit KI-Lehrkräften und -Mitschülern verwandelt. Veröffentlicht unter der MIT-Lizenz.",
+      "viewOnGithub": "Auf GitHub ansehen",
+      "docs": "Dokumentation",
+      "signOut": "Abmelden",
+      "onboarding": "Erste Schritte"
+    },
+    "coursesPage": {
+      "searchPlaceholder": "Meine Kurse durchsuchen",
+      "results": "Suchergebnisse",
+      "allCourses": "Alle Kurse",
+      "emptyHint": "Beschreibe auf der Startseite ein Thema, dann erscheint hier dein erster Kurs.",
+      "makeCourse": "Kurs erstellen",
+      "pin": "Oben anheften",
+      "unpin": "Lösen",
+      "pinned": "Angeheftet"
+    },
+    "fullscreen": {
+      "expand": "Vollbild",
+      "collapse": "Vollbild beenden (Esc)"
+    },
+    "onboarding": {
+      "paneTitle": "Lernen oder bearbeiten",
+      "paneLearn": "Lernen: Die KI-Lehrkraft führt durch den Kurs, frag jederzeit.",
+      "paneEdit": "Bearbeiten: Seiten direkt ändern.",
+      "paneChat": "Oder bitte im Chat, z. B. „mach Seite 2 einfacher“.",
+      "gotIt": "Verstanden"
+    },
+    "tour": {
+      "skip": "Überspringen",
+      "prev": "Zurück",
+      "next": "Weiter",
+      "done": "Selbst eingeben",
+      "count": "{{index}} / {{total}}",
+      "openGuide": "Probekurs starten",
+      "welcome": {
+        "title": "Willkommen bei OpenMAIC",
+        "body": "Sag, was du lernen willst, und OpenMAIC macht daraus einen interaktiven Kurs mit KI-Lehrkraft und Mitlernenden."
+      },
+      "start": {
+        "title": "Hier geht es los",
+        "body": "„Neuer Chat“ startet einen neuen Kurs. Suche (⌘K) findet Kurse, Chats und Materialien."
+      },
+      "courses": {
+        "title": "Der Probekurs",
+        "body": "Auch dieser 5-Minuten-Kurs ist mit OpenMAIC gemacht. Öffne ihn und sieh, wo Unterricht stattfindet."
+      },
+      "library": {
+        "title": "Wissensdatenbank",
+        "body": "Handouts und PDFs einmal hochladen und in jedem Kurs verwenden."
+      },
+      "conversations": {
+        "title": "Chats",
+        "body": "Jeder Kurs entsteht in einem Chat. Um ihn zu ändern, frag in diesem Chat."
+      },
+      "mode": {
+        "title": "Lernen oder bearbeiten",
+        "body": "Lernen: Kurs mit der KI-Lehrkraft. Bearbeiten: Seite für Seite ändern."
+      },
+      "dock": {
+        "title": "Der Unterricht",
+        "body": "Abspielen, blättern, jederzeit die KI-Lehrkraft fragen; Mitlernende diskutieren mit."
+      },
+      "chat": {
+        "title": "Per Chat ändern",
+        "body": "Sag im Chat daneben einfach „mach Seite 2 einfacher“, und die KI ändert den Kurs."
+      },
+      "account": {
+        "title": "Konto und Einstellungen",
+        "body": "Profil, Einstellungen, Sprache und Design – und diese Einführung zum erneuten Ansehen."
+      },
+      "try": {
+        "title": "Jetzt ausprobieren",
+        "body": "Gib ein Thema ein oder wähle ein Beispiel, um sofort zu starten.",
+        "attach": "Material: Handout hochladen und den Kurs darauf aufbauen",
+        "mention": "Verweis: @ einen Kurs oder ein Material der Wissensdatenbank",
+        "skill": "Skills: einen Unterrichtsstil wählen, z. B. Deep Interactive"
+      },
+      "examples": {
+        "sky": {
+          "label": "Warum ist der Himmel blau?",
+          "prompt": "Warum ist der Himmel blau? Erkläre es mit Dingen aus dem Alltag"
+        },
+        "interest": {
+          "label": "Wie Zinseszins funktioniert",
+          "prompt": "Erkläre mit Alltagsbeispielen, wie Zinseszins funktioniert"
+        },
+        "teach": {
+          "label": "Unterrichten: Pythagoras, Klasse 8",
+          "prompt": "Eine Stunde zum Satz des Pythagoras für die 8. Klasse, mit einem kurzen Quiz am Ende"
+        }
+      },
+      "coursesNav": {
+        "title": "Meine Kurse",
+        "body": "Hier liegen deine fertigen Kurse. Klick einmal darauf."
+      },
+      "openLook": "Öffnen",
+      "edit": {
+        "canvas": {
+          "title": "Die Seite",
+          "body": "Klick auf Text, Bilder oder Formen, um sie zu ändern; ziehen zum Verschieben oder Skalieren."
+        },
+        "pages": {
+          "title": "Seiten",
+          "body": "Hier die Seitenliste öffnen: Seiten hinzufügen, per Ziehen umsortieren, löschen."
+        },
+        "bar": {
+          "title": "Die Steuerleiste",
+          "body": "Aktion hinzufügen, Sprechertext vertonen, blättern und Seiten hinzufügen, Lehrkraft und Mitlernende festlegen; rechts Elemente für die KI markieren."
+        },
+        "timeline": {
+          "title": "Die Aktionsspur",
+          "body": "Jede Karte ist eine Aktion: Erklärung, Spotlight, Diskussion. Ziehen zum Umsortieren, Klicken zum Bearbeiten."
+        },
+        "dock": {
+          "title": "Das Dock",
+          "body": "Am oberen Rand ziehen zum Anpassen der Höhe, oder einklappen für mehr Platz."
+        },
+        "learn": {
+          "title": "Vorschau",
+          "body": "Wechsle zurück zu „Lernen“, um den Kurs wie Lernende zu sehen."
+        },
+        "chat": {
+          "title": "Die KI fragen",
+          "body": "Lieber nicht von Hand? Sag es im Chat, z. B. „füge Seite 2 eine Übung hinzu“."
+        }
+      },
+      "editDone": "Bearbeiten"
+    },
+    "mobile": {
+      "openMenu": "Navigation öffnen",
+      "closeMenu": "Navigation schließen"
+    }
   },
   "profile": {
     "title": "Profil",
@@ -2648,5 +2901,755 @@
     "minutes": "{{minutes}} min",
     "detail": "{{events}} events · {{pages}} pages · {{answers}} submitted · {{hints}} hints",
     "open": "in progress"
+  },
+  "classroomEnd": {
+    "close": "Zurück zur letzten Seite",
+    "learned": "{{count}} Seiten geschafft",
+    "result": "{{correct}} / {{total}} richtig",
+    "actions": {
+      "reviewWrong": "Fehler ansehen",
+      "doQuiz": "Zum Quiz",
+      "restart": "Neu beginnen"
+    }
+  },
+  "sandbox": {
+    "errors": {
+      "learningManaged": "Dieser Arbeitsbereich gehört zu einem Lernprojekt. Verwenden Sie die Bedienelemente des Lernarbeitsbereichs.",
+      "sourcePath": "Diese Datei gehört nicht zu den Quelldateien des Projekts.",
+      "sourceCount": "Lernprojekte unterstützen höchstens 256 Quelldateien.",
+      "sourceSize": "Der Quellinhalt des Projekts darf insgesamt 1 MiB nicht überschreiten.",
+      "commandSize": "Der erzeugte Build- oder Testbefehl ist zu groß für die Sandbox.",
+      "teachingContextSize": "Der Lernkontext ist zu lang. Kürzen Sie PLAN.md oder die Überprüfungsfrage und versuchen Sie es erneut.",
+      "commandActive": "Beenden Sie laufende Befehle und rufen Sie deren Ergebnisse ab, bevor Sie einen Arbeitsbereich-Snapshot lesen oder speichern.",
+      "terminalActive": "Schließen Sie die Terminals, bevor Sie einen Arbeitsbereich-Snapshot lesen oder speichern.",
+      "environmentBusy": "Ein anderer Vorgang ändert diese Umgebung. Versuche es danach erneut.",
+      "environmentChanged": "Die Lernumgebung hat sich geändert. Aktualisieren Sie die Ansicht, bevor Sie fortfahren.",
+      "progressChanged": "Der Lernfortschritt hat sich geändert. Aktualisieren Sie die Ansicht und wiederholen Sie den Vorgang.",
+      "workbenchAccessDenied": "Dieser Vorgang ist in der aktuellen Lernphase nicht verfügbar. Verwenden Sie die freigegebenen Projektfunktionen.",
+      "fileConflict": "Die Datei wurde geändert oder das Ziel ist bereits vorhanden. Laden Sie den Arbeitsbereich neu und versuchen Sie es erneut.",
+      "stopped": "Der Arbeitsbereich wurde gestoppt. Wiederholen Sie den Vorgang, um ihn erneut zu starten.",
+      "invalidRequest": "Die Anfrage ist ungültig. Prüfen Sie die Eingaben und versuchen Sie es erneut.",
+      "unsupported": "Der konfigurierte Sandbox-Anbieter unterstützt diesen Vorgang nicht.",
+      "environmentUnavailable": "The learning environment is not ready. Restore it before continuing.",
+      "unavailable": "The environment service is temporarily unavailable. Refresh its state and retry."
+    },
+    "settings": {
+      "title": "Sandbox",
+      "advanced": "Advanced: connection, desktop and limits",
+      "description": "Configure the shared execution environment for this OpenMAIC installation. Only the installation owner or a verified administrator can change it.",
+      "enabled": "Enable sandboxes and project workspace",
+      "enabledStatus": "Sandbox configured",
+      "disabledStatus": "Sandbox disabled or incomplete",
+      "settings": "Using saved settings",
+      "preview": "Web preview",
+      "checkpoint": "Project saving",
+      "configured": "Configured",
+      "notConfigured": "Not configured",
+      "dependencyHint": "Preview and file storage are deployment services. These indicators check configuration only, not network connectivity.",
+      "activeWarning": "Release or reconcile all environments before changing configuration. Outstanding environments",
+      "connectionId": "Connection ID",
+      "apiUrl": "API URL (HTTPS)",
+      "domain": "Runtime domain",
+      "template": "Code template ID",
+      "desktopTemplate": "Desktop template ID (optional)",
+      "keyStored": "Key configured — leave blank to keep it",
+      "keyMissing": "Enter the sandbox service API key",
+      "keyUnreadable": "The saved key cannot be decrypted. Enter it again before enabling.",
+      "keyHint": "Stored encrypted on the server, never returned to the browser. Changing the endpoint, domain or connection ID requires a new key.",
+      "lifetimeMs": "Lifetime (seconds)",
+      "maxActivePerOwner": "Per-owner concurrency",
+      "maxActive": "Installation concurrency",
+      "limitsHint": "These limits apply to this OpenMAIC installation. Other deployments and direct SDK calls are not included.",
+      "save": "Save configuration",
+      "saving": "Saving…",
+      "refresh": "Refresh configuration",
+      "retry": "Retry",
+      "loading": "Loading…",
+      "failed": "Unable to save sandbox configuration.",
+      "saved": "Configuration saved. New requests use it immediately; no sandbox was created. Open the project workspace to verify execution.",
+      "openWorkspace": "Open project workspace",
+      "deployment": "Using deployment configuration",
+      "locked": "Sandbox settings are locked by the deployment. Deployment values apply; saved web overrides are ignored.",
+      "reset": "Reset to deployment configuration"
+    },
+    "requestFailed": "Request failed.",
+    "loadFailed": "Unable to load workspace.",
+    "discardChanges": "Discard the unsaved editor changes?",
+    "savedReleased": "Project saved and environment released.",
+    "saved": "Project checkpoint saved.",
+    "workspace": "Project workspace",
+    "notRunning": "Not running",
+    "openProject": "Open / restore project",
+    "refresh": "Refresh",
+    "reconnect": "Reconnect",
+    "keepWorking": "Keep working",
+    "saveAdvice": "Save a project checkpoint before leaving. Environment expiry removes changes made after the last checkpoint. Stop commands and close the terminal before saving.",
+    "storageUnavailable": "Project saving is unavailable in this installation. Files in the running environment are temporary and will be lost when it expires or is released.",
+    "retryRestore": "Retry project restoration",
+    "files": "Files",
+    "noFiles": "No project files loaded.",
+    "filePath": "File path",
+    "fileEditor": "File editor",
+    "fileWritten": "File written to the running environment. Save a checkpoint to retain it after release.",
+    "writeFile": "Write file",
+    "saveCheckpoint": "Save checkpoint",
+    "saveRelease": "Save and release",
+    "noCheckpoint": "No checkpoint saved",
+    "run": "Run",
+    "shellCommand": "Shell command",
+    "runCommand": "Run command",
+    "stop": "Stop",
+    "truncated": " · output truncated",
+    "terminal": "Terminal",
+    "openTerminal": "Open terminal",
+    "closeShell": "Close shell",
+    "preview": "Application preview",
+    "previewUnavailable": "Application preview is unavailable in this installation.",
+    "port": "Application port",
+    "openPreview": "Open preview",
+    "newTab": "Open in new tab",
+    "closePreview": "Close preview access",
+    "previewAdvice": "If the embedded preview cannot authorize, use Open in new tab. Browser cookie settings can restrict embedded previews.",
+    "application": "Project application",
+    "connectAgent": "Connect an OpenMAIC agent session",
+    "agentAdvice": "Attach an existing session you own. Tools become available on its next turn. Access lasts one hour; shell access permits any action inside this environment.",
+    "agentSession": "Agent session ID",
+    "sessionId": "Session ID",
+    "allowWrites": "Allow file changes",
+    "allowCommands": "Allow commands",
+    "sessionConnected": "Session connected. Send its next message in OpenMAIC to use the project tools.",
+    "sessionRevoked": "Session sandbox access revoked. Commands already started must be stopped separately.",
+    "connectSession": "Connect session",
+    "revokeAccess": "Revoke access",
+    "deleteSaved": "Delete saved project",
+    "deleteAdvice": "Permanently remove the saved files for this project.",
+    "deleteConfirm": "Permanently delete this saved project?",
+    "deleteCheckpoint": "Delete checkpoint",
+    "releaseWithoutSave": "Release without saving",
+    "releaseAdvice": "Only the last saved checkpoint will survive. Unsaved environment files will be lost.",
+    "releaseConfirm": "Release this environment and discard changes since the last checkpoint?",
+    "release": "Release environment",
+    "connecting": "Connecting shell…",
+    "terminalConnectFailed": "Unable to connect terminal.",
+    "terminalBufferLimit": "Terminal stream exceeded its buffer limit.",
+    "terminalConnected": "Connected shell. Earlier output is not replayed.",
+    "terminalEnded": "Stream ended. Reconnect to the same shell.",
+    "terminalDisconnected": "Terminal disconnected.",
+    "inputUnconfirmed": "Terminal input was not confirmed. Reconnect and check the shell before repeating it.",
+    "inputFull": "Input queue is full. Reconnect before continuing.",
+    "sandboxRequestFailed": "Sandbox request failed.",
+    "terminalConnectionFailed": "Terminal connection failed.",
+    "terminalReconnect": "Terminal disconnected. Reconnect to continue.",
+    "lab": "Sandbox development lab",
+    "openWorkspace": "Open project workspace",
+    "labAdvice": "Paid, temporary environments. Release after use. Files are not retained after release or expiry.",
+    "labDescription": "Commands, a line-oriented PTY console, and desktop screenshots. For project checkpoints and application preview, open the project workspace.",
+    "createCode": "Create code environment",
+    "createDesktop": "Create desktop environment",
+    "refreshEnvironments": "Refresh environments",
+    "environment": "Environment",
+    "selectEnvironment": "Select an environment",
+    "reconcile": "Reconcile state",
+    "releaseFiles": "Release environment and files",
+    "workspaceFile": "Workspace file",
+    "absolutePath": "Absolute path",
+    "fileContents": "File contents",
+    "saveFile": "Save file",
+    "readFile": "Read file",
+    "command": "Command",
+    "cancelCommand": "Cancel command",
+    "pending": "pending",
+    "ptyConsole": "PTY line console",
+    "connectTerminal": "Connect / reconnect terminal",
+    "terminalInput": "Terminal input",
+    "sendLine": "Send line",
+    "desktop": "Desktop",
+    "screenshot": "Take screenshot",
+    "desktopImage": "Current sandbox desktop",
+    "renewed": "Environment renewed for {{minutes}} minutes.",
+    "checkpoint": "Checkpoint {{revision}} · {{time}}",
+    "readCommand": "Read {{id}}",
+    "exit": "exit {{code}}",
+    "states": {
+      "creating": "Creating",
+      "running": "Running",
+      "stopping": "Stopping",
+      "destroyed": "Released",
+      "error": "Error",
+      "paused": "Paused",
+      "starting": "Starting",
+      "exited": "Exited",
+      "unknown": "Unknown",
+      "closed": "Closed",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "missing": "Missing",
+      "destroying": "Releasing",
+      "timed_out": "Timed out"
+    },
+    "profiles": {
+      "code": "Code",
+      "desktop": "Desktop"
+    },
+    "inputBusy": "The workspace remained busy; this input was not sent. Reconnect the terminal before typing again."
+  },
+  "pblV3": {
+    "connectingUpdates": "Connecting live updates…",
+    "reconnectingUpdates": "Live updates interrupted. Reconnecting automatically; you can also refresh.",
+    "updatesUnavailable": "Live updates unavailable. Refresh to reconnect.",
+    "title": "Programming projects · Preview",
+    "refresh": "Refresh progress",
+    "cancel": "Cancel response",
+    "retry": "Retry the same request",
+    "loading": "Loading learning progress…",
+    "environmentUnavailable": "The project environment could not be prepared. Retry setup; learning records are kept, and an expired workspace can recover its latest checkpoint.",
+    "restoredCheckpoint": "Der Arbeitsbereich wurde aus dem letzten Speicherpunkt wiederhergestellt. Spätere Änderungen sind nicht enthalten.",
+    "restartedWorkspace": "Kein Speicherpunkt verfügbar. Der Arbeitsbereich wurde mit den Startdateien neu eingerichtet.",
+    "restoredProgress": "Der Fortschritt wurde auf den ersten betroffenen Schritt zurückgesetzt. Prüfen und testen Sie die wiederhergestellten Dateien erneut.",
+    "environmentNotice": "Preparing or restoring the environment. The editor is read-only; existing drafts are kept. Type after recovery.",
+    "prepare": "Retry project setup",
+    "completed": "Project completed. Your learning progress is saved.",
+    "learning": "Learning conversation",
+    "thinking": "The teaching assistant is working…",
+    "message": "Your message",
+    "send": "Send",
+    "submitQuiz": "Submit answers",
+    "submitting": "Wird gesendet…",
+    "submitted": "Gesendet",
+    "resubmit": "Änderungen senden",
+    "quizPassed": "Quiz bestanden: {{score}}/{{total}} richtig. Du kannst fortfahren.",
+    "quizRetry": "{{score}}/{{total}} richtig. Prüfe deine Antworten und versuche es erneut.",
+    "quizCorrect": "Letzte Abgabe: richtig",
+    "quizIncorrect": "Letzte Abgabe: bitte überprüfen",
+    "quizReviewHint": "Prüfe das Konzept dieser Frage und die Bedingungen deiner gewählten Aussage. Versuche es dann erneut.",
+    "quizChanged": "Auswahl geändert. Sende erneut, um die Rückmeldung zu aktualisieren.",
+    "next": "Continue",
+    "files": "Project files",
+    "editor": "File contents",
+    "reloadFile": "Reload file",
+    "saveFile": "Save file",
+    "testResult": {
+      "stale": "Files changed during the test run. Run tests again for the current version.",
+      "idle": "Ready to run tests",
+      "running": "Running tests…",
+      "collecting": "Confirming test results…",
+      "passed": "Tests passed",
+      "failed": "Tests did not pass",
+      "error": "Evaluation could not complete",
+      "unavailable": "Test result needs attention",
+      "retryCollect": "Retry getting results",
+      "count": "{{passed}}/{{total}} passed",
+      "casePassed": "passed",
+      "reasons": {
+        "output": "Output did not satisfy the contract",
+        "execution": "Code could not execute successfully",
+        "timeout": "Check timed out",
+        "environment": "Test environment unavailable",
+        "not_run": "Not run because the build failed"
+      },
+      "hints": {
+        "idle": "Run tests using the green button on the task bar. Detailed results appear here.",
+        "running": "The test runner is working. Results will be saved automatically; you do not need to send a message.",
+        "collecting": "Execution finished. The server is checking the file version and saving the result.",
+        "passed": "The result is saved. Choose “{{action}}” on the task bar to enter the next step.",
+        "failed": "Review the failed checks and ask the coding assistant for help, then rerun tests. Hidden tests and expected answers are not shown.",
+        "error": "No reliable code verdict is available. Check the environment and rerun; this is not a confirmed code failure.",
+        "unavailable": "The result is not confirmed. Retry getting results on the task bar; an earlier pass cannot authorize progression."
+      },
+      "compile": "Kompilierung fehlgeschlagen; Tests noch nicht gestartet.",
+      "diagnostics": {
+        "cannot_find_symbol": "Symbol nicht gefunden",
+        "type_mismatch": "Inkompatible Typen",
+        "invalid_method_call": "Methodenargumente stimmen nicht überein",
+        "missing_package": "Paket nicht gefunden",
+        "compile_error": "Kompilierungs- oder Syntaxfehler"
+      }
+    },
+    "runTests": "Run tests",
+    "collect": "Collect test result",
+    "sampleNotice": "Open a prepared Java or Python project in the classroom. This Preview uses installed projects; project generation is not enabled.",
+    "openSample": "Open selected sample",
+    "checks": "Checks",
+    "roles": {
+      "mentor": "Mentor",
+      "discussion": "Discussion",
+      "planner": "Planner",
+      "coder": "Coder"
+    },
+    "retryResponse": "Retry response",
+    "run": {
+      "recoveryTitle": "This reply needs to resume",
+      "recoveryHint": "Your message and learning record have been kept.",
+      "retrying": "Retrying…",
+      "contextCapacity": "The current course material or message exceeds the selected model’s context capacity. Your records are saved. Ask the course maintainer to check the model configuration or material before retrying.",
+      "contextTurnCapacity": "Der in diesem Durchgang angesammelte Inhalt übersteigt den verfügbaren Platz des Modells. Sende eine neue kurze Nachricht mit deiner aktuellen Frage oder der benötigten Hilfe. Dieselbe Antwort erneut zu versuchen schafft keinen Platz. Dein Fortschritt und deine Aufzeichnungen sind gespeichert.",
+      "contextPreparation": "Conversation preparation failed temporarily. Your records are saved; you can retry this reply.",
+      "incomplete": "This reply did not finish recording the current review. Retry this reply to continue; your progress is unchanged.",
+      "authentication": "The teaching model could not authenticate. Check the model configuration before retrying.",
+      "timeout": "The teaching response timed out. You can retry this turn.",
+      "unavailable": "The teaching response could not finish. Please retry shortly.",
+      "cancelled": "This teaching turn was cancelled. Retry it or send a new message.",
+      "missing": "The teaching session is unavailable. Send a message to restart this review step; your learning progress is preserved."
+    },
+    "learningPath": "Learning path",
+    "optional": "Optional",
+    "report": "Learning report",
+    "backLearning": "Return to learning",
+    "evidenceReportNotice": "This report uses saved learning records. Each entry refers to the version and result at that time; it does not certify the files currently in your workspace. Viewing it does not advance your progress.",
+    "requiredComplete": "Project learning completed.",
+    "inProgress": "Learning is still in progress.",
+    "reportEvidence": "Decisions, artifacts and results",
+    "reportConversations": "Learning conversations",
+    "conversationLimited": "Some activity is omitted from this view to keep it responsive. The complete records remain saved.",
+    "truncatedEvidence": "Hier wird eine Auswahl der Lernaufzeichnungen gezeigt. Die vollständigen Originale bleiben gespeichert.",
+    "evidenceVersion": "Recorded version",
+    "learner": "Learner",
+    "build": "Build / check syntax",
+    "sampleSelect": "Choose a project",
+    "stageNames": {
+      "mentor_say": "Teaching and reflection",
+      "dialogue": "Decisions",
+      "plan": "Plan and review",
+      "code": "Implementation and review",
+      "tests": "Tests",
+      "quiz": "Quiz",
+      "course": "Course"
+    },
+    "evidenceKinds": {
+      "decision_recorded": "Decision",
+      "artifact_recorded": "Artifact",
+      "evaluation_recorded": "Test result",
+      "quiz_recorded": "Quiz attempt",
+      "milestone_completed": "Milestone completed",
+      "recap_completed": "Reflection completed",
+      "teaching_completed": "Teaching completed",
+      "artifact_review_completed": "Review completed",
+      "artifact": "Artifact snapshot",
+      "file-edit": "File edit",
+      "workspace-run": "Workspace run"
+    },
+    "overview": {
+      "startLearning": "Lernen starten",
+      "title": "Projektübersicht",
+      "expand": "Aufklappen",
+      "collapse": "Einklappen",
+      "projectGoal": "Projektziel",
+      "finishedWork": "Ihre fertige Anwendung",
+      "roadmap": "Projektübersicht",
+      "goalAndResult": "Ziel und Ergebnis",
+      "goal": "Ziel",
+      "result": "Ergebnis",
+      "eachStage": "Ablauf jeder Phase",
+      "yourRole": "Sie entscheiden und prüfen; KI hilft beim Planen und Programmieren.",
+      "preview": "Probieren Sie die Anwendung in der Vorschau aus und prüfen Sie das Ergebnis.",
+      "advance": "Die violette Schaltfläche über dem Eingabefeld erscheint erst, wenn der aktuelle Schritt zum Fortfahren bereit ist. Klicke dann darauf, um weiterzumachen.",
+      "startBlocked": {
+        "guide": "Gehe die Anleitung zum Arbeitsbereich bis zum Ende durch oder schließe sie, um mit dem Lernen zu beginnen.",
+        "connecting": "Live-Aktualisierungen werden verbunden, bevor du beginnen kannst…",
+        "retrying": "Live-Aktualisierungen werden erneut verbunden. Warte vor dem Start, bis die Verbindung wiederhergestellt ist.",
+        "unavailable": "Live-Aktualisierungen sind nicht verfügbar. Lade die Seite neu, um vor dem Start die Verbindung wiederherzustellen.",
+        "pending": "Eine Aktion wird ausgeführt. Warte, bis sie abgeschlossen ist, bevor du beginnst.",
+        "busy": "Der Assistent antwortet noch. Warte auf das Ende der Antwort, bevor du beginnst.",
+        "environment": "Warte vor dem Start, bis die Lernumgebung bereit ist. Falls die Vorbereitung fehlgeschlagen ist, versuche es oben erneut.",
+        "unsaved": "Die Projektdateien enthalten ungespeicherte Änderungen. Speichere oder verwirf sie, bevor du beginnst.",
+        "preparing": "Der Arbeitsbereich wird vorbereitet. Bitte warte, bevor du beginnst."
+      },
+      "singleFlow": "Projektablauf",
+      "concepts": "Technische Konzepte",
+      "deliverables": "Funktionale Ergebnisse"
+    },
+    "journey": {
+      "currentMilestone": "Aktueller Meilenstein",
+      "milestoneGoal": "Ziel:",
+      "milestoneResult": "Ergebnis:",
+      "completionHandoff": "This step is complete. See the task bar at the bottom of the Learning Assistant pane for the next action.",
+      "startConversation": "Your assistant will open this step when the learning environment is ready.",
+      "latest": "Go to the latest message",
+      "expand": "Expand project workspace",
+      "returnClassroom": "Return to classroom layout",
+      "fullscreenUnavailable": "Fullscreen is unavailable. You can continue in the classroom layout.",
+      "currentTask": "Current learning step",
+      "collectResult": "Collect the execution result before continuing.",
+      "ready": "This step is ready. Choose “{{action}}” when you are ready to move on.",
+      "followStep": "Follow the current step below. The assistant may need your answer or confirmation.",
+      "steps": {
+        "intro": "Project introduction",
+        "teaching": "Learn before deciding",
+        "dialogue": "Make your decisions",
+        "plan": "Understand and review the plan",
+        "code": "Understand and review the implementation",
+        "tests": "Test and repair",
+        "quiz": "Check your understanding",
+        "recap": "Reflect on your work",
+        "explore": "Explore your own idea",
+        "course": "Course"
+      },
+      "hints": {
+        "intro": "Discuss the project goal with your mentor, then confirm when you are ready.",
+        "teaching": "Learn the concepts and ask for help when something is unclear. Your explanation matters more than keywords.",
+        "dialogue": "Discuss alternatives if needed, choose your decisions below, then continue.",
+        "plan": "Open PLAN.md, understand the proposed steps, review a meaningful risk and confirm the current version.",
+        "code": "Inspect the implementation, trace a meaningful path, review a risk and confirm the current version.",
+        "tests": "Run and collect the tests. If they fail, discuss the feedback, repair the code and test again.",
+        "quiz": "Answer the questions below. Read the feedback and retry any missed questions before continuing.",
+        "recap": "Explain a choice or correction using your actual implementation, test and quiz results.",
+        "explore": "Choose an extension. You can save, leave and return; exploration is optional.",
+        "course": "Return to the classroom for course learning."
+      },
+      "outcomes": "Your learning results",
+      "noTests": "No retained test result",
+      "noQuiz": "No retained quiz result",
+      "reflected": "Reflection recorded",
+      "notReflected": "Reflection not yet recorded",
+      "taskDetails": "Current task details",
+      "closeDetails": "Close task details",
+      "reviewDetails": "Details ansehen",
+      "milestoneSteps": "Milestone learning steps",
+      "enterStep": "Continue to {{step}}",
+      "enterMilestone": "Nächste Phase",
+      "planArtifact": "Open PLAN.md in the IDE to read the current plan. Discuss, review and approve it in the conversation.",
+      "codeArtifact": "Inspect the current project files in the IDE. Review the implementation and save edits before continuing.",
+      "taskTitle": "Current task",
+      "confirmedDecisions": "Confirmed decisions",
+      "noDecisions": "No decisions required for this step.",
+      "approvedPlan": "Implementation plan",
+      "planOutput": "Plan output",
+      "codeOutput": "Implementation progress",
+      "savedVersion": "Version {{version}} · saved",
+      "planReview": "Plan review and approval",
+      "codeReview": "Implementation review and confirmation",
+      "reviewApproved": "Confirmed",
+      "reviewPending": "Awaiting review"
+    },
+    "activity": {
+      "read": "Reading project files",
+      "write": "Updating project files",
+      "build": "Building the current implementation",
+      "collect": "Checking the build result",
+      "review": "Waiting for your review",
+      "complete": "Checking stage completion",
+      "running": "In progress",
+      "succeeded": "Done",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "readHint": "The assistant reads the allowed project files before explaining or changing them.",
+      "writeHint": "Files in the running environment were updated. A durable checkpoint is a separate save.",
+      "buildHint": "Building checks the current implementation. It is not the project assessment.",
+      "collectHint": "The result belongs to the source version that was built.",
+      "reviewHint": "Read the question in the conversation and respond in your own words.",
+      "completeHint": "The assistant signalled completion. Server checks and your Continue action still control progression."
+    },
+    "workbench": {
+      "unsaved": "Unsaved changes. Save or discard before switching files or running commands.",
+      "staleBuffer": "The environment or file changed. Your unsaved text is preserved; copy it before reloading.",
+      "discard": "Discard changes and reload",
+      "manageFiles": "Manage source files",
+      "newPath": "Project-relative file path",
+      "create": "Create file",
+      "rename": "Rename / move file",
+      "delete": "Delete file",
+      "confirmDelete": "Delete {{path}}? This cannot be undone without a saved checkpoint.",
+      "execution": "Run and preview",
+      "executionNotice": "Commands and terminals can modify project files. Stop them before review or formal tests. New execution is unavailable while awaiting teaching review.",
+      "command": "Project command",
+      "run": "Run command",
+      "openTerminal": "Open terminal",
+      "stop": "Stop commands and close terminals",
+      "commandStates": {
+        "starting": "Starting",
+        "running": "Running",
+        "exited": "Exited",
+        "cancelled": "Cancelled",
+        "timed_out": "Timed out",
+        "failed": "Execution failed",
+        "unknown": "Execution status unknown"
+      }
+    },
+    "ide": {
+      "recoveryConflict": "Die wiederhergestellte Datei unterscheidet sich von der Grundlage Ihres Entwurfs. Der Entwurf bleibt erhalten. Kopieren Sie ihn vor dem Neuladen, um die Änderungen abzugleichen.",
+      "copyDraft": "Aufbewahrten Entwurf kopieren",
+      "workspace": "Code workspace",
+      "resize": "Resize workspace and assistant",
+      "resizeFiles": "Resize file explorer",
+      "toggleFiles": "Toggle file explorer",
+      "openFiles": "Open files",
+      "closeFile": "Close {{path}}",
+      "discard": "Discard unsaved changes in {{path}}?",
+      "console": "Console",
+      "terminal": "Terminal",
+      "output": "Run & output",
+      "buildOutput": "Build output",
+      "hideConsole": "Hide console",
+      "connected": "Environment connected",
+      "disconnected": "Environment unavailable",
+      "messagePlaceholder": "Ask a question or explain your understanding…",
+      "sendHint": "Enter to send · Shift+Enter for a new line",
+      "theme": "Switch color theme",
+      "hideFiles": "Hide file tree",
+      "toggleWorkspace": "Toggle code workspace",
+      "toggleAssistant": "Toggle learning assistant",
+      "environmentDetails": "Environment details",
+      "saving": "Wird gespeichert…",
+      "readOnly": "Read-only",
+      "saved": "Gespeichert",
+      "saveFailed": "Speichern fehlgeschlagen · Erneut versuchen",
+      "draftRetained": "Änderungen in diesem Browser behalten",
+      "retryRead": "Lesen erneut versuchen"
+    },
+    "inputBlocked": {
+      "pending": "Processing your action. Your draft is kept.",
+      "busy": "The assistant is replying. Stop the reply before sending another message.",
+      "environment": "The project environment is not ready. If setup failed, retry above; your draft is kept.",
+      "unsaved": "Die Projektdateien enthalten ungespeicherte Änderungen. Speichere oder verwirf sie vor dem Senden; deine Nachricht bleibt hier.",
+      "opening": "The assistant has not opened this step yet. Retry the opening; your draft is kept."
+    },
+    "recoverEnvironment": "Restore learning environment",
+    "retryOpening": "Retry step opening",
+    "reportCopy": {
+      "waitFinal": "Wait for the final teaching response to finish before preparing the report.",
+      "generating": "Preparing your project report…",
+      "failed": "The analysis could not be generated. Your learning records are saved; you can retry.",
+      "retry": "Generate report / retry",
+      "analysis": "What your project records show",
+      "omitted": "Some records were shortened or omitted from this analysis. The saved evidence below remains available.",
+      "source": "Evidence",
+      "journey": "Your project journey",
+      "strength": "What went well",
+      "change": "How your approach changed",
+      "collaboration": "Working with AI",
+      "next": "A useful next step",
+      "facts": "Your project in numbers",
+      "countNotice": "These describe the recorded process; more is not a better score.",
+      "learnerTurns": "Your messages",
+      "assistantTurns": "Assistant replies",
+      "decisions": "Decisions made",
+      "decisionChanges": "Decisions reconsidered",
+      "testRuns": "Test runs",
+      "quizAttempts": "Quiz attempts",
+      "fileEdits": "Recorded file edits",
+      "interruptedRuns": "Interrupted or failed assistant runs",
+      "completed": "Project completed. You can open your learning report.",
+      "subtitle": "Dein Ergebnis, deine Entscheidungen und die Belege für deinen Fortschritt.",
+      "completedMilestones": "Abschnitte abgeschlossen",
+      "completedSteps": "Schritte abgeschlossen",
+      "concepts": "Geübte Konzepte",
+      "projectResults": "Deine Projektergebnisse",
+      "workflow": "Arbeitsablauf",
+      "decisionQuestion": "Entscheidungsfrage",
+      "decisionChoice": "Deine Entscheidung",
+      "decisionReason": "Deine Begründung",
+      "viewWorkbench": "Arbeitsbereich schreibgeschützt öffnen",
+      "completedTitle": "Projekt abgeschlossen",
+      "completionHint": "Deine Arbeit ist gespeichert. Öffne den Bericht oder sieh im Arbeitsbereich nach.",
+      "close": "Bericht schließen",
+      "finalizing": "Die letzte Antwort wird gespeichert. Der Bericht ist gleich verfügbar.",
+      "skillLabels": {
+        "decisions": "Technische Entscheidungen treffen",
+        "planReview": "Einen Plan prüfen",
+        "codeReview": "Implementierung prüfen",
+        "verification": "Verhalten mit Tests prüfen",
+        "reflection": "Anhand von Belegen reflektieren"
+      },
+      "congratulations": "Geschafft — dein Projekt ist fertig!",
+      "celebrationSubtitle": "Aus deiner Idee ist etwas geworden, das funktioniert. Schau dir an, was du erreicht hast.",
+      "shareTitle": "Ein Moment zum Teilen",
+      "shareHint": "Halte Erfolge und Highlights auf einer Karte fest und teile deine Fortschritte.",
+      "recordsTitle": "Lernaufzeichnungen ansehen",
+      "recordsHint": "Gespeicherte Entscheidungen, Arbeiten und Gespräche ansehen oder einem Analyseverweis direkt folgen."
+    },
+    "draftStorageUnavailable": "Browser draft storage is unavailable. This page keeps your text; save files to the workspace and copy unsent text before leaving the page.",
+    "pendingActions": {
+      "open": "Opening project…",
+      "prepare": "Preparing environment…",
+      "begin": "Opening this step…",
+      "chat": "Sending message…",
+      "next": "Entering the next step…",
+      "decide": "Submitting decision…",
+      "quiz": "Submitting quiz…",
+      "evaluate": "Starting tests…",
+      "collect": "Collecting results…",
+      "compile": "Starting build…",
+      "retry": "Retrying response…",
+      "cancel": "Cancelling response…",
+      "refresh": "Refreshing progress…",
+      "read": "Reading file…",
+      "create": "Creating file…",
+      "rename": "Renaming file…",
+      "delete": "Deleting file…",
+      "run": "Starting command…",
+      "terminal": "Connecting terminal…",
+      "stop": "Stopping execution…",
+      "working": "Processing…"
+    },
+    "editAccess": {
+      "completed": "The project is complete. Files are read-only to preserve the final work.",
+      "paused": "Learning is paused. Resume before editing.",
+      "stopped": "Learning has stopped. Files are read-only.",
+      "testing": "Tests are running or results are being collected. Files are read-only to keep the tested version consistent.",
+      "building": "A build is running or awaiting collection. Edit after its result is collected.",
+      "agent": "The assistant is working. Editing resumes when it finishes to avoid concurrent changes.",
+      "teaching": "This is the teaching step. File editing opens during planning and coding.",
+      "discussion": "This step is for discussing decisions. File editing opens during planning and coding.",
+      "quiz": "This is the understanding quiz. Project files are read-only.",
+      "recap": "This is the reflection step. Project files are read-only.",
+      "assessment": "This is the test step. Files are read-only until a failure opens repair.",
+      "stage": "Project files are read-only in this step.",
+      "planOnly": "Planning allows edits to PLAN.md only. Source files are read-only.",
+      "planLocked": "PLAN.md is approved and read-only during coding.",
+      "planEditable": "You can edit PLAN.md. Changes are saved automatically.",
+      "codeEditable": "You can edit source files. Changes are saved automatically.",
+      "stale": "The environment or file changed. Your draft is kept; copy it or reload before editing.",
+      "environment": "The project environment is not ready. Your draft is kept.",
+      "operation": "A workspace operation is being processed. Edit after it settles.",
+      "request": "A learning operation is being processed. Editing resumes after the response.",
+      "loading": "Synchronizing this file and its permissions. Please wait."
+    },
+    "toolDetails": {
+      "input": "Input",
+      "progress": "Progress",
+      "output": "Output",
+      "display": "Display",
+      "stopped": "Stopped"
+    },
+    "environmentReleasing": "The environment is being released. The editor is read-only. Wait, then click the workbench or use the restore button. Existing browser drafts are kept.",
+    "environmentSleeping": "The environment is inactive and the editor is read-only. Click in the workbench to restore automatically, or use Restore project files. Existing browser drafts are kept; type after recovery.",
+    "recoverWorkspace": "Projektdateien wiederherstellen",
+    "checkpointUnavailable": "Die letzten Änderungen konnten nicht archiviert werden. Versuchen Sie erneut zu speichern. Bei Inaktivität kann die Umgebung freigegeben werden und nicht archivierte Arbeit verloren gehen.",
+    "checkpointSkipped": "Die Archivierung schlägt wiederholt fehl. Bei der Wiederherstellung können Änderungen seit der Sicherung verloren gehen.",
+    "lastDurableCheckpoint": "Für diese Freigabe wiederherstellbare Sicherung: {{time}}.",
+    "noDurableCheckpoint": "Kein Archiv verfügbar; die Projektdateien werden aus der Ausgangsversion wiederhergestellt.",
+    "checkpointReasons": {
+      "source-limit": "Das Projekt überschreitet die Datei- oder Größenbegrenzung.",
+      "archive-limit": "Das Projekt überschreitet die Datei- oder Größenbegrenzung.",
+      "unsupported-files": "Einige Dateien können nicht archiviert werden.",
+      "workspace-permission": "Projektdateien sind nicht lesbar.",
+      "workspace-full": "Der Arbeitsbereich hat keinen freien Speicherplatz.",
+      "storage-quota": "Das Speicherkontingent für Archive ist voll.",
+      "storage-config": "Prüfen Sie Speicherkonfiguration und Berechtigungen.",
+      "storage-permission": "Prüfen Sie Speicherkonfiguration und Berechtigungen.",
+      "timeout": "Speicher oder Arbeitsumgebung ist nicht verfügbar oder hat das Zeitlimit überschritten.",
+      "unavailable": "Speicher oder Arbeitsumgebung ist nicht verfügbar oder hat das Zeitlimit überschritten.",
+      "workspace-changed": "Dateien wurden während der Archivierung geändert.",
+      "execution-unsettled": "Das Ende der Aufgabe konnte nicht bestätigt werden."
+    },
+    "history": {
+      "title": "Conversation history",
+      "description": "Saved messages at the time you open this view. Earlier records load on demand.",
+      "older": "Load earlier records",
+      "failed": "Could not load history. Please retry.",
+      "empty": "No saved messages in this page."
+    },
+    "decisionResponse": "Your decision",
+    "decisionRationale": "Why did you choose this?",
+    "submitDecision": "Submit decision",
+    "decisionSaved": "Response saved",
+    "decisionUnsaved": "Unsaved changes",
+    "decisionTooLong": "Responses and reasons can contain up to {max} characters each and must fit the combined encoded size limit. Shorten the text to submit.",
+    "decisionInvalidText": "The response or reason contains unsupported characters. Replace them before submitting.",
+    "application": {
+      "yourChoice": "Deine Auswahl",
+      "updating": "Vorschau wird aktualisiert…",
+      "open": "Open application",
+      "restart": "Restart application",
+      "newTab": "Temporäre Vorschau in neuem Tab öffnen",
+      "saveFirst": "Wait for your edits to save before opening the application.",
+      "wait": "Wait for the environment, Agent or assessment to finish.",
+      "notice": "Führt gespeicherten Code aus. Die geöffnete Vorschau wird nach Abschluss der Arbeit aktualisiert.",
+      "changed": "Saved sources changed after this application started. Restart to try the current version.",
+      "expired": "Application access expired. Reopen to renew it.",
+      "reopen": "Reopen application",
+      "starting": "Starting your application…",
+      "failed": "The application exited. Read the output or ask your current assistant for help.",
+      "unavailable": "The application is not responding yet. Reopen, or share the error with your assistant.",
+      "restore": "Restore application environment",
+      "restoreNotice": "Your saved source and report remain available. Restore the environment to run your application again; completed source stays read-only.",
+      "collapse": "Anwendung einklappen",
+      "help": "Anwendungshilfe",
+      "ready": "Starte die Anwendung, um deinen gespeicherten Code auszuprobieren."
+    },
+    "share": {
+      "open": "Bild zum Teilen erstellen",
+      "title": "Lernerfolg teilen",
+      "description": "Speichern Sie die Höhepunkte Ihres Lernens als Bild.",
+      "theme": "Darstellung",
+      "light": "Hell",
+      "dark": "Dunkel",
+      "preview": "Mein OpenMAIC-Lernerfolg",
+      "save": "Bild speichern",
+      "saveHint": "Auf Mobilgeräten können Sie das Bild auch gedrückt halten, um Speicheroptionen zu sehen.",
+      "imageFailed": "Das Bild konnte nicht erstellt werden. Bitte erneut versuchen.",
+      "rendering": "Bild wird vorbereitet…",
+      "achievement": "Mein Projekterfolg",
+      "invite": "Mit OpenMAIC Ideen umsetzen",
+      "tagline": "Starte mit einem kleinen Projekt. Übe, mit KI zu programmieren.",
+      "testsPassed": "Verhaltenstests bestanden",
+      "decisionsLabel": "Entscheidungen",
+      "quizLabel": "Wissenscheck",
+      "conceptsLabel": "Freigeschaltete Konzepte",
+      "workshop": "Vibe Coding Workshop",
+      "entryLabel": "Einführungskurs zum Vibe Coding Workshop"
+    },
+    "onboarding": {
+      "replay": "Arbeitsbereich-Anleitung",
+      "counter": "Arbeitsbereich-Anleitung {{current}}/{{total}}",
+      "previous": "Zurück",
+      "next": "Verstanden, weiter",
+      "finish": "Verstanden, loslegen",
+      "waiting": "Die Anleitung ist verfügbar, sobald die Lernumgebung bereit ist.",
+      "loading": "Arbeitsbereich wird geladen",
+      "loadingDetail": "Die Lernumgebung wird verbunden und Projektdateien werden vorbereitet. Bitte warten.",
+      "loadingSlowDetail": "Die Vorbereitung dauert länger. Sie können zur Projekteinführung zurückkehren; die bereits gestartete Einrichtung läuft im Hintergrund weiter.",
+      "loadingReturn": "Zurück zur Projekteinführung",
+      "steps": {
+        "progress": {
+          "title": "Fortschritt und aktuelle Aufgabe ansehen",
+          "body": "Klicke auf diese Fortschrittszahlen, um die Schritte der aktuellen Phase zu sehen. Die M-Schaltfläche oben zeigt alle Projektphasen. Die Aufgabenleiste unter dem Assistenten zeigt, was jetzt zu tun ist. Wenn eine Auswahl oder Antwort nötig ist, erscheint die Schaltfläche für die aktuelle Aufgabe."
+        },
+        "discussion": {
+          "title": "Im Assistentenbereich lesen und sprechen",
+          "body": "Hier findest du Erklärungen, Fragen und Rückmeldungen des aktuellen Assistenten. Lies zuerst seine Nachricht. Wenn ein Eingabefeld erscheint, kannst du Fragen stellen oder Gedanken teilen. Enter sendet, Umschalt+Enter fügt eine Zeile ein."
+        },
+        "code": {
+          "title": "Pläne und Code ansehen",
+          "body": "Öffne Dateien über den Dateibaum, die Tabs oder Dateilinks des Assistenten. Wenn Bearbeitung erlaubt ist, werden Änderungen automatisch gespeichert; beachte den Speicherstatus. Die Symbole oben blenden Bereiche ein und aus. Ziehe Trennlinien, um ihre Größe zu ändern."
+        },
+        "application": {
+          "title": "Deine Anwendung ausprobieren",
+          "body": "Die Vorschau öffnet sich automatisch. Probiere die umgesetzten Funktionen aus und besprich deine Beobachtungen. Mit Anwendung öffnen in der Werkzeugleiste kannst du die Vorschau ein- und ausblenden."
+        },
+        "replay": {
+          "title": "Anleitung hier erneut öffnen",
+          "body": "Über Arbeitsbereich-Anleitung in der Werkzeugleiste kannst du die Bedienung erneut ansehen. Wähle Verstanden, loslegen, lies die Nachricht des Assistenten und beginne mit der Arbeit."
+        }
+      },
+      "close": "Anleitung schließen"
+    }
+  },
+  "mobileClassroom": {
+    "soundSettings": "Toneinstellungen",
+    "playSound": "Ton wiedergeben",
+    "materials": "Kursmaterial",
+    "classroom": "Unterricht",
+    "directory": "Inhalt",
+    "lecture": "Notizen",
+    "volume": "Lautstärke",
+    "mute": "Stumm",
+    "roundtable": "Teilnehmer",
+    "captions": "Untertitel",
+    "controls": "Wiedergabesteuerung",
+    "send": "Senden",
+    "join": "Teilnehmen",
+    "skip": "Überspringen",
+    "play": "Abspielen",
+    "pause": "Pause",
+    "pblDesktop": "Die Vorschau ist auf Smartphones nicht verfügbar. Öffne das Projekt auf einem Computer, um es auszuprobieren.",
+    "chat": "Chat",
+    "askTeacher": "Frage an die Lehrkraft…",
+    "viewInNotes": "In den Notizen ansehen",
+    "viewInChat": "Im Chat ansehen",
+    "fullSpeech": "Vollständige Nachricht",
+    "me": "Ich",
+    "listening": "Hört zu",
+    "whiteboardTitle": "Unterrichtstafel"
   }
 }

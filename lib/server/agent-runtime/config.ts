@@ -61,16 +61,23 @@ export const agentRuntimeConfig = {
   maxAttempts: numberFromEnv(process.env.OPENMAIC_AGENT_RUNTIME_MAX_ATTEMPTS, 5),
   /**
    * Native conversation compaction — the workbench's "the context got too big,
-   * summarize the old part" step. Implemented in ./compaction.ts.
+   * summarize the old part" step. Implemented in ./compaction.ts, on top of
+   * lib/agent/runtime/compaction-runtime.ts.
    *
    * OFF unless OPENMAIC_AGENT_COMPACTION_ENABLED is exactly "true". That is a
-   * deliberate inversion of the reference runtime's opt-out default: compaction
-   * changes what the model can see and spends a summarization call, so it is an
-   * operator decision rather than a surprise.
+   * deliberate inversion of the upstream opt-out default: compaction changes
+   * what the model can see and spends a summarization call, so it is an
+   * operator decision rather than a surprise. The context budget check itself
+   * always runs: with compaction off, a request past the budget is blocked
+   * (`CONTEXT_BUDGET_EXCEEDED`) rather than silently sent.
    *
-   * `contextBudgetTokens` is the threshold the decision is measured against, and
-   * it is deliberately NOT the model's context window — see
-   * {@link DEFAULT_COMPACTION_CONTEXT_BUDGET_TOKENS}.
+   * `contextBudgetTokens` is the threshold the trigger decision is measured
+   * against, and it is deliberately NOT the model's context window — see
+   * {@link DEFAULT_COMPACTION_CONTEXT_BUDGET_TOKENS}. It narrows the decision
+   * only; summary requests stay bounded by the real window.
+   *
+   * `reserveTokens` / `keepRecentTokens` are present only when explicitly set;
+   * otherwise the runtime scales them to the model's context window.
    */
   compaction: {
     enabled: process.env.OPENMAIC_AGENT_COMPACTION_ENABLED === 'true',
@@ -152,6 +159,9 @@ export const agentRuntimeConfig = {
    * 重读。见 prompt-context-file.ts。
    */
   materialsDir: process.env.OPENMAIC_MATERIALS_DIR?.trim() || undefined,
+  /** Classroom catalog is independent of the authoring skill directory. */
+  classroomSkillsDir:
+    process.env.OPENMAIC_CLASSROOM_SKILLS_DIR ?? `${process.cwd()}/skills/classroom`,
   /** Audio/video upload safety ceiling; defaults to the same 50 MiB cap as documents/images. */
   maxUploadBytes: numberFromEnv(process.env.OPENMAIC_AGENT_MAX_UPLOAD_BYTES, 50 * 1024 * 1024),
   /** Document/image cap, aligned with the course material cap of generation runs. */

@@ -57,6 +57,7 @@ import {
 } from './generate-video';
 import type { SceneTtsInput, SceneTtsSummary } from './scene-tts';
 import type { LoadedSkill } from './skills';
+import type { ResolvedCapabilityMap } from './capability-tools';
 
 export type CourseDocument = MaicDocument<Scene, Stage>;
 export type CourseStore = DocumentStore<Scene, Stage> & DocumentFolderStore;
@@ -123,6 +124,8 @@ export interface CourseToolDeps {
   }) => Promise<{ findings: string } | null>;
   /** 测试缝：读盘上的审查凭据（默认读 `OPENMAIC_PLAN_FREEZE_DIR` 下的小文件）。 */
   readReviewReceipt?: (stageId: string) => Promise<unknown | null>;
+  /** Resolved capability map for the runner session. */
+  capabilities?: ResolvedCapabilityMap;
 }
 
 /**
@@ -283,13 +286,13 @@ export const DSL_TOOLS_PROMPT = [
   'For one targeted change inside a large HTML or long text field, use patch_stage op "str_replace" (path, oldText, newText; set replaceAll only when the anchor repeats) instead of rewriting the whole field with set.',
   'Use grep_stage for literal stage-wide text/source search.',
   'Start with detail:"tree" to see structure; read source only for the subtree you will edit; for long content, prefer grep_stage over paging with offset.',
+  'A conversation in this workspace exists to make a classroom, so the opening request of a new conversation is a request for a course by default: build one, even when the message names only a topic, unless it is clearly something else, such as a question about a course the conversation already refers to, a question about settings or how the product works, small talk, or a change to an existing course. When you genuinely cannot tell whether the user wants a course, ask once with ask_user whether to build one instead of only answering in chat.',
   'When the user asks for a new course and has not chosen a skill, read the `stage-design` skill before planning; topic skills build on it.',
-  'Use generate_scene once per page: each successful call is a durable checkpoint. Use list_scenes to inspect persisted pages and generate_actions to rebuild playback actions for one page.',
-  'Use duplicate_scene to copy a layout, edit_deck for retitle/insert/delete/reorder, and generate_tts after narration edits. Page-list writers keep the saved outline numbering aligned with the real pages.',
+  'The user is waiting to see the classroom take shape, so get its first page persisted as early as possible: once create_stage and set_roster are done, generate page 1 before any work that page does not need. Research the first page relies on still comes first. Make media just in time for the page that uses it, the images for page N right before generating page N, and never generate a batch of images or videos for the whole course up front.',
+  'Use generate_scene once per page: each successful call is a durable checkpoint. For a slide, pass design (how the page looks) alongside brief and materialFacts (what it says); never mix the two. Use list_scenes to inspect persisted pages and generate_actions to rebuild playback actions for one page.',
+  'A course is one deck. Before writing its first slide, settle one design style for the whole course: background treatment, palette with a role for each colour, type scale, title placement, and the recurring layout grammar (panel and card treatment, column patterns, spacing). Each slide is generated on its own and sees only its own call, so restate that same style in every slide design and vary only the layout the page content calls for. When editing a course that already has pages, keep its established style, read from its existing pages, unless the user asks to change it.',
+  'Use duplicate_scene to copy a layout and edit_deck for retitle/insert/delete/reorder. Page-list writers keep the saved outline numbering aligned with the real pages.',
   'To fill an uploaded .pptx into an existing stage as appended pages with its original slides kept, read the `pptx-import` skill first (it carries the import-and-repair sequence) and use `import_pptx` after `create_stage` — never a text read plus generate_scene for a layout-preserving import. The stage keeps its own title; the PPT is content, not the classroom identity.',
-  'When the page needs a new visual rather than an existing URL, call `generate_image` first, then apply its returned `src` with `patch_stage` set or add an image element; generate_image never edits the page.',
-  'When a NEW page needs visuals, obtain every real src first by reusing material or calling generate_image, then pass each image src with its description and dimensions in `generate_scene.media` so the content model sees the media while composing the page; media generation tools never edit the page.',
-  'generate_video is asynchronous: it returns a `gen_vid_...` placeholder immediately and the video completes in the background. Patch the placeholder onto a video element with patch_stage right away; the page updates itself when the video is ready.',
   'Use use_material_media before placing session image, video, or audio bytes into a page. Use render_scene_preview selectively to inspect a persisted page when the render capability is available.',
 ].join(' ');
 
@@ -400,6 +403,8 @@ export interface CoursePromptBlocks {
   fetch?: string;
   /** Compatibility guidance for installed legacy skills and resumed transcripts. */
   dslTools?: string;
+  /** Conditional instruction for unavailable capabilities (e.g. image, tts). */
+  unavailableCapabilities?: string;
   /**
    * Static materials and knowledge-base guidance. The runner always
    * passes it, including when nothing is attached, so the model can
@@ -408,7 +413,7 @@ export interface CoursePromptBlocks {
   materials?: string;
   /** Roster guidance (list_voices / set_roster; always registered). */
   roster?: string;
-  /** Voice-cloning guidance (clip_audio / register_voice; always registered). */
+  /** Voice-cloning guidance (clip_audio; always registered). */
   voice?: string;
   /**
    * 阶段冻结的门槛开着时才出现（`OPENMAIC_PLAN_GATE=1`）。
@@ -434,6 +439,14 @@ export interface CoursePromptBlocks {
    *   **这一段不存在**，而不是一句占位话。
    */
   learnerState?: string;
+  /** Voice registration guidance; present only when voice_registration is enabled. */
+  voiceRegistration?: string;
+  /** Image generation guidance; present only when image capability is available. */
+  image?: string;
+  /** Video generation guidance; present only when video capability is available. */
+  video?: string;
+  /** TTS narration guidance; present only when tts capability is available. */
+  tts?: string;
 }
 
 /**
@@ -494,6 +507,13 @@ export const PROMPT_BLOCK_ORDER = [
   'materials',
   'roster',
   'voice',
+  // 上游 v1.5.0 把「能力缺失」做成显式一块：讲清这次没有哪项能力，别让模型去猜。
+  'unavailableCapabilities',
+  // 四块能力专属指引：由 capability-tools 按槽位自动填，缺席就是整块不出现。
+  'image',
+  'video',
+  'tts',
+  'voiceRegistration',
   // ★ 唯一会随答题变化的一块，放**最后** ⇒ 只让末尾重读（§1.2）
   'learnerState',
 ] as const satisfies readonly (keyof CoursePromptBlocks)[];

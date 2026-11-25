@@ -472,17 +472,20 @@ describe.skipIf(!contractUrl)('material extraction at upload on PostgreSQL', () 
     it('aborts the extractor when a heartbeat finds the lease gone, and drops its result', async () => {
       const material = await upload('lost.pdf');
       const held = await claim('worker-a');
+      const started = gate();
       let aborted = false;
       const run = runClaimedOwnerMaterialExtraction(held!, {
         ...deps(async (_name, signal) => {
-          await new Promise<void>((resolve) =>
-            signal.addEventListener('abort', () => resolve(), { once: true }),
-          );
+          await new Promise<void>((resolve) => {
+            signal.addEventListener('abort', () => resolve(), { once: true });
+            started.release();
+          });
           aborted = true;
           return parsed('too late');
         }),
         heartbeatIntervalMs: 20,
       });
+      await started.promise;
       // Another attempt takes the lease (a takeover elsewhere).
       await pool.query('UPDATE owner_material SET extraction_worker = $2 WHERE id = $1', [
         material.id,
@@ -557,9 +560,18 @@ describe.skipIf(!contractUrl)('material extraction at upload on PostgreSQL', () 
     expect((await read(material.id)).extraction).toMatchObject({
       status: 'failed',
       errorCode: 'EXTRACTION_TIMEOUT',
-      retryable: true,
+      retryable: false,
     });
     expect(published(material)).toEqual([]);
+    expect(analyzed).toEqual(['hang.pdf']);
+    expect(await runNextOwnerMaterialExtraction('worker-b', deps())).toBe(false);
+    expect(await runNextOwnerMaterialExtraction('worker-c', deps())).toBe(false);
+    expect(analyzed).toEqual(['hang.pdf']);
+    // Only an explicit user retry starts the upload again.
+    await startOwnerMaterialExtractions(pool, OWNER, [material.id], ['failed']);
+    await runNextOwnerMaterialExtraction('worker-d', deps());
+    expect((await read(material.id)).extraction?.status).toBe('ready');
+    expect(analyzed).toEqual(['hang.pdf', 'hang.pdf']);
   });
 
   it('takes owners in turns, with at most the per-owner limit running', async () => {

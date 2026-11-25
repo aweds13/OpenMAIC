@@ -21,6 +21,8 @@ const interactionRoute: UserStageRoute = { model: 'minimax-m2.7' };
  *   operator's MODEL_ROUTES (with an explicit api dialect and contextWindow) in
  *   agent-runtime/agent-driver-model.ts, so the UI deliberately offers no
  *   user-level override for it.
+ * - material-chapters: source extraction uses the independent material.chapters
+ *   slot, outside the course-generation stations.
  */
 const STAGES_WITHOUT_A_STATION = [
   'conversation-title',
@@ -29,6 +31,7 @@ const STAGES_WITHOUT_A_STATION = [
   // 它必须跟着**内容生成**那个模型走（`course.content`），审的人不如写的人
   // 聪明就没意义；想要单独钉模型是另一件事，不由 UI 开这个口子。
   'course-review',
+  'material-chapters',
 ] as const;
 
 /** 模拟 UI 写入：互动站点覆盖时整组键一起落同一个路由。 */

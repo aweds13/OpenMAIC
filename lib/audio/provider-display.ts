@@ -20,6 +20,8 @@ const ASR_PROVIDER_NAME_KEYS: Record<string, string> = {
   'azure-asr': 'settings.providerAzureASR',
   'funasr-asr': 'settings.providerFunASRASR',
   'lemonade-asr': 'settings.providerLemonadeASR',
+  'xiaomi-asr': 'settings.providerXiaomiASR',
+  'deepseek-asr': 'settings.providerDeepSeekASR',
 };
 
 const TTS_PROVIDER_NAME_KEYS: Record<string, string> = {
@@ -31,6 +33,8 @@ const TTS_PROVIDER_NAME_KEYS: Record<string, string> = {
   'doubao-tts': 'settings.providerDoubaoTTS',
   'elevenlabs-tts': 'settings.providerElevenLabsTTS',
   'minimax-tts': 'settings.providerMiniMaxTTS',
+  'xiaomi-tts': 'settings.providerXiaomiTTS',
+  'deepseek-tts': 'settings.providerDeepSeekTTS',
   'google-tts': 'settings.providerGoogleTTS',
   'lemonade-tts': 'settings.providerLemonadeTTS',
   'browser-native-tts': 'settings.providerBrowserNativeTTS',

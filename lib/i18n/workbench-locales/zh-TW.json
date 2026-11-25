@@ -21,7 +21,12 @@
     "stop": "停止本輪建構",
     "waiting": "正在處理",
     "emptyTitle": "開始一個新對話",
-    "emptyHint": "描述你想做的變更，或用 @ 指一堂課"
+    "emptyHint": "描述你想做的變更，或用 @ 指一堂課",
+    "copyReply": "複製回覆",
+    "copied": "已複製",
+    "queued": "正在排隊，輪到後會自動開始",
+    "queuedPlaceholder": "排隊中，可以先補充要求，Enter 送出",
+    "cancelQueued": "取消排隊"
   },
   "question": {
     "waiting": "等你回答",
@@ -33,10 +38,16 @@
     "placeholder": "寫下你的回答",
     "confirm": "確認",
     "submit": "送出",
-    "dismiss": "放棄",
+    "dismiss": "收起",
     "inFormBelow": "在下方表單裡回答",
     "inPreview": "在右側預覽中回答",
-    "multiAnswerSeparator": "、"
+    "multiAnswerSeparator": "、",
+    "recommended": "推薦",
+    "autoConfirm": "自動確認",
+    "autoConfirmed": "已自動選擇推薦項，隨時可以修改",
+    "showDetails": "展開",
+    "hideDetails": "收起",
+    "orAnswerInChat": "也可以直接在對話裡回答"
   },
   "material": {
     "maxSelected": "一次最多選擇 {{count}} 個材料",
@@ -47,7 +58,9 @@
     "fileTooLargeWithLimit": "檔案過大，請選擇不超過 {{limit}}MB 的檔案。",
     "unsupportedType": "不支援此檔案類型，請選擇受支援的檔案。",
     "quotaExceeded": "已達到材料上傳限額。",
-    "storageFull": "儲存空間已達上限，無法上傳這份資料。"
+    "storageFull": "儲存空間已達上限，無法上傳這份資料。",
+    "uploadFailedShort": "上傳失敗",
+    "retryFailed": "無法重新解析，請稍後再試。"
   },
   "skill": {
     "listFailed": "Skill 清單載入失敗",
@@ -113,7 +126,10 @@
     "pageCaption": "第 {{order}} 頁 · {{title}}",
     "skills": "已裝備的技能",
     "resting": "課程會出現在這裡",
-    "restingDesc": "在對話裡繼續；生成課程後會在這個分頁開啟。"
+    "restingDesc": "在對話裡繼續；生成課程後會在這個分頁開啟。",
+    "queuedEyebrow": "排隊中",
+    "queued": "正在排隊",
+    "queuedDesc": "前面還有任務在進行，輪到後會自動開始。"
   },
   "thinking": {
     "active": "思考中…",
@@ -130,7 +146,15 @@
     "retryHint": "可以再說一句讓它重試",
     "stopped": "本輪生成已停止",
     "workerInterrupted": "被 worker 重啟打斷，這次呼叫沒有產生結果；agent 會在新一次嘗試裡按需重發。",
-    "userStopped": "已被停止打斷，這次呼叫沒有產生結果。"
+    "userStopped": "已被停止打斷，這次呼叫沒有產生結果。",
+    "retryOrNewChatHint": "可以再說一句讓它重試；如果反覆失敗，請開始新聊天",
+    "contextCompacted": "已將較早的訊息壓縮為摘要以繼續對話",
+    "contextCompactedMeta": "上下文：{{messagesBefore}} → {{messagesAfter}} 則訊息 · 約 {{tokensBefore}} → {{tokensAfter}} tokens",
+    "contextSummaryFailed": "此會話已超出上下文上限，且早期訊息的摘要生成失敗，本輪已停止",
+    "contextStillTooLarge": "此會話過長，超出了模型上下文上限",
+    "contextNoBoundary": "單則訊息或附件過大，超出了模型上下文上限",
+    "shortenOrNewChatHint": "請精簡訊息或附件，或開始新聊天",
+    "contextBudgetInvalid": "目前模型的上下文預算設定異常，本輪已停止。"
   },
   "tool": {
     "errorSeparator": "：",
@@ -141,7 +165,8 @@
       "skills": "{{count}} 個 skill",
       "running": "執行中",
       "error": "有錯誤",
-      "done": "已完成"
+      "done": "已完成",
+      "failed": "{{count}} 個失敗"
     },
     "section": {
       "input": "入參",
@@ -205,7 +230,16 @@
       "listFolderCourses": "檢視課堂目錄",
       "createStage": "新增課堂",
       "renameStage": "重新命名課堂",
-      "readStageOutline": "讀取課堂大綱"
+      "readStageOutline": "讀取課堂大綱",
+      "writeFile": "寫入檔案",
+      "listFiles": "查看專案檔案",
+      "manageFile": "管理專案檔案",
+      "runBuild": "執行建置",
+      "collectBuild": "收集建置結果",
+      "readTeachingSkill": "閱讀教學步驟",
+      "requestReview": "提出審閱問題",
+      "completeTeachingStage": "完成當前教學環節",
+      "respondToLearner": "回答你的問題"
     },
     "chip": {
       "seconds": "{{count}} 秒",
@@ -288,7 +322,9 @@
       "createStage": "課堂沒能建好",
       "renameStage": "課堂沒能改名",
       "readStageOutline": "課堂大綱沒能讀出來",
-      "generic": "呼叫失敗"
+      "generic": "呼叫失敗",
+      "interrupted": "工具呼叫已中斷",
+      "materialExtraction": "材料解析失敗"
     },
     "progress": {
       "scene": {

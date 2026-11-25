@@ -16,12 +16,12 @@ describe('personal history runner wiring', () => {
     expect(source).toContain('meta.ownerId');
     expect(source).not.toContain('analyze_course_history');
 
-    // ★ 这里原本断言 `...PERSONAL_HISTORY_TOOL_NAMES` —— 即在允许表里点名这一组常量。
-    //   现在允许表**从工具表派生**（`allowedToolNames: new Set(tools.map(…))`），
-    //   所以里面**不再点名任何一组常量**，那条字面量断言因此失效。
-    //   但它想保证的事（"这四个工具真的能调"）其实**变强了**：
-    //   工具只要进了 `tools`，就必然在允许表里 —— 结构上不可能漏。
-    //   所以改钉**那个派生关系**（见 runner.ts 里那段注释）。
-    expect(source).toContain('allowedToolNames: new Set(tools.map((tool) => tool.name))');
+    // ★ 允许表在 v1.5.0 之后由 `assembleCapabilityRuntime` 现算
+    //   （`new Set([...baseAllowedToolNames, ...tools.map(…)]`），runner 侧不再出现
+    //   那行 `new Set(tools.map(…))`。要保证的事没变："这四个工具真的能调"。
+    //   现在有两条结构保证：
+    //   ① 四个工具的常量名被显式点名进 `baseAllowedToolNames`；
+    //   ② 它们也确实在 `candidateTools` 里构造出来了。
+    expect(source).toContain('...PERSONAL_HISTORY_TOOL_NAMES');
   });
 });

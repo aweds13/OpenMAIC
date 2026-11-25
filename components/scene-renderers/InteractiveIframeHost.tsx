@@ -14,15 +14,17 @@ import {
   type IframePoolEntry,
 } from '@/lib/store/interactive-iframe-pool';
 import { useSceneRuntimeErrors } from '@/lib/store/scene-runtime-errors';
+import { GENUI_LOGICAL_HEIGHT, GENUI_LOGICAL_WIDTH } from '@/lib/interactive/logical-viewport';
 import {
-  GENUI_LOGICAL_HEIGHT,
-  GENUI_LOGICAL_WIDTH,
-  fitGenUiViewport,
-} from '@/lib/interactive/logical-viewport';
+  GENUI_FIT_REPORT_REQUEST,
+  GENUI_FIT_SCROLL_REQUEST,
+  useGenUiFit,
+} from '@/lib/interactive/use-genui-fit';
 import { intersectClientBoxes } from '@/lib/edit/visible-client-rect';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useElementRefsStore } from '@/lib/store/element-refs';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { useFullscreenPortalTarget } from '@/lib/hooks/use-fullscreen-portal-target';
 import {
   ELEMENT_REF_SELECTOR_MAX,
   ELEMENT_SNAPSHOT_MAX,
@@ -30,6 +32,7 @@ import {
   makeInteractiveElementRef,
 } from '@/lib/workbench/element-refs';
 import { InteractiveRuntimeErrorBanner } from './InteractiveRuntimeErrorBanner';
+import { InteractiveMoreBelowCue } from './InteractiveMoreBelowCue';
 
 type InteractivePickerMessage = {
   __maicInteractive?: boolean;
@@ -143,11 +146,13 @@ export function handleInteractivePickerMessage(
  * zero-reload return.
  */
 export function InteractiveIframeHost({
+  portalContainer,
   onMediaPlay,
   playbackPicker,
   onPlaybackPick,
   onPlaybackCancel,
 }: {
+  readonly portalContainer?: HTMLElement | null;
   readonly onMediaPlay?: () => void;
   readonly playbackPicker?: PlaybackInteractivePickerState | null;
   readonly onPlaybackPick?: (pick: PlaybackInteractiveComponentPick) => void;
@@ -160,14 +165,8 @@ export function InteractiveIframeHost({
 
   // Portal into the fullscreen element when one is active (presentation mode
   // fullscreens the stage, and a body-portaled iframe would not be part of that
-  // subtree, so it would vanish). Falls back to body otherwise.
-  const [portalTarget, setPortalTarget] = useState<Element | null>(null);
-  useEffect(() => {
-    const sync = () => setPortalTarget(document.fullscreenElement ?? document.body);
-    sync();
-    document.addEventListener('fullscreenchange', sync);
-    return () => document.removeEventListener('fullscreenchange', sync);
-  }, []);
+  // subtree, so it would vanish). An explicit null waits for Stage to mount.
+  const portalTarget = useFullscreenPortalTarget(portalContainer);
 
   // Keep the messaging store's active scene in lock-step (its legacy fallback
   // path resolves the current widget by active scene when no id is passed).
@@ -330,6 +329,14 @@ function PooledIframe({
     [refs, sceneId],
   );
   const documentToken = entry.srcDoc ? `srcDoc:${entry.srcDoc}` : `src:${entry.src ?? ''}`;
+  const rect = entry.rect;
+  const fit = useGenUiFit(rect, documentToken);
+  const handleFitMessage = fit.handleMessage;
+  // A new fit key restarts the fit; the page only re-posts when its own size
+  // changes, so ask for its current extent.
+  useEffect(() => {
+    iframeRef.current?.contentWindow?.postMessage(GENUI_FIT_REPORT_REQUEST, '*');
+  }, [fit.fitKey]);
 
   // Register the postMessage callback for this scene (moved here from the
   // placeholder, since the iframe now lives in the host). Stable per scene:
@@ -377,6 +384,7 @@ function PooledIframe({
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.source !== iframeRef.current?.contentWindow) return;
+      if (handleFitMessage(e.data)) return;
       const d = e.data as
         | (InteractivePickerMessage & { errorKind?: string; message?: unknown })
         | undefined;
@@ -404,8 +412,18 @@ function PooledIframe({
     };
     window.addEventListener('message', onMessage);
     iframeRef.current?.contentWindow?.postMessage({ __maicErrorReplayRequest: true }, '*');
+    iframeRef.current?.contentWindow?.postMessage(GENUI_FIT_REPORT_REQUEST, '*');
     return () => window.removeEventListener('message', onMessage);
-  }, [sceneId, entry.srcDoc, effectiveMode, onPlaybackCancel, onPlaybackPick, playbackArmed, t]);
+  }, [
+    sceneId,
+    entry.srcDoc,
+    effectiveMode,
+    handleFitMessage,
+    onPlaybackCancel,
+    onPlaybackPick,
+    playbackArmed,
+    t,
+  ]);
 
   // A content change reloads the iframe; drop the previous render's errors so the
   // captured set reflects the CURRENT page (e.g. after the agent applies a fix).
@@ -414,9 +432,10 @@ function PooledIframe({
     useSceneRuntimeErrors.getState().clearScene(sceneId);
   }, [sceneId, entry.srcDoc]);
 
-  const rect = entry.rect;
   const clip = entry.clip ?? rect;
-  const viewport = rect ? fitGenUiViewport(rect) : null;
+  // Fitted to the slot and to the content extent the page reports: a page
+  // larger than its viewport is shrunk (down to a floor) so it fits unscrolled.
+  const viewport = fit.viewport;
   const visibleViewport = viewport && clip ? intersectClientBoxes(viewport.box, clip) : null;
   // Require a real measured box before showing — a null or zero-size rect means
   // the slot hasn't laid out yet; showing then would flash a 0x0 iframe pinned
@@ -452,15 +471,15 @@ function PooledIframe({
     position: 'absolute',
     left: viewport && visibleViewport ? viewport.box.left - visibleViewport.left : 0,
     top: viewport && visibleViewport ? viewport.box.top - visibleViewport.top : 0,
-    width: GENUI_LOGICAL_WIDTH,
-    height: GENUI_LOGICAL_HEIGHT,
+    width: viewport?.width ?? GENUI_LOGICAL_WIDTH,
+    height: viewport?.height ?? GENUI_LOGICAL_HEIGHT,
     border: 0,
     transform: `scale(${viewport?.scale ?? 0})`,
     transformOrigin: 'top left',
   };
 
   return (
-    <div style={wrapStyle}>
+    <div className="interactive-iframe-viewport" style={wrapStyle}>
       <iframe
         ref={iframeRef}
         srcDoc={observation.html}
@@ -481,6 +500,13 @@ function PooledIframe({
         <InteractiveRuntimeErrorBanner
           message={latestRuntimeError}
           onDismiss={() => setDismissedRuntimeSignature(runtimeErrorSignature)}
+        />
+      ) : null}
+      {shown && fit.showMoreCue && !showRuntimeError && !playbackArmed ? (
+        <InteractiveMoreBelowCue
+          onClick={() =>
+            iframeRef.current?.contentWindow?.postMessage(GENUI_FIT_SCROLL_REQUEST, '*')
+          }
         />
       ) : null}
       {playbackArmed && (

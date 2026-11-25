@@ -1,3 +1,5 @@
+import { llmExecutionContext } from '@/lib/ai/thinking-context';
+import { MODEL_REQUEST_IDLE_TIMEOUT, modelRequestFailure } from './request-failure';
 /**
  * MAIC Agent — pi StreamFn adapter (promoted from PoC).
  *
@@ -35,6 +37,7 @@ import {
   type ToolSet,
 } from 'ai';
 import { streamLLM } from '@/lib/ai/llm';
+import { mapStreamPart, readStreamDelta } from '@/lib/ai/stream-parts';
 import { preservesReasoningForModel } from '@/lib/ai/providers';
 import { normalizeUsage } from '@/lib/usage/normalize';
 import type { ThinkingConfig } from '@/lib/types/provider';
@@ -44,6 +47,8 @@ import {
   type ToolCallProviderMetadata,
 } from './provider-metadata';
 import { replayToolCallArguments, toolCallArguments } from './tool-call-arguments';
+import { requestStateTail } from './request-state-tail';
+import { hostStateTailMessage } from '@/lib/ai/request-state-tail';
 
 /**
  * Local re-implementation of pi-ai's `AssistantMessageEventStream` queue. pi
@@ -143,6 +148,8 @@ export interface CallLlmStreamFnOptions {
   languageModel: LanguageModel;
   /** Only explicitly vision-capable models receive tool images; unknown defaults to omission. */
   supportsToolImages?: boolean;
+  /** Opt-in user image transport; existing authoring callers remain text-only. */
+  includeUserImages?: boolean;
   maxOutputTokens?: number;
   /**
    * When true, never send a max output tokens cap on the wire, even when pi
@@ -151,7 +158,14 @@ export interface CallLlmStreamFnOptions {
    * hard max_tokens on the provider call.
    */
   omitMaxOutputTokens?: boolean;
-  thinkingConfig?: ThinkingConfig;
+  /** Resolve per model request so a validated teaching transition applies within the same turn. */
+  thinkingConfig?: ThinkingConfig | (() => ThinkingConfig);
+  /** No application-level header/body deadline for this conversation. */
+  unbounded?: boolean;
+  /** Per-request silence guard, reset by upstream stream parts; never a total turn deadline. */
+  responseIdleTimeoutMs?: number;
+  /** Upstream execution feedback, before presentation throttling; never a local heartbeat. */
+  onProgress?: () => void;
   source?: string;
   /** Optional abort signal forwarded to the underlying streamLLM call. */
   abortSignal?: AbortSignal;
@@ -190,10 +204,9 @@ export function createPartMapper(
   };
 
   const handle = (part: Record<string, unknown>): void => {
-    const type = part.type as string;
-    if (type === 'text-delta' || type === 'text') {
-      const delta = (part.text ?? part.delta ?? part.textDelta ?? '') as string;
-      if (!delta) return;
+    const mapped = mapStreamPart(part);
+    if (mapped?.type === 'text-delta' || mapped?.type === 'text') {
+      const { delta } = mapped;
       if (active?.kind !== 'text') {
         closeActive();
         const index = partial.content.length;
@@ -204,7 +217,7 @@ export function createPartMapper(
       active.buf += delta;
       (partial.content[active.index] as TextContent).text = active.buf;
       push({ type: 'text_delta', contentIndex: active.index, delta, partial });
-    } else if (type === 'reasoning-delta' || type === 'reasoning') {
+    } else if (part.type === 'reasoning-delta' || part.type === 'reasoning') {
       const delta = (part.text ?? part.delta ?? '') as string;
       if (!delta) return;
       if (active?.kind !== 'thinking') {
@@ -217,17 +230,17 @@ export function createPartMapper(
       active.buf += delta;
       (partial.content[active.index] as ThinkingContent).thinking = active.buf;
       push({ type: 'thinking_delta', contentIndex: active.index, delta, partial });
-    } else if (type === 'reasoning-end') {
+    } else if (part.type === 'reasoning-end') {
       if (active?.kind === 'thinking') closeActive();
-    } else if (type === 'tool-call') {
+    } else if (mapped?.type === 'tool-call') {
       closeActive();
       const idx = partial.content.length;
       const toolCall: ToolCall = {
         type: 'toolCall',
-        id: (part.toolCallId ?? part.id) as string,
-        name: (part.toolName ?? part.name) as string,
+        id: mapped.toolCallId,
+        name: mapped.toolName,
         // Malformed JSON arrives as a raw string; never store it (see helper).
-        arguments: toolCallArguments(part.input ?? part.args),
+        arguments: toolCallArguments(mapped.input ?? part.args),
       };
       // Capture provider-specific metadata (e.g. Gemini thought_signature) via
       // the typed seam so it can be re-emitted on the next turn.
@@ -237,8 +250,8 @@ export function createPartMapper(
       partial.content.push(toolCall);
       push({ type: 'toolcall_start', contentIndex: idx, partial });
       push({ type: 'toolcall_end', contentIndex: idx, toolCall, partial });
-    } else if (type === 'error') {
-      throw (part.error as Error) ?? new Error('LLM stream error');
+    } else if (mapped?.type === 'error') {
+      throw mapped.error ?? new Error('LLM stream error');
     }
     // ignore other v6 parts (start/finish-step/source/...)
   };
@@ -255,7 +268,10 @@ export function createPartMapper(
 export function createCallLlmStreamFn(opts: CallLlmStreamFnOptions): StreamFn {
   return ((_piModel, context: PiContext, streamOptions?: SimpleStreamOptions) => {
     const stream = new LocalAssistantEventStream();
-    void pump(stream, context, opts, streamOptions).catch((error) => stream.fail(error));
+    const run = () => pump(stream, context, opts, streamOptions);
+    void (opts.unbounded ? llmExecutionContext.run({ unbounded: true }, run) : run()).catch(
+      (error) => stream.fail(error),
+    );
     return stream as unknown as AssistantMessageEventStream;
   }) as StreamFn;
 }
@@ -282,6 +298,22 @@ async function pump(
   const mapper = createPartMapper(partial, (event) => stream.push(event));
   let settled = false;
   let cleanupAbortListeners = () => {};
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const requestAbort = new AbortController();
+  const clearIdleTimer = () => clearTimeout(idleTimer);
+  const armIdleTimer = () => {
+    clearIdleTimer();
+    if (!opts.responseIdleTimeoutMs || settled) return;
+    idleTimer = setTimeout(() => {
+      const error = new Error(
+        `[${MODEL_REQUEST_IDLE_TIMEOUT}] Model request received no upstream response within the idle window. Retry to continue.`,
+      );
+      // Settle even if a broken transport ignores abort. No late tool call may execute.
+      requestAbort.abort(error);
+      settleError('error', error);
+    }, opts.responseIdleTimeoutMs);
+    idleTimer.unref?.();
+  };
 
   const setUsage = (rawUsage: LanguageModelUsage | undefined): void => {
     const usage = normalizeUsage(rawUsage);
@@ -309,6 +341,10 @@ async function pump(
   const settleError = (reason: 'error' | 'aborted', error: unknown): boolean => {
     if (settled) return false;
     settled = true;
+    // Settling the local stream must also release a still-open provider request.
+    // Mark settled first because abort synchronously invokes our own listener.
+    requestAbort.abort(error);
+    clearIdleTimer();
     mapper.finalize();
     removeExecutableToolCalls();
     partial.stopReason = reason;
@@ -316,6 +352,8 @@ async function pump(
       error,
       reason === 'aborted' ? 'Operation aborted' : 'LLM stream error',
     );
+    if (reason === 'error' && opts.responseIdleTimeoutMs)
+      partial.errorMessage = modelRequestFailure(partial.errorMessage);
     cleanupAbortListeners();
     stream.push({ type: 'error', reason, error: partial });
     return true;
@@ -326,6 +364,7 @@ async function pump(
     totalUsage: LanguageModelUsage | undefined,
   ): boolean => {
     if (settled) return false;
+    clearIdleTimer();
 
     const hasToolCall = partial.content.some((content) => content.type === 'toolCall');
     mapper.finalize();
@@ -381,9 +420,9 @@ async function pump(
       return;
     }
 
-    const combinedAbort = combineAbortSignals(abortSources);
+    const combinedAbort = combineAbortSignals([...abortSources, requestAbort.signal]);
     const onAbort = () => {
-      settleError('aborted', combinedAbort.signal?.reason);
+      settleError(requestAbort.signal.aborted ? 'error' : 'aborted', combinedAbort.signal?.reason);
     };
     combinedAbort.signal?.addEventListener('abort', onAbort, { once: true });
     cleanupAbortListeners = () => {
@@ -402,14 +441,19 @@ async function pump(
       : opts.maxOutputTokens && requestedMaxTokens
         ? Math.min(opts.maxOutputTokens, requestedMaxTokens)
         : (requestedMaxTokens ?? opts.maxOutputTokens);
+    armIdleTimer();
     const result = await streamLLM(
       {
         model: opts.languageModel,
         system: context.systemPrompt,
-        messages: toModelMessages(context.messages, {
-          includeReasoning: preservesReasoningForModel(opts.languageModel),
-          includeToolImages: opts.supportsToolImages,
-        }),
+        messages: [
+          ...toModelMessages(context.messages, {
+            includeReasoning: preservesReasoningForModel(opts.languageModel),
+            includeToolImages: opts.supportsToolImages,
+            includeUserImages: opts.includeUserImages,
+          }),
+          ...(requestStateTail(context) ? [hostStateTailMessage(requestStateTail(context))] : []),
+        ],
         tools: toAiTools(context.tools ?? []),
         toolChoice: 'auto',
         // pi's loop owns multi-step; one LLM turn per streamFn call.
@@ -418,11 +462,21 @@ async function pump(
         abortSignal: combinedAbort.signal,
       },
       opts.source ?? 'maic-agent',
-      opts.thinkingConfig,
+      typeof opts.thinkingConfig === 'function' ? opts.thinkingConfig() : opts.thinkingConfig,
     );
 
     for await (const part of result.fullStream as AsyncIterable<Record<string, unknown>>) {
       if (settled) break;
+      armIdleTimer();
+      const delta = readStreamDelta(part);
+      const feedback =
+        (['text-delta', 'text', 'reasoning-delta', 'reasoning', 'tool-input-delta'].includes(
+          String(part.type),
+        ) &&
+          !!delta) ||
+        part.type === 'tool-call' ||
+        part.type === 'finish';
+      if (feedback) opts.onProgress?.();
       if (part.type === 'finish') {
         settleFinish(
           part.finishReason as FinishReason | undefined,
@@ -444,6 +498,7 @@ async function pump(
   } catch (err) {
     settleError('error', err);
   } finally {
+    clearIdleTimer();
     cleanupAbortListeners();
   }
 }
@@ -484,7 +539,11 @@ function combineAbortSignals(signals: AbortSignal[]): {
 /** pi Message[] -> AI SDK ModelMessage[]. */
 export function toModelMessages(
   messages: PiMessage[],
-  options: { includeReasoning?: boolean; includeToolImages?: boolean } = {},
+  options: {
+    includeReasoning?: boolean;
+    includeToolImages?: boolean;
+    includeUserImages?: boolean;
+  } = {},
 ): ModelMessage[] {
   const out: ModelMessage[] = [];
   let pendingImages: Array<
@@ -501,6 +560,17 @@ export function toModelMessages(
     // This is a transport-only view; do not change the durable Pi history.
     if (m.role !== 'toolResult') flushImages();
     if (m.role === 'user') {
+      if (options.includeUserImages === true && Array.isArray(m.content)) {
+        out.push({
+          role: 'user',
+          content: m.content.map((part) =>
+            part.type === 'text'
+              ? { type: 'text' as const, text: part.text }
+              : { type: 'image' as const, image: part.data, mediaType: part.mimeType },
+          ),
+        });
+        continue;
+      }
       const content =
         typeof m.content === 'string'
           ? m.content

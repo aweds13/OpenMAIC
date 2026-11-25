@@ -108,6 +108,9 @@ describe('workspace model configuration store', () => {
     await expect(
       saveWorkspaceModelConfig(pool, OWNER, { slots: { video: null }, lock: ['video'] }, null),
     ).rejects.toThrow(/only the deployment configuration sets lock/);
+    await expect(
+      saveWorkspaceModelConfig(pool, OWNER, { sandbox: {} } as never, null),
+    ).rejects.toThrow(/only the deployment configuration sets sandbox/);
     expect(await readWorkspaceModelConfig(pool, OWNER)).toBeNull();
   });
 
@@ -212,7 +215,8 @@ describe('instance secret file', () => {
       resetInstanceKeyForTests();
       const first = instanceKey({}, dir);
       const file = path.join(dir, 'instance-secret.key');
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      // Windows has no POSIX permission bits: a file there always reports 0o666.
+      if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
       resetInstanceKeyForTests();
       expect(instanceKey({}, dir).kid).toBe(first.kid);
       resetInstanceKeyForTests();

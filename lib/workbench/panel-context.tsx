@@ -13,20 +13,22 @@ export interface WorkbenchPanelState {
   readonly hosted: boolean;
   /** Whether the classroom column is actually visible in the workspace. */
   readonly visible: boolean;
-  /** Whether the hosted classroom is in full-screen learning playback. */
-  readonly playback: boolean;
   /** Whether this pane currently requests the learning chrome. */
   readonly learning: boolean;
-  /** Editing intent after applying visibility, playback and course access gates. */
+  /** Editing intent after applying visibility and course access gates. */
   readonly editPinned: boolean;
+  /** The pane header's element that hosts the editor's undo/redo buttons. */
+  readonly historySlot: HTMLElement | null;
+  /** Delegate mobile Back to the workspace's existing navigation lifecycle. */
+  readonly onMobileExit?: () => void;
 }
 
 const OUTSIDE_WORKBENCH: WorkbenchPanelState = {
   hosted: false,
   visible: true,
-  playback: false,
   editPinned: false,
   learning: false,
+  historySlot: null,
 };
 
 const WorkbenchPanelContext = createContext<WorkbenchPanelState>(OUTSIDE_WORKBENCH);
@@ -34,23 +36,29 @@ const WorkbenchPanelContext = createContext<WorkbenchPanelState>(OUTSIDE_WORKBEN
 export function WorkbenchPanelProvider({
   children,
   visible = true,
-  playback = false,
-  learning = playback,
+  learning = true,
+  historySlot = null,
+  onMobileExit,
 }: {
   readonly children: ReactNode;
   readonly visible?: boolean;
-  readonly playback?: boolean;
   readonly learning?: boolean;
+  readonly historySlot?: HTMLElement | null;
+  readonly onMobileExit?: () => void;
 }) {
+  // The pane's size (split or full screen) is not part of this: the hosted
+  // classroom renders the same chrome at either size, and the pane draws the
+  // header around it.
   const value = useMemo<WorkbenchPanelState>(
     () => ({
       hosted: true,
       visible,
-      playback,
       learning,
-      editPinned: visible && !playback && !learning,
+      editPinned: visible && !learning,
+      historySlot,
+      onMobileExit,
     }),
-    [playback, visible, learning],
+    [visible, learning, historySlot, onMobileExit],
   );
   return <WorkbenchPanelContext.Provider value={value}>{children}</WorkbenchPanelContext.Provider>;
 }
@@ -73,6 +81,8 @@ export interface WorkbenchCourseSummary {
   readonly id: string;
   readonly name: string;
   readonly pageCount: number | null;
+  /** Its last change (epoch ms), the version its cover is cached under; `null` when unknown. */
+  readonly updatedAt?: number | null;
 }
 
 /**
@@ -137,6 +147,12 @@ export interface WorkbenchDraftConversation {
     readonly materials: readonly WorkbenchMaterial[];
     readonly elementRefs: readonly ElementRef[];
     readonly courseRefs: readonly CourseRef[];
+    /**
+     * The course the composer named when it opened (`course` below), when its
+     * mention is still in the message: the conversation is about that course.
+     * Absent, the first message starts an ordinary new conversation.
+     */
+    readonly boundCourseId?: string;
     /** Called once the session exists, before its first message is delivered. */
     readonly onCreated?: (sessionId: string) => void;
   }) => Promise<{
@@ -144,6 +160,12 @@ export interface WorkbenchDraftConversation {
     readonly elementRefsAccepted: boolean;
     readonly courseRefsAccepted: boolean;
   }>;
+  /**
+   * The course this empty conversation was opened for: the composer starts
+   * with it named as an `@` mention, which is the conversation's whole binding
+   * to it (`boundCourseId`).
+   */
+  readonly course?: { readonly stageId: string; readonly title: string };
 }
 
 const WorkbenchDraftConversationContext = createContext<WorkbenchDraftConversation | null>(null);

@@ -21,7 +21,9 @@
     "stop": "Diesen Aufbau stoppen",
     "waiting": "In Arbeit",
     "emptyTitle": "Neues Gespräch beginnen",
-    "emptyHint": "Beschreibe die gewünschte Änderung oder nenne mit @ einen Klassenraum"
+    "emptyHint": "Beschreibe die gewünschte Änderung oder nenne mit @ einen Klassenraum",
+    "copyReply": "Antwort kopieren",
+    "copied": "Kopiert"
   },
   "question": {
     "waiting": "Wartet auf deine Antwort",
@@ -33,10 +35,16 @@
     "placeholder": "Schreibe deine Antwort",
     "confirm": "Bestätigen",
     "submit": "Absenden",
-    "dismiss": "Verwerfen",
+    "dismiss": "Einklappen",
     "inFormBelow": "Antworte im Formular unten",
     "inPreview": "In der Vorschau beantworten",
-    "multiAnswerSeparator": ", "
+    "multiAnswerSeparator": ", ",
+    "recommended": "Empfohlen",
+    "autoConfirm": "Automatisch bestätigen",
+    "autoConfirmed": "Empfohlene Option automatisch gewählt – jederzeit änderbar",
+    "showDetails": "Mehr anzeigen",
+    "hideDetails": "Weniger anzeigen",
+    "orAnswerInChat": "Du kannst auch direkt im Chat antworten"
   },
   "material": {
     "maxSelected": "Du kannst höchstens {{count}} Materialien gleichzeitig auswählen",
@@ -47,7 +55,9 @@
     "fileTooLargeWithLimit": "Die Datei ist zu groß. Wähle eine Datei mit höchstens {{limit}} MB aus.",
     "unsupportedType": "Dieser Dateityp wird nicht unterstützt. Wähle eine unterstützte Datei aus.",
     "quotaExceeded": "Upload-Limit für Materialien erreicht.",
-    "storageFull": "Der Speicherplatz ist voll. Dieses Material konnte nicht hochgeladen werden."
+    "storageFull": "Der Speicherplatz ist voll. Dieses Material konnte nicht hochgeladen werden.",
+    "uploadFailedShort": "Upload fehlgeschlagen",
+    "retryFailed": "Die Analyse konnte nicht neu gestartet werden. Bitte versuche es erneut."
   },
   "skill": {
     "listFailed": "Die Skill-Liste konnte nicht geladen werden",
@@ -130,7 +140,15 @@
     "retryHint": "Sende noch eine Nachricht, um es erneut zu versuchen",
     "stopped": "Dieser Aufbau wurde gestoppt",
     "workerInterrupted": "Durch einen Worker-Neustart unterbrochen. Dieser Aufruf hat kein Ergebnis geliefert; der Agent wiederholt ihn bei Bedarf.",
-    "userStopped": "Durch Stoppen unterbrochen. Dieser Aufruf hat kein Ergebnis geliefert."
+    "userStopped": "Durch Stoppen unterbrochen. Dieser Aufruf hat kein Ergebnis geliefert.",
+    "retryOrNewChatHint": "Sende eine weitere Nachricht, um es erneut zu versuchen, oder beginne einen neuen Chat, falls es weiter fehlschlägt",
+    "contextCompacted": "Frühere Nachrichten wurden zusammengefasst, um dieses Gespräch fortzusetzen",
+    "contextCompactedMeta": "Kontext: {{messagesBefore}} → {{messagesAfter}} Nachrichten · ca. {{tokensBefore}} → {{tokensAfter}} Tokens",
+    "contextSummaryFailed": "Dieses Gespräch hat das Kontextlimit erreicht, und das Zusammenfassen der früheren Nachrichten ist fehlgeschlagen; dieser Durchlauf wurde gestoppt",
+    "contextStillTooLarge": "Dieses Gespräch ist zu lang für das Kontextlimit des Modells",
+    "contextNoBoundary": "Eine einzelne Nachricht oder ein Anhang ist zu groß für das Kontextlimit des Modells",
+    "shortenOrNewChatHint": "Kürze die Nachricht oder die Anhänge oder beginne einen neuen Chat",
+    "contextBudgetInvalid": "Das Kontextbudget des aktuellen Modells ist falsch konfiguriert. Dieser Durchlauf wurde gestoppt."
   },
   "tool": {
     "errorSeparator": ": ",
@@ -141,7 +159,8 @@
       "skills": "{{count}} Skills",
       "running": "Läuft",
       "error": "Mit Fehlern",
-      "done": "Abgeschlossen"
+      "done": "Abgeschlossen",
+      "failed": "{{count}} fehlgeschlagen"
     },
     "section": {
       "input": "Eingabe",
@@ -205,7 +224,16 @@
       "listFolderCourses": "Klassenbibliothek ansehen",
       "createStage": "Klasse erstellen",
       "renameStage": "Klasse umbenennen",
-      "readStageOutline": "Klassengliederung lesen"
+      "readStageOutline": "Klassengliederung lesen",
+      "writeFile": "Write file",
+      "listFiles": "List project files",
+      "manageFile": "Manage project file",
+      "runBuild": "Run build",
+      "collectBuild": "Collect build result",
+      "readTeachingSkill": "Read teaching section",
+      "requestReview": "Ask for review",
+      "completeTeachingStage": "Complete teaching step",
+      "respondToLearner": "Answer your question"
     },
     "chip": {
       "seconds": "{{count}} Sek.",
@@ -288,7 +316,9 @@
       "createStage": "Die Klasse konnte nicht erstellt werden",
       "renameStage": "Die Klasse konnte nicht umbenannt werden",
       "readStageOutline": "Die Klassengliederung konnte nicht gelesen werden",
-      "generic": "Tool-Aufruf fehlgeschlagen"
+      "generic": "Tool-Aufruf fehlgeschlagen",
+      "interrupted": "Tool call interrupted",
+      "materialExtraction": "Materialaufbereitung fehlgeschlagen"
     },
     "progress": {
       "scene": {

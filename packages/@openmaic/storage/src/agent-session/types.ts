@@ -98,6 +98,13 @@ export interface AgentSessionMeta {
   updatedAt: number;
   lease?: AgentSessionLease;
   error?: string;
+  /**
+   * Present (and true) when the session is waiting for the user's answer: its
+   * newest `user_question` event has no later non-blank user message, and no
+   * run is queued or running. Derived by the store from the event log, never
+   * written by a caller; absent means "not waiting".
+   */
+  awaitingAnswer?: true;
 }
 
 export interface CreateAgentSessionInput {
@@ -131,6 +138,8 @@ export interface ClaimAgentSessionOptions {
   maxAttempts: number;
   /** Restricts a claim to one session instead of scanning the oldest candidates. */
   sessionId?: string;
+  /** Sessions still executing in this worker process must not be re-leased after cancellation. */
+  excludeSessionIds?: readonly string[];
 }
 
 export interface FinishAgentSessionPatch {
@@ -323,7 +332,8 @@ export interface AgentSessionStore {
     patch: FinishAgentSessionPatch,
   ): Promise<boolean>;
   releaseLease(sessionId: string, workerId: string): Promise<void>;
-  requestCancel(sessionId: string): Promise<void>;
+  /** settle also revokes the worker lease and records cancellation without waiting for acknowledgement. */
+  requestCancel(sessionId: string, options?: { settle?: boolean }): Promise<void>;
   getCancelRequestedAt(sessionId: string): Promise<number | null>;
   isCancelRequested(sessionId: string): Promise<boolean>;
   clearCancel(
@@ -478,6 +488,12 @@ export type NewOwnerSessionEvent =
       type: 'session_created' | 'session_status';
       status: AgentSessionStatus;
       attempt: number;
+      /**
+       * Whether the session awaits an answer in the recorded status (see
+       * {@link AgentSessionMeta.awaitingAnswer}). The projection derives it
+       * itself when the event is appended; a caller-supplied value is ignored.
+       */
+      awaitingAnswer?: true;
     })
   | (OwnerSessionEventBase & { type: 'session_deleted' | 'session_cancel_requested' })
   | (OwnerSessionEventBase & { type: 'session_title'; title: string | null });

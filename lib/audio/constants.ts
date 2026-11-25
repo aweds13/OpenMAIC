@@ -80,17 +80,37 @@ export const MINIMAX_TTS_MODELS = [
   { id: 'speech-02-turbo', name: 'Speech 02 Turbo' },
 ] as const;
 
-// Legacy sentinel for saved clone voices, excluded from manual model pickers.
-// Keep voice-driven dispatch compatible until the replacement protocol is supported.
-export const DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL = 'qwen3-tts-vc-2026-01-22';
-/** Client-visible VC model. Server-only overrides are resolved in provider-config. */
-export const QWEN_TTS_VOICE_CLONE_MODEL = DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL;
+/** Default wire target for enrollment and synthesis; the server may override it. */
+export const DEFAULT_QWEN_VOICE_CLONE_TARGET = 'cosyvoice-v3.5-plus';
+/** Persisted clone group, not an upstream request model. Keep its saved value stable. */
+export const QWEN_VOICE_CLONE_GROUP_ID = 'qwen3-tts-vc-2026-01-22';
+
+/** Persisted clone groups name a server-resolved model, not an upstream model ID. */
+export function isVoiceCloneGroupId(providerId: string, modelId?: string): boolean {
+  return providerId === 'qwen-tts' && modelId === QWEN_VOICE_CLONE_GROUP_ID;
+}
 
 export function isQwenVoiceCloneModel(modelId?: string, configuredModelId?: string): boolean {
   return (
     !!modelId &&
-    (/-tts-vc(?:-|$)/iu.test(modelId) || (!!configuredModelId && modelId === configuredModelId))
+    (/-tts-vc(?:-|$)/iu.test(modelId) ||
+      modelId.startsWith('cosyvoice-') ||
+      (!!configuredModelId && modelId === configuredModelId))
   );
+}
+
+/** Provider-issued clone IDs carry the enrollment target as their prefix. */
+export function qwenVoiceMatchesTargetModel(voiceId: string, targetModel: string): boolean {
+  return voiceId.trim().startsWith(`${targetModel}-`);
+}
+
+/**
+ * Whether a saved clone must be enrolled again for `targetModel`. Only a
+ * CosyVoice target binds its clone IDs, so other targets never reject one.
+ * The server's check and the settings' markers both use this rule.
+ */
+export function qwenVoiceNeedsReclone(voiceId: string, targetModel: string): boolean {
+  return targetModel.startsWith('cosyvoice-') && !qwenVoiceMatchesTargetModel(voiceId, targetModel);
 }
 
 /** Built-in and explicitly configured Qwen catalogue voices never use the clone model. */
@@ -124,7 +144,7 @@ export function resolveTTSModelForVoice(
   configuredVoices?: readonly { id: string }[],
 ): string | undefined {
   if (providerId !== 'qwen-tts') return requestedModelId;
-  if (isQwenCloneVoice(voiceId, configuredVoices)) return QWEN_TTS_VOICE_CLONE_MODEL;
+  if (isQwenCloneVoice(voiceId, configuredVoices)) return QWEN_VOICE_CLONE_GROUP_ID;
   return requestedModelId && !isQwenVoiceCloneModel(requestedModelId)
     ? requestedModelId
     : TTS_PROVIDERS['qwen-tts'].defaultModelId;
@@ -168,6 +188,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     name: 'OpenAI TTS',
     requiresApiKey: true,
     defaultBaseUrl: 'https://api.openai.com/v1',
+    endpointPath: '/audio/speech',
     icon: '/logos/openai.svg',
     models: [
       { id: 'gpt-4o-mini-tts', name: 'GPT-4o Mini TTS' },
@@ -281,6 +302,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     name: 'Azure TTS',
     requiresApiKey: true,
     defaultBaseUrl: 'https://{region}.tts.speech.microsoft.com',
+    endpointPath: '/cognitiveservices/v1',
     icon: '/logos/azure.svg',
     models: [],
     defaultModelId: '',
@@ -326,6 +348,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     name: 'GLM TTS',
     requiresApiKey: true,
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    endpointPath: '/audio/speech',
     icon: '/logos/glm.svg',
     models: [{ id: 'glm-tts', name: 'GLM TTS' }],
     defaultModelId: 'glm-tts',
@@ -389,6 +412,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     name: 'Qwen TTS (阿里云百炼)',
     requiresApiKey: true,
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/api/v1',
+    endpointPath: '/services/aigc/multimodal-generation/generation',
     icon: '/logos/bailian.svg',
     // Paid showcase presets: never offered to the agent even when this provider
     // is configured (explicit mechanism, not "no env so absent"). A clone
@@ -397,7 +421,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     excludeFromAgentVoiceCatalog: true,
     models: [
       { id: 'qwen3-tts-flash', name: 'Qwen3 TTS Flash' },
-      { id: QWEN_TTS_VOICE_CLONE_MODEL, name: 'Qwen3 TTS Voice Clone' },
+      { id: QWEN_VOICE_CLONE_GROUP_ID, name: 'CosyVoice Voice Clone' },
     ],
     defaultModelId: 'qwen3-tts-flash',
     voices: [
@@ -831,6 +855,55 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     },
   },
 
+  'xiaomi-tts': {
+    id: 'xiaomi-tts',
+    name: 'Xiaomi MiMo TTS',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
+    endpointPath: '/chat/completions',
+    icon: '/logos/xiaomi.svg',
+    models: [{ id: 'mimo-v2.5-tts', name: 'MiMo V2.5 TTS' }],
+    defaultModelId: 'mimo-v2.5-tts',
+    voices: [
+      { id: 'mimo_default', name: 'MiMo 默认', language: 'zh-CN', gender: 'neutral' },
+      { id: '冰糖', name: '冰糖', language: 'zh-CN', gender: 'female' },
+      { id: '茉莉', name: '茉莉', language: 'zh-CN', gender: 'female' },
+      { id: '苏打', name: '苏打', language: 'zh-CN', gender: 'male' },
+      { id: '白桦', name: '白桦', language: 'zh-CN', gender: 'male' },
+      { id: 'Mia', name: 'Mia', language: 'en-US', gender: 'female' },
+      { id: 'Chloe', name: 'Chloe', language: 'en-US', gender: 'female' },
+      { id: 'Milo', name: 'Milo', language: 'en-US', gender: 'male' },
+      { id: 'Dean', name: 'Dean', language: 'en-US', gender: 'male' },
+    ],
+    supportedFormats: ['wav'],
+    speedRange: {
+      min: 0.5,
+      max: 2.0,
+      default: 1.0,
+    },
+  },
+
+  'deepseek-tts': {
+    id: 'deepseek-tts',
+    name: 'DeepSeek TTS',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    endpointPath: '/tools/tts',
+    icon: '/logos/deepseek.svg',
+    // The speech API has no model parameter.
+    models: [],
+    defaultModelId: '',
+    // Both voices read every supported language; the language is detected
+    // from the text.
+    voices: [
+      { id: 'stella', name: 'Stella', language: 'zh-CN', gender: 'female' },
+      { id: 'tide', name: 'Tide', language: 'zh-CN', gender: 'male' },
+    ],
+    supportedFormats: ['wav'],
+    // The full-text API has no speed control.
+    supportsSpeed: false,
+  },
+
   'voxcpm-tts': {
     id: VOXCPM_TTS_PROVIDER_ID,
     name: 'VoxCPM2',
@@ -853,6 +926,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     name: '豆包 TTS 2.0（火山引擎）',
     requiresApiKey: true,
     defaultBaseUrl: 'https://openspeech.bytedance.com/api/v3/tts',
+    endpointPath: '/unidirectional',
     icon: '/logos/doubao.svg',
     models: [],
     defaultModelId: '',
@@ -953,6 +1027,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     name: 'ElevenLabs TTS',
     requiresApiKey: true,
     defaultBaseUrl: 'https://api.elevenlabs.io/v1',
+    endpointPath: '/text-to-speech',
     icon: '/logos/elevenlabs.svg',
     models: [
       { id: 'eleven_multilingual_v2', name: 'Multilingual v2' },
@@ -1021,6 +1096,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     name: 'Google Gemini TTS',
     requiresApiKey: true,
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    endpointPath: '/interactions',
     icon: '/logos/gemini.svg',
     models: [
       { id: 'gemini-3.8-flash-lite-tts', name: 'Gemini 3.8 Flash-Lite TTS' },
@@ -1232,6 +1308,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     name: 'Lemonade TTS',
     requiresApiKey: false,
     defaultBaseUrl: 'http://localhost:13305/v1',
+    endpointPath: '/audio/speech',
     icon: '/logos/lemonade.svg',
     models: [{ id: 'kokoro-v1', name: 'Kokoro v1' }],
     defaultModelId: 'kokoro-v1',
@@ -1566,6 +1643,45 @@ export const ASR_PROVIDERS: Record<BuiltInASRProviderId, ASRProviderConfig> = {
     supportedLanguages: CUSTOM_ASR_DEFAULT_LANGUAGES,
     supportedFormats: ['wav'],
   },
+
+  'xiaomi-asr': {
+    id: 'xiaomi-asr',
+    name: 'Xiaomi MiMo ASR',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
+    icon: '/logos/xiaomi.svg',
+    models: [{ id: 'mimo-v2.5-asr', name: 'MiMo V2.5 ASR' }],
+    defaultModelId: 'mimo-v2.5-asr',
+    supportedLanguages: ['auto', 'zh', 'en'],
+    supportedFormats: ['wav', 'mp3'],
+    // `transcribeXiaomiASR` posts to the chat/completions endpoint.
+    endpointPath: '/chat/completions',
+    // Chunks are transcoded to 16 kHz mono s16le WAV (32 KiB/s) before the
+    // provider sees them; 180 s encodes to ~7.5 MB of base64 — under MiMo's
+    // 10 MB input_audio cap with headroom for the WAV header.
+    maxChunkSeconds: 180,
+  },
+
+  'deepseek-asr': {
+    id: 'deepseek-asr',
+    name: 'DeepSeek ASR',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    endpointPath: '/tools/asr',
+    icon: '/logos/deepseek.svg',
+    // The speech API has no model parameter.
+    models: [],
+    defaultModelId: '',
+    // No language parameter: the language is detected from the audio.
+    supportedLanguages: ['auto'],
+    // 16-bit PCM WAV or Ogg Opus. Browser recordings (WebM) are transcoded
+    // to WAV client-side before upload.
+    supportedFormats: ['wav', 'ogg'],
+    // One request takes at most 120 seconds of audio (and 8 MiB). Media
+    // chunks are 16 kHz mono s16le WAV (32 KiB/s), so 110 s is ~3.4 MiB and
+    // stays under the duration cap with headroom for segment rounding.
+    maxChunkSeconds: 110,
+  },
 };
 
 /**
@@ -1581,6 +1697,8 @@ export const DEFAULT_TTS_VOICES: Record<BuiltInTTSProviderId, string> = {
   'doubao-tts': 'zh_female_vv_uranus_bigtts',
   'elevenlabs-tts': 'EXAVITQu4vr4xnSDxMaL',
   'minimax-tts': 'female-yujie',
+  'xiaomi-tts': 'mimo_default',
+  'deepseek-tts': 'stella',
   'google-tts': 'Kore',
   'lemonade-tts': 'af_heart',
   'browser-native-tts': 'default',
@@ -1595,6 +1713,8 @@ export const DEFAULT_TTS_MODELS: Record<BuiltInTTSProviderId, string> = {
   'doubao-tts': '',
   'elevenlabs-tts': 'eleven_multilingual_v2',
   'minimax-tts': 'speech-2.8-hd',
+  'xiaomi-tts': 'mimo-v2.5-tts',
+  'deepseek-tts': '',
   'google-tts': 'gemini-3.8-flash-lite-tts',
   'lemonade-tts': 'kokoro-v1',
   'browser-native-tts': '',

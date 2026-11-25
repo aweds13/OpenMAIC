@@ -13,6 +13,7 @@
  * - Doubao TTS: https://www.volcengine.com/docs/6561/1257543
  * - ElevenLabs TTS: https://elevenlabs.io/docs/api-reference/text-to-speech/convert
  * - Google Gemini TTS: https://ai.google.dev/gemini-api/docs/speech-generation
+ * - DeepSeek TTS: https://api-docs.deepseek.com/guides/tts
  * - Browser Native: Web Speech API (client-side only)
  *
  * HOW TO ADD A NEW PROVIDER:
@@ -108,6 +109,7 @@ import {
   VOXCPM_VLLM_MODEL_ID,
   VOXCPM_AUTO_VOICE_ID,
   normalizeVoxCPMBackend,
+  voxCPMPromptProviderOptions,
   type VoxCPMProviderOptions,
 } from './voxcpm';
 import { createLogger } from '@/lib/logger';
@@ -119,6 +121,10 @@ import {
 import { ProviderQuotaExhaustedError } from '@/lib/server/provider-quota';
 import { appAttributionHeaders } from '@/lib/config/app-attribution';
 import { pcmS16leMonoToWav } from './pcm-wav';
+import {
+  DEEPSEEK_TOOLS_DEFAULT_BASE_URL,
+  deepseekToolsEndpoint,
+} from '@/lib/web-search/deepseek-endpoint';
 
 const log = createLogger('TTSProviders');
 
@@ -329,6 +335,10 @@ export async function generateTTS(
 
       case 'minimax-tts':
         return await generateMiniMaxTTS(config, text, signal);
+      case 'xiaomi-tts':
+        return await generateXiaomiTTS(config, text, signal);
+      case 'deepseek-tts':
+        return await generateDeepSeekTTS(config, text, signal);
       case 'doubao-tts':
         return await generateDoubaoTTS(config, text, signal);
       case 'elevenlabs-tts':
@@ -358,7 +368,7 @@ export async function generateTTS(
     if (isTimeoutSignal(signal)) {
       throw new TTSRequestTimeoutError(
         config.providerId,
-        `TTS request timed out after ${ttsRequestTimeoutMs()}ms (provider ${config.providerId}) — the provider did not respond. Retry the tool call.`,
+        `TTS request timed out after ${ttsRequestTimeoutMs()}ms (provider ${config.providerId}) — the provider did not respond. Do not retry with the same input without splitting long narration text or increasing TTS_REQUEST_TIMEOUT_MS.`,
       );
     }
     throw error;
@@ -472,8 +482,20 @@ async function generateVoxCPMTTS(
 
   const options = (config.providerOptions || {}) as VoxCPMProviderOptions;
   const backend = normalizeVoxCPMBackend(options.backend);
+  // A server-side caller (the agent's narration) names the speaker instead of
+  // sending the prompt the browser builds: design the auto voice from it.
+  const speakerPrompt =
+    !options.voicePrompt && !options.registeredVoiceId && config.speaker
+      ? voxCPMPromptProviderOptions(config.voice, {
+          ...(config.speaker.name ? { agentName: config.speaker.name } : {}),
+          ...(config.speaker.role ? { role: config.speaker.role } : {}),
+          ...(config.speaker.persona ? { persona: config.speaker.persona } : {}),
+          ...(config.speaker.voiceDesign ? { voiceDesign: config.speaker.voiceDesign } : {}),
+        }).voicePrompt
+      : undefined;
   const voicePrompt =
     options.voicePrompt ||
+    (config.voice === VOXCPM_AUTO_VOICE_ID ? speakerPrompt : undefined) ||
     (config.voice && config.voice !== 'default' && config.voice !== VOXCPM_AUTO_VOICE_ID
       ? config.voice
       : undefined);
@@ -961,16 +983,13 @@ async function generateQwenTTS(
   const cloneVoice = isQwenCloneVoice(config.voice, config.voices);
 
   if (cloneVoice) {
-    const targetModel =
-      config.providerOptions?.qwenVoiceClone === true
-        ? config.modelId
-        : resolveTTSModelForVoice('qwen-tts', config.voice, config.modelId, config.voices);
     try {
       return await synthesizeQwenVoiceClone(
         {
           apiKey: config.apiKey,
           baseUrl,
-          targetModel,
+          // Server callers resolve and authorize the actual target before dispatch.
+          targetModel: config.modelId,
           publicOnly: config.publicOnly,
           managed: config.managed,
         },
@@ -1487,4 +1506,235 @@ function escapeXml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+/**
+ * Map a numeric speed to a graded natural-language pacing instruction.
+ * MiMo TTS takes speed only as a style instruction, not a request parameter,
+ * so the slider range maps to graded wording: 1.05 and 2.0 must not produce
+ * the same request.
+ */
+function xiaomiPacingInstruction(speed: number): string | null {
+  if (speed > 1.0) {
+    const pct = Math.round((speed - 1) * 100);
+    if (pct >= 60) return '说得非常快，语速很快。';
+    if (pct >= 25) return '说得快一些，语速偏快。';
+    return '语速稍微快一点。';
+  }
+  if (speed < 1.0) {
+    const pct = Math.round((1 - speed) * 100);
+    if (pct >= 40) return '说得非常慢，语速很慢。';
+    if (pct >= 15) return '说得慢一些，语速偏慢。';
+    return '语速稍微慢一点。';
+  }
+  return null;
+}
+
+/**
+ * Xiaomi MiMo TTS implementation.
+ *
+ * MiMo TTS does NOT expose an OpenAI-style /audio/speech endpoint. It reuses
+ * the chat/completions protocol: the text to synthesize goes in an `assistant`
+ * message (a hard provider rule), optional style instructions go in a `user`
+ * message, and the audio payload comes back base64-encoded at
+ * `choices[0].message.audio.data`. Numeric speed is not a request parameter,
+ * so a non-default speed is translated into a graded pacing instruction
+ * (`xiaomiPacingInstruction`).
+ */
+async function generateXiaomiTTS(
+  config: TTSModelConfig,
+  text: string,
+  signal: AbortSignal,
+): Promise<TTSGenerationResult> {
+  const baseUrl = (config.baseUrl || TTS_PROVIDERS['xiaomi-tts'].defaultBaseUrl || '').replace(
+    /\/+$/,
+    '',
+  );
+
+  const messages: Array<{ role: string; content: string }> = [];
+  const pacing = xiaomiPacingInstruction(config.speed ?? 1.0);
+  if (pacing) {
+    messages.push({ role: 'user', content: pacing });
+  }
+  messages.push({ role: 'assistant', content: text });
+
+  const response = await ttsFetch(config, `${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json; charset=utf-8',
+      ...appAttributionHeaders(baseUrl),
+    },
+    body: JSON.stringify({
+      model: config.modelId || TTS_PROVIDERS['xiaomi-tts'].defaultModelId,
+      messages,
+      audio: {
+        format: 'wav',
+        voice: config.voice || 'mimo_default',
+      },
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throwIfTtsRateLimited('Xiaomi MiMo', response.status, response.headers.get('retry-after'));
+    const error = await response.json().catch(() => ({ error: { message: response.statusText } }));
+    throw new Error(`Xiaomi MiMo TTS API error: ${error.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const audioData = data?.choices?.[0]?.message?.audio?.data;
+  if (typeof audioData !== 'string' || !audioData) {
+    throw new TTSInvalidResponseError('Xiaomi MiMo', 'Xiaomi MiMo TTS API returned no audio data');
+  }
+  // Node's base64 decoder is lenient: whitespace or malformed input silently
+  // decodes to zero or arbitrary bytes. A "success" carrying those would be
+  // billed and persisted as an unplayable asset, so validate the payload.
+  const audio = Buffer.from(audioData, 'base64');
+  if (
+    audio.byteLength < 44 ||
+    !audio.subarray(0, 4).equals(Buffer.from('RIFF')) ||
+    !audio.subarray(8, 12).equals(Buffer.from('WAVE'))
+  ) {
+    throw new TTSInvalidResponseError(
+      'Xiaomi MiMo',
+      `Xiaomi MiMo TTS returned a ${audio.byteLength}-byte payload that is not a valid WAV file`,
+    );
+  }
+  return {
+    audio: new Uint8Array(audio),
+    format: 'wav',
+  };
+}
+
+/** DeepSeek TTS bills a Chinese character as 2 and caps one request at 10,000. */
+const DEEPSEEK_TTS_MAX_BILLED_CHARS = 10_000;
+/** DeepSeek TTS caps the JSON request body at 64 KiB. */
+const DEEPSEEK_TTS_MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * The characters DeepSeek bills for a text: a Chinese (Han) character counts
+ * as 2, any other character (a letter, digit, space or punctuation) as 1.
+ */
+export function deepseekTTSBilledChars(text: string): number {
+  let count = 0;
+  for (const char of text) count += /\p{Script=Han}/u.test(char) ? 2 : 1;
+  return count;
+}
+
+/**
+ * The WAV DeepSeek streams, with its RIFF and data chunk sizes set to the
+ * bytes actually received. The service writes the header before synthesis
+ * finishes, so both sizes are the streaming placeholder 0xFFFFFFFF; decoders
+ * and duration probes need the real lengths. Anything that is not a 16-bit PCM
+ * WAV with a data chunk is refused rather than stored as narration.
+ */
+export function finalizeDeepSeekWav(bytes: Uint8Array): Uint8Array {
+  const invalid = (reason: string) =>
+    new TTSInvalidResponseError('DeepSeek', `DeepSeek TTS returned an invalid WAV: ${reason}`);
+  const ascii = (start: number) => String.fromCharCode(...bytes.subarray(start, start + 4));
+  if (bytes.byteLength < 44 || ascii(0) !== 'RIFF' || ascii(8) !== 'WAVE') {
+    throw invalid(`${bytes.byteLength}-byte body without a RIFF/WAVE header`);
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 12;
+  let blockAlign = 0;
+  while (offset + 8 <= bytes.byteLength) {
+    const id = ascii(offset);
+    const size = view.getUint32(offset + 4, true);
+    if (id === 'fmt ') {
+      if (size < 16 || offset + 8 + 16 > bytes.byteLength) throw invalid('truncated fmt chunk');
+      const format = view.getUint16(offset + 8, true);
+      blockAlign = view.getUint16(offset + 20, true);
+      const bitsPerSample = view.getUint16(offset + 22, true);
+      if (format !== 1 || bitsPerSample !== 16 || blockAlign === 0) {
+        throw invalid('not 16-bit PCM');
+      }
+    } else if (id === 'data') {
+      if (!blockAlign) throw invalid('data chunk before the fmt chunk');
+      const start = offset + 8;
+      // A body that ends mid-frame was cut off: refuse it rather than pass
+      // incomplete narration off as a whole clip.
+      const dataBytes = bytes.byteLength - start;
+      if (dataBytes % blockAlign !== 0) throw invalid('stream ended mid-frame');
+      if (dataBytes <= 0) throw invalid('no audio samples');
+      const out = bytes.slice(0, start + dataBytes);
+      const outView = new DataView(out.buffer);
+      outView.setUint32(4, out.byteLength - 8, true);
+      outView.setUint32(offset + 4, dataBytes, true);
+      return out;
+    }
+    if (size === 0xffffffff) break;
+    offset += 8 + size + (size % 2);
+  }
+  throw invalid('no data chunk');
+}
+
+/**
+ * DeepSeek TTS, full-text mode (POST /v1/tools/tts).
+ *
+ * One platform API key, Bearer auth, a JSON body of `text`, `voice_id` and
+ * `format`; the audio is streamed back in the response body as it is
+ * synthesized. The language is detected from the text (no language field),
+ * Markdown is removed by the service (`filter_markdown` defaults to true), and
+ * there is no model or speed parameter. A request that fails after the audio
+ * started is cut off: a broken stream rejects the body read and fails the
+ * call, never a partial file stored as narration.
+ */
+async function generateDeepSeekTTS(
+  config: TTSModelConfig,
+  text: string,
+  signal: AbortSignal,
+): Promise<TTSGenerationResult> {
+  const billed = deepseekTTSBilledChars(text);
+  if (billed > DEEPSEEK_TTS_MAX_BILLED_CHARS) {
+    throw new Error(
+      `DeepSeek TTS accepts at most ${DEEPSEEK_TTS_MAX_BILLED_CHARS} billed characters per request ` +
+        `(a Chinese character counts as 2); this text has ${billed}. Split the text.`,
+    );
+  }
+  const body = JSON.stringify({
+    text,
+    voice_id: config.voice || DEFAULT_TTS_VOICES['deepseek-tts'],
+    format: 'wav',
+  });
+  if (Buffer.byteLength(body, 'utf8') > DEEPSEEK_TTS_MAX_BODY_BYTES) {
+    throw new Error('DeepSeek TTS request body exceeds the 64 KiB limit. Split the text.');
+  }
+
+  const endpoint = deepseekToolsEndpoint(
+    config.baseUrl ||
+      TTS_PROVIDERS['deepseek-tts'].defaultBaseUrl ||
+      DEEPSEEK_TOOLS_DEFAULT_BASE_URL,
+    'tts',
+  );
+  const response = await ttsFetch(config, endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+    body,
+    signal,
+  });
+
+  if (!response.ok) {
+    throwIfTtsRateLimited('DeepSeek', response.status, response.headers?.get('retry-after'));
+    throw new Error(
+      `DeepSeek TTS API error (${response.status}): ${await readTTSApiError(response)}`,
+    );
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (findFirstNonWhitespaceByte(bytes) === 0x7b) {
+    // A JSON body on a 200 (a gateway's error envelope): never audio.
+    const snippet = new TextDecoder('utf-8').decode(bytes.subarray(0, 300));
+    log.warn(`DeepSeek TTS returned JSON instead of audio: ${snippet}`);
+    throw new TTSInvalidResponseError(
+      'DeepSeek',
+      'DeepSeek TTS returned a JSON response instead of audio.',
+    );
+  }
+  const audio = finalizeDeepSeekWav(bytes);
+  return { audio, format: 'wav' };
 }
