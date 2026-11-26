@@ -39,6 +39,11 @@ const SKIPPED_DIRECTORIES = new Set([
   'build',
   'coverage',
   '.tmp',
+  // Dev-only sibling worktrees (`.gitignore:70`). They hold their own copies of
+  // the whole repo: 17,225 more .ts/.tsx files at the time of writing, which
+  // tripled this walk and pushed it past the default timeout. Their contents
+  // are checked when their own branch runs, not from here.
+  '.worktrees',
 ]);
 
 function collectFiles(): string[] {

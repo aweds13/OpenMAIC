@@ -86,11 +86,20 @@ export class SplitAssetByteStore implements AssetByteStore {
   }
 
   /** Temp file plus rename: a crash mid-write cannot publish a torn blob. */
-  private async storeOnDisk(hash: ContentHash, bytes: Uint8Array): Promise<void> {
+  private async storeOnDisk(
+    hash: ContentHash,
+    bytes: Uint8Array,
+    options?: { signal?: AbortSignal },
+  ): Promise<void> {
     const path = this.filePath(hash);
     await mkdir(dirname(path), { recursive: true });
     const temp = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temp, bytes);
+    // `signal` is honoured by the file write itself, so an aborted upload stops
+    // moving bytes instead of finishing the copy and then being discarded. The
+    // rename below is deliberately NOT conditioned on the signal: once the temp
+    // file is complete, committing it is what makes the write idempotent, and
+    // leaving a stray `.tmp` behind on abort would leak disk with no owner.
+    await writeFile(temp, bytes, options?.signal ? { signal: options.signal } : undefined);
     await rename(temp, path);
   }
 
@@ -104,12 +113,20 @@ export class SplitAssetByteStore implements AssetByteStore {
   }
 
   /** Inline write, for callers that are not inside a registry transaction. */
-  async write(hash: ContentHash, bytes: Uint8Array): Promise<void> {
+  async write(
+    hash: ContentHash,
+    bytes: Uint8Array,
+    options?: { signal?: AbortSignal },
+  ): Promise<void> {
     if (bytes.byteLength <= ASSET_INLINE_BYTE_LIMIT) {
+      // The inline arm is one INSERT on the caller's pooled connection -- there
+      // is no long copy to cancel, and `PgAssetByteStore` deliberately does not
+      // take a signal. Passing it here would only widen that class's signature
+      // without changing behaviour.
       await this.inline.write(hash, bytes);
       return;
     }
-    await this.storeOnDisk(hash, bytes);
+    await this.storeOnDisk(hash, bytes, options);
     await this.queryable.query(
       `INSERT INTO asset_blobs (content_hash, byte_size, bytes, unreferenced_at)
        VALUES ($1, $2, NULL, now())

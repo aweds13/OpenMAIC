@@ -159,6 +159,33 @@ describe('SplitAssetByteStore', () => {
     expect(assetLocalBytesRoot().endsWith(join('data', 'asset-bytes'))).toBe(true);
   });
 
+  it('★ 把 abort signal 传到磁盘写入 —— 大文件上传被取消时不再把整份字节拷完', async () => {
+    const db = new PGlite();
+    await db.waitReady;
+    await ensureAssetSchema(db);
+    const store = new SplitAssetByteStore(db as unknown as Queryable);
+    const controller = new AbortController();
+    controller.abort();
+
+    // `PgAssetStore.write` 会把 options 原样转给 byte store（`asset-byte-store.ts`
+    // 的两处 lazy 包装都是 `(hash, bytes, options) => resolve().write(...)`）。
+    // 这里直接量 SplitAssetByteStore 自己的转发：信号已 abort，`writeFile` 必须
+    // 立刻拒绝，而不是先把 ASSET_INLINE_BYTE_LIMIT + 1 字节写完再被丢弃。
+    await expect(
+      store.write('aborted-hash' as Parameters<SplitAssetByteStore['write']>[0], oversizedBytes(), {
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    // 失败路径不许留下临时文件，也不许留下「元数据说它有了」的行。
+    const { rows } = await db.query<{ n: string }>('SELECT count(*)::text AS n FROM asset_blobs');
+    expect(rows[0]?.n).toBe('0');
+    await expect(readFile(join(directory, 'aborted-hash'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await db.close();
+  });
+
   it('refuses a key that would escape the byte directory', async () => {
     const db = new PGlite();
     const store = new SplitAssetByteStore(db as unknown as Queryable);
