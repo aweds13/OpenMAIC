@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildScratchTool,
@@ -28,11 +28,19 @@ async function call(params: Record<string, unknown>) {
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'scratchpad-'));
   process.env.OPENMAIC_SCRATCHPAD_DIR = dir;
+  // ★ 草稿纸是纯文件工具，不碰库；但 `buildScratchTool` 的依赖里带着
+  //   `materialsIndex`，而它背后那条链在配了 `DATABASE_URL` 时会去问持久化层。
+  //   钉掉变量，测的才是这个文件本来说的那条路径（见 runner-* 那几处同样的注释）。
+  vi.stubEnv('DATABASE_URL', '');
 });
 
 afterEach(async () => {
   delete process.env.OPENMAIC_SCRATCHPAD_DIR;
   await rm(dir, { recursive: true, force: true });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('草稿纸文件层', () => {

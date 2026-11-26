@@ -17,7 +17,7 @@
 import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core';
 import { InMemorySessionRepo, Session } from '@earendil-works/pi-agent-core';
 import type { ClaimedAgentSession } from '@openmaic/storage';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** Point the real skill loader at a temp directory BEFORE config.ts loads. */
 const fixture = vi.hoisted(() => {
@@ -230,6 +230,14 @@ beforeEach(() => {
   mocks.getServerPersistenceProvider.mockResolvedValue({
     documentStore: { forOwner: () => ({}) },
   });
+  // ★ 这些是 run 循环的纯单测，背后没有数据库。runner 有一条**只在配置了持久化库
+  // 时**才出现的分支：`backgroundWorkspaceId()` 会把 owner 经
+  // `canonicalizeStoredOwner()` 送去 `pool.query`。shell 里带一个 `DATABASE_URL`
+  // （或另一个套件留下的 `.env.local`）时，那个 mock 的 provider 对象没有 `pool`
+  // ⇒ setup 抛 `Cannot read properties of undefined (reading 'query')`，再叠 5 秒
+  // 超时，整文件读成「全红」。把变量钉掉，测的才是这个文件本来说的那条路径。
+  vi.stubEnv('DATABASE_URL', '');
+  vi.stubEnv('DATABASE_URL', '');
 });
 
 interface RunOutcome {
@@ -263,6 +271,10 @@ async function runToBuildAgent(
   );
   return { options: options!, promptedWith: promptedWith[0] };
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('skills runner registration', () => {
   it('registers the skill tools and the skill-scoped read tool, with a matching allowlist and prompt block', async () => {
