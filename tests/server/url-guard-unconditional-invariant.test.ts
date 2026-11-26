@@ -37,6 +37,13 @@ const SKIPPED_DIRECTORIES = new Set([
   'data',
   'public',
   'assets',
+  // Dev-only directories this repo gitignores (`.gitignore`). They are not
+  // repository source, but they DO live under cwd and can hold more files than
+  // the tree itself: at the time of writing, four sibling worktrees under
+  // `.worktrees` carried 17,225 more .ts/.tsx files, which pushed this scan to
+  // 22s. Skipping them keeps the scan proportional to the code being shipped.
+  '.worktrees',
+  '.tmp',
 ]);
 
 /**
@@ -256,5 +263,6 @@ describe('validateUrlForSSRF call sites are never gated by NODE_ENV', () => {
     expect(scanned.length).toBeGreaterThan(500);
     expect(callSites).toBeGreaterThanOrEqual(30);
     expect(offenders).toEqual([]);
-  });
+    // Reads ~18k files off disk: fine on a warm cache, not in the 5s default.
+  }, 120_000);
 });
