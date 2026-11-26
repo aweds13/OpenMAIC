@@ -98,6 +98,12 @@
      `runner-wakeup` 反过来**需要**真库（配上 21 passed）。★ 别给整仓设 `TEST_LOAD_LOCAL_ENV=1`
      —— 它会连带启用别的 live 路径，反而让 6 个 mock 测试报
      `buildAgent must be called with the run options: expected undefined to be defined`。
+     **结论：整仓跑测试时带 `DATABASE_URL`**（那 10 个文件会自己钉成空），不带则
+     `runner-wakeup` 会去连默认 5432 而本机库在 5433。★ 老实说：`runner-wakeup` 的这条
+     依赖是**产品行为**不是测试缺陷 —— 它走真 `material-tools` 的 `libraryService()`，
+     那里 `getServerPersistenceProvider(process.env.DATABASE_URL ?? '')` 上游也是同一句
+     （`git show v1.5.0:lib/server/agent-runtime/material-tools.ts:603`）。2026-11-26 单跑
+     **21 passed**、整仓串行 `294 passed | 8 skipped` / `4312 passed | 17 skipped`。
   2. **默认 5 秒超时不够**。本机有多个 worktree 时，`url-guard-unconditional-invariant` 与
      `source-hygiene` 会扫到 `.worktrees/` 里另外几个整份仓副本（合计 1.7 万个 `.ts/.tsx`），
      从 8 秒涨到 22–33 秒。两处 `SKIPPED_DIRECTORIES` 已加 `.worktrees` 与 `.tmp`；
