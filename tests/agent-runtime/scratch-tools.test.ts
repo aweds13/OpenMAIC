@@ -110,8 +110,10 @@ describe('scratch 工具', () => {
     const refused = await refuse({ action: 'promote', id: 's001' });
     expect((refused as { isError?: boolean }).isError).toBe(true);
     expect(textOf(refused)).toContain('只收用户确认要用的');
-    // 不返回 id 这件事必须写清楚，否则模型会去找一个不存在的东西。
-    expect(textOf(refused)).toContain('不返回任何 id');
+    // 「不返回 id」这件事必须写清楚，否则模型会去找一个不存在的东西。
+    // ★ 措辞是「不返回任何**材料** id」（2026-11-26 对齐实现）：只说「不返回任何 id」
+    // 会被读成「这条 scratch 记录没有 id」，而它讲的是 `add_materials`。
+    expect(textOf(refused)).toContain('不返回任何材料 id');
     expect(textOf(refused)).toContain('java-basics');
   });
 
@@ -204,12 +206,15 @@ describe('★ 能力注册：没配材料库的部署里，不许提材料库工
     });
     const without = buildScratchTool({ ownerId: 'anon:test-owner', materialTopics: null });
 
-    // `update_materials` 出现在**参数描述**里（promote 的 materialId 那一项），
-    // 所以按"整份参数表序列化后查"来断 —— 与排版/嵌套层级无关。
-    expect(JSON.stringify(withLibrary.parameters)).toContain('update_materials');
-    expect(JSON.stringify(without.parameters)).not.toContain('update_materials');
+    // 材料写入口的名字出现在**参数描述 / 提示词块**里，所以按"整份序列化后查"来断
+    // —— 与排版/嵌套层级无关。
+    // ★ 名字是 `add_materials`（材料模块一期五工具收敛后的真名）。
+    // 原测试查的是 `update_materials`，那是收敛前的旧名，代码里早已不存在
+    // —— 这条从 2026-11 起就一直红着，不是合并引入的。
+    expect(JSON.stringify(withLibrary.parameters)).toContain('add_materials');
+    expect(JSON.stringify(without.parameters)).not.toContain('add_materials');
 
-    expect(scratchPromptBlock(true)).toContain('update_materials');
+    expect(scratchPromptBlock(true)).toContain('add_materials');
     expect(scratchPromptBlock(true)).not.toContain('no materials library');
     expect(without.description).toContain('no materials library');
   });

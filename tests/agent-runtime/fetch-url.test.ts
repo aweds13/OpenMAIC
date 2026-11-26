@@ -294,6 +294,8 @@ describe('fetch_url network and extraction', () => {
     expect(loadExtractionServices).toHaveBeenCalledOnce();
   });
 
+  // pdf-lib 造 51 页 + unpdf 解 50 页在慢机上会越过 5s 默认超时；
+  // 判据本身是「截到 50 页」，与用时无关，所以给这条单独的预算。
   it('limits untrusted PDFs to 50 pages before extraction', async () => {
     const input = await pdfBytes(51);
     const unpdf = getDocumentExtractorProvider('unpdf')!;
@@ -312,11 +314,17 @@ describe('fetch_url network and extraction', () => {
       fetchImpl,
       dispatcher,
       minChars: 20,
+      // ★ 必须固定成"只有本地 unpdf"：不传的话 `resolveExtractionServices()`
+      //   会去解析本机 document 槽（MinerU），那个候选排在 unpdf **前面**，
+      //   于是这份 spy 根本不会被调用 —— 报出来的却是 "Extracted page body is empty"，
+      //   看起来像 PDF 解析坏了。这条用例量的是"51 页送到解析器前先截到 50 页"，
+      //   与有没有 MinerU 无关。
+      extractionServices: { document: null },
     });
 
     expect(result.truncated).toBe(true);
     expect(unpdfExtract).toHaveBeenCalledOnce();
-  });
+  }, 20_000);
 
   it('caps extracted PDF text independently of the download size', async () => {
     const unpdf = getDocumentExtractorProvider('unpdf')!;
@@ -331,11 +339,13 @@ describe('fetch_url network and extraction', () => {
       fetchImpl,
       dispatcher,
       minChars: 20,
+      // 同上：量的是 1.2M 字符的提取文本被封到 1M，与 document 槽无关。
+      extractionServices: { document: null },
     });
 
     expect(result.markdown).toHaveLength(1_000_000);
     expect(result.truncated).toBe(true);
-  });
+  }, 20_000);
 
   it('extracts a sub-500-character Chinese article because charThreshold is 200', () => {
     const result = extractHtmlToMarkdown(chineseFixture, 'https://example.com/article');

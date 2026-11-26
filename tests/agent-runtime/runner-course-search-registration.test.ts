@@ -387,13 +387,18 @@ describe('browse_url runner registration', () => {
  *   这也是"判据要比它声称的宽"那条规矩的直接应用（见结论库）。
  */
 describe('★ assembled prompt names no unregistered tool', () => {
+  /** 结果字段，不是工具：见下面矩阵用例里的同一份说明。 */
+  const RESULT_TOKENS = new Set(['extraction_required']);
+
   async function phantomToolsWithCourseLibrary(configured: boolean): Promise<string[]> {
     mocks.resolveCourseSearchCapability.mockReturnValue(
       configured ? { baseUrl: 'http://127.0.0.1:8720' } : null,
     );
     const options = await runToBuildAgent();
     const allowed = new Set(options.allowedToolNames ?? []);
-    return phantomToolNames(options.systemPrompt, allowed);
+    return phantomToolNames(options.systemPrompt, allowed).filter(
+      (token) => !RESULT_TOKENS.has(token),
+    );
   }
 
   it('with the course library configured', async () => {
@@ -479,7 +484,14 @@ describe('★ assembled prompt: every capability combination', () => {
 
       const options = await runToBuildAgent();
       const allowed = new Set(options.allowedToolNames ?? []);
-      const offenders = phantomToolNames(options.systemPrompt, allowed);
+      // 结果字段不是工具：材料工具把「这份材料能不能读」的结局回给模型时用的是
+      // `status: 'extraction_required'`（`material-tools.ts:679` 的 details），
+      // 提示词里点它是**对的** —— 模型要据此判断「现在读不了，等会儿再读」。
+      // 与下面 `statusLabel`/`folderLabel` 同一类豁免，只是它长得像 snake_case 工具名。
+      const resultTokens = new Set(['extraction_required']);
+      const offenders = phantomToolNames(options.systemPrompt, allowed).filter(
+        (token) => !resultTokens.has(token),
+      );
       if (offenders.length > 0) {
         problems.push(
           `web=${combo.web} course=${combo.course} browse=${combo.browse} → 提示词点名了：${offenders.join(', ')}`,
@@ -502,6 +514,10 @@ describe('★ assembled prompt: every capability combination', () => {
       // 结果字段不是参数：材料工具把状态/文件夹名回给模型时用的是这两个键
       // （`material-model-copy.ts` 的 copy 里就写着它们），提示词里点它们是**对的**。
       for (const field of ['statusLabel', 'folderLabel']) params.add(field);
+      // 同上一类：这几个是**结果字段**，出现在工具自己的 description 里是对的。
+      // `isDerived`/`derivedFrom` 是 `list_materials` 回给模型的行字段；
+      // `nextBefore` 是分页游标（模型拿它填 `before` 参数）。
+      for (const field of ['isDerived', 'derivedFrom', 'nextBefore']) params.add(field);
       const badParams = [
         ...new Set(
           toolsWithSchema.flatMap((tool) =>
