@@ -86,6 +86,14 @@
     解法：`git -c http.version=HTTP/1.1 -c http.postBuffer=524288000 push …` + **有界重试脚本**
     （实测 10 次上限里第 2 次成功）。★ 别用 `| tail` 截断长命令；别信 `Everything up-to-date` 的尾行，
     只信 `git ls-remote` 回读到目标哈希。
+- ★★ **5 个上游 workflow 还没推上去**（2026-11-26 状态）。本机凭据是 `gho_`（OAuth App），
+  scopes 没有 `workflow`，所以主体走「先回退 `.github/workflows/` 再推」，那 5 个文件
+  单独留在 **`wf/v1.5.0-workflows`** 分支上（它是主体 HEAD 的**直接后代**，只多这 5 个文件，
+  三条 `git diff --stat` 为空已验证）。拿到有 `workflow` scope 的凭据后一条命令即可：
+  `git push mine wf/v1.5.0-workflows:upgrade/v1.5.0`（fast-forward）。
+  ★ 在此之前 `tests/workflows/app-pg-contract.test.ts` **会一直红**（它要求
+  `storage-pg-contract.yml` 的 App-domain 步骤带 `--maxWorkers=2`，而工作区那份是
+  `mine/main` 的旧版）—— 这是已知的、有意的红，别去改测试。
 - **五层 `docs/` 全绿**：`check-layers.py` → `188 条引用（断链 0 处）` + `PASS ✅`（2026-11-26 在 `upgrade/v1.5.0` 上复测）。★ 这个数**会漂** —— 每次加一个被反引号点名的源文件它就 +1，写进文档时带日期。
 - ★★ **本机跑测试的两个假红源**（2026-11-26 逐个查实，都不是代码问题）：
   1. **`DATABASE_URL` 会改变单测路径**。`lib/server/model-config/runtime.ts` 的
