@@ -169,6 +169,7 @@ const SESSION_WAKEUP_FALLBACK_MS = 5_000;
 const MESSAGE_UPDATE_MIN_INTERVAL_MS = 150;
 
 /** The runner's always-registered tool; additional tools are capability-gated. */
+export const MINIMAL_AGENT_TOOL_NAMES = new Set(['ask_user']);
 
 /**
  * System prompt for a run with the given registered toolset, assembled by
