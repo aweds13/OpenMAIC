@@ -71,9 +71,9 @@
 
 ## 0.1 当前状态（2026-11-26）
 
-- **上游 v1.5.0 已合入并推送**。远端 `mine` 现有两条分支：`upgrade/v1.3.0` = `19b46314`
-  （合入前的分叉 HEAD）、`upgrade/v1.5.0` = `feb869c7`（合入结果）。★ 笔数与哈希**会漂**，不要照抄，
-  以 `git rev-list --count mine/main..upgrade/v1.5.0` 与 `git ls-remote --heads mine` 为准。
+- **上游 v1.5.0 已合入并推送**。远端 `mine` 有两条分支：`upgrade/v1.3.0` = 合入前的分叉 HEAD、
+  `upgrade/v1.5.0` = 合入结果。★ 笔数与哈希**会漂**，不要照抄，以
+  `git rev-list --count mine/main..upgrade/v1.5.0` 与 `git ls-remote --heads mine` 为准。
 - ★★ **推送踩过的两个坑，下次照这个做**：
   1. **token 缺 `workflow` scope**。仓库 token 是 OAuth App（`gho_`），scopes = `gist / read:org / repo / user`，
      **不含 `workflow`** ⇒ 只要一次推送里含 `.github/workflows/*` 的新增或修改，远端直接 `remote rejected`
@@ -87,7 +87,21 @@
     （实测 10 次上限里第 2 次成功）。★ 别用 `| tail` 截断长命令；别信 `Everything up-to-date` 的尾行，
     只信 `git ls-remote` 回读到目标哈希。
 - **五层 `docs/` 全绿**：`check-layers.py` → `188 条引用（断链 0 处）` + `PASS ✅`（2026-11-26 在 `upgrade/v1.5.0` 上复测）。★ 这个数**会漂** —— 每次加一个被反引号点名的源文件它就 +1，写进文档时带日期。
-- **五层 `docs/` 全绿**：`check-layers.py` → `188 条引用（断链 0 处）` + `PASS ✅`（做过反向验证；2026-11-10 实测 188）。★ 这个数**会漂** —— 每次加一个被反引号点名的源文件它就 +1，写进文档时带日期。
+- ★★ **本机跑测试的两个假红源**（2026-11-26 逐个查实，都不是代码问题）：
+  1. **`DATABASE_URL` 会改变单测路径**。`lib/server/model-config/runtime.ts` 的
+     `backgroundWorkspaceId()` 在变量非空时走 `canonicalizeStoredOwner()` → `pool.query`；
+     一串纯单测（`runner-web-search-registration` / `runner-skills-registration` /
+     `runner-voice-registration` / `runner-course-search-registration` / `scratch-tools` /
+     `voice-clone-tools` / `runner-tool-timeout-cancel`）的 provider mock 只给
+     `documentStore`，于是 setup 抛 `Cannot read properties of undefined (reading 'query')`，
+     再叠 5 秒超时整文件读成「全红」。**这些文件已各自 `vi.stubEnv('DATABASE_URL', '')`**；
+     `runner-wakeup` 反过来**需要**真库（配上 21 passed）。★ 别给整仓设 `TEST_LOAD_LOCAL_ENV=1`
+     —— 它会连带启用别的 live 路径，反而让 6 个 mock 测试报
+     `buildAgent must be called with the run options: expected undefined to be defined`。
+  2. **默认 5 秒超时不够**。本机有多个 worktree 时，`url-guard-unconditional-invariant` 与
+     `source-hygiene` 会扫到 `.worktrees/` 里另外几个整份仓副本（合计 1.7 万个 `.ts/.tsx`），
+     从 8 秒涨到 22–33 秒。两处 `SKIPPED_DIRECTORIES` 已加 `.worktrees` 与 `.tmp`；
+     其余慢文件用 `--testTimeout=30000` 单跑即可，**不是真红**。
 - **仓根三份老文档与两份一次性复盘已删**（含「新窗口交接卡」），内容拆进五层与本文件
   §0.1/§8（旧版 `git show 490259c1:<文件名>`）。结论库 140200 → 88228 字节。
 - ★ **prettier 不看 Markdown**（`.prettierignore` 有 `*.md`）⇒ 四步门禁第一步对文档是空跑。
