@@ -86,14 +86,18 @@
     解法：`git -c http.version=HTTP/1.1 -c http.postBuffer=524288000 push …` + **有界重试脚本**
     （实测 10 次上限里第 2 次成功）。★ 别用 `| tail` 截断长命令；别信 `Everything up-to-date` 的尾行，
     只信 `git ls-remote` 回读到目标哈希。
-- ★★ **5 个上游 workflow 还没推上去**（2026-11-26 状态）。本机凭据是 `gho_`（OAuth App），
-  scopes 没有 `workflow`，所以主体走「先回退 `.github/workflows/` 再推」，那 5 个文件
-  单独留在 **`wf/v1.5.0-workflows`** 分支上（它是主体 HEAD 的**直接后代**，只多这 5 个文件，
-  三条 `git diff --stat` 为空已验证）。拿到有 `workflow` scope 的凭据后一条命令即可：
-  `git push mine wf/v1.5.0-workflows:upgrade/v1.5.0`（fast-forward）。
-  ★ 在此之前 `tests/workflows/app-pg-contract.test.ts` **会一直红**（它要求
-  `storage-pg-contract.yml` 的 App-domain 步骤带 `--maxWorkers=2`，而工作区那份是
-  `mine/main` 的旧版）—— 这是已知的、有意的红，别去改测试。
+- ★ **改 `.github/workflows/*` 的推送要额外一个 `workflow` scope**（2026-11-26 撞到过）。
+  OAuth App token（`gho_` 前缀）默认只有 `gist / read:org / repo / user`，**`repo` 给不了
+  这一项** —— GitHub 单独拦它，因为 workflow 能在它的服务器上跑任意代码。补：
+  `gh auth refresh -h github.com -s workflow`（会开浏览器走 device flow；★ 进程要活着
+  等回调，别在终端里 Ctrl-C 或关窗口）。核验读 `X-OAuth-Scopes` 响应头，别只看 `gh auth status`
+  的缓存。★ `git push --dry-run` 会**通过**而真实推送被拒 —— dry-run 只做协议协商，
+  不过服务端 scope 校验。
+- ★★ **推不上去时先查是不是 IPv6**（2026-11-26 查实）。本机 `github.com` 的 AAAA 解析
+  **不通**（`curl -6 https://github.com` → 000）而 A 记录通（`curl -4` → 200），
+  `api.github.com` 也正常 ⇒ 表现是「`api` 能查、`git push` 却 21 秒超时」。修法：
+  `git -c http.curloptResolve=github.com:443:$(nslookup github.com | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1) <cmd>`
+  （`git` 没有 `-4`；`-c http.version=HTTP/1.1` 是另一件事，两者可以一起给）。
 - **五层 `docs/` 全绿**：`check-layers.py` → `188 条引用（断链 0 处）` + `PASS ✅`（2026-11-26 在 `upgrade/v1.5.0` 上复测）。★ 这个数**会漂** —— 每次加一个被反引号点名的源文件它就 +1，写进文档时带日期。
 - ★★ **本机跑测试的两个假红源**（2026-11-26 逐个查实，都不是代码问题）：
   1. **`DATABASE_URL` 会改变单测路径**。`lib/server/model-config/runtime.ts` 的
