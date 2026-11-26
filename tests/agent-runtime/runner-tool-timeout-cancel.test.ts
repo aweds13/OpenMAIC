@@ -252,11 +252,24 @@ beforeEach(() => {
   mocks.getServerPersistenceProvider.mockResolvedValue({
     documentStore: { forOwner: () => ({}) },
   });
+  // ★ These are unit tests over the run loop, with no database behind them.
+  // The runner has one branch that only appears when a durable database is
+  // configured: `backgroundWorkspaceId()` forwards the owner through
+  // `canonicalizeStoredOwner()` -> `pool.query`, and `AgentEventNotifyBus`
+  // opens its own LISTEN connection. With a stray `DATABASE_URL` in the shell
+  // (or a real `.env.local` from another suite) both run for real: setup throws
+  // `Cannot read properties of undefined (reading 'query')` or
+  // `ECONNREFUSED`, and — with fake timers in the timeout cases — the file
+  // reads as "21 failed" on a machine where it passes without the variable.
+  // Pinning the variable away makes the branch this file tests unambiguous
+  // instead of making it depend on what the developer's shell happens to hold.
+  vi.stubEnv('DATABASE_URL', '');
 });
 
 afterEach(() => {
   setToolTimeout(undefined);
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 describe('runner: global tool-call execution bound', () => {
