@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // the agent runtime, and shutdown waits for it before closing the pool. Every
 // other startup step is stubbed.
 const runtime = vi.hoisted(() => ({ configured: true }));
+// 本 fork 的启动条件是「持久化 **或** agent 运行时」：只配持久化的部署也要有
+// worker，否则库里的上传永远停在 pending。默认 false，让原有四条用例继续量
+// agent-runtime 那一支；第五条用例单独打开它量另一支。
+const persistence = vi.hoisted(() => ({ configured: false }));
 const order = vi.hoisted(() => [] as string[]);
 const owner = vi.hoisted(() => ({
   start: vi.fn(),
@@ -48,6 +52,10 @@ vi.mock('@/lib/server/materials/migrate-to-pool', () => ({
 vi.mock('@/lib/server/config-validation', () => ({ validateServerConfig: vi.fn() }));
 vi.mock('@/lib/config/feature-flags', () => ({
   isAgentRuntimeConfigured: () => runtime.configured,
+  // instrumentation.ts 的 owner 抽取启动条件读这一条（本 fork 新增的唯一启动点）；
+  // 不放进 mock 会让 vi.mock 的模块直接抛 "No export is defined"，
+  // 启动逻辑整段被 catch 吞掉，测试看到的是"没启动"。
+  isServerPersistenceConfigured: () => persistence.configured,
 }));
 vi.mock('@/lib/server/agent-runtime/event-notify-bus', () => ({
   startAgentEventNotifyBus: () => ({ stop: async () => undefined }),
@@ -95,6 +103,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // 每条用例从「只有 agent 运行时」这一支开始；改了 persistence 的用例自己收尾。
+  persistence.configured = false;
+  runtime.configured = true;
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -127,6 +138,20 @@ describe('owner-level extraction at startup and shutdown', () => {
     runtime.configured = false;
     await boot();
     expect(owner.start).not.toHaveBeenCalled();
+  });
+
+  it('★ 只配持久化、没有 agent 运行时也启动 —— 否则库里的上传永远停在 pending', async () => {
+    runtime.configured = false;
+    persistence.configured = true;
+    await boot();
+    expect(owner.start).toHaveBeenCalledOnce();
+  });
+
+  it('★ 两支都成立时也只启动一次 —— 双启会让同一个 owner 被两个 runner 抢', async () => {
+    runtime.configured = true;
+    persistence.configured = true;
+    await boot();
+    expect(owner.start).toHaveBeenCalledOnce();
   });
 
   it('closes the pool only after the runner stopped', async () => {

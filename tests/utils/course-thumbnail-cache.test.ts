@@ -102,9 +102,29 @@ async function cached(stageId: string, version: number): Promise<void> {
 
 const signal = () => new AbortController().signal;
 
+/**
+ * 把上一条用例遗留的 fire-and-forget 缓存写入排干。
+ *
+ * `loadCourseThumbnail` 写缓存是 `void` 的（卡片要立刻显示，不等落盘），所以
+ * 一条用例结束时会话里可能还有一次写没落地；它会在下一条的 `clear()` **之后**
+ * 落盘，于是下一条「本该未命中」的读取命中了，断言全错位（实测：单跑绿、
+ * 连跑红，且红的是**后面**那几条）。这里清到连续两次读都为 0 为止 —— 用
+ * 轮询而不是固定 sleep，否则等于把判据钉在机器速度上。
+ */
+async function drainPendingCacheWrites(): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    await db.courseThumbnails.clear();
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    if ((await db.courseThumbnails.count()) === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      if ((await db.courseThumbnails.count()) === 0) return;
+    }
+  }
+}
+
 beforeEach(async () => {
   __resetCourseThumbnailOwnerKeyForTesting();
-  await db.courseThumbnails.clear();
+  await drainPendingCacheWrites();
   mocks.learnerKey.mockReset().mockResolvedValue('anon:owner-a');
   mocks.loadCourseCover
     .mockReset()

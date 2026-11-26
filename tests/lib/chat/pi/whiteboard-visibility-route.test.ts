@@ -31,7 +31,11 @@ describe('whiteboard visibility callback route', () => {
     const pending = queryWhiteboardVisibility({
       stageId: 'stage-1',
       learnerKey: OWNER,
-      timeoutMs: 1_000,
+      // 这条用例本身**不等**超时：它要的是「三次错回调之后 query 还挂着」。
+      // 1 秒在冷模块导入慢的机器上不够 —— 三次 POST 加起来接近 2 秒，
+      // 于是最后那次正确回调拿到 404（不是权限判错，是 query 已经超时走了）。
+      // 给足预算，判据不变。
+      timeoutMs: 30_000,
       dispatch: async (id) => {
         queryId = id;
       },

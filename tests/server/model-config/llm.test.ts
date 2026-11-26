@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ModelConfigLayer, SlotResolution } from '@/lib/server/model-config/resolve-slot';
 import type { ResolvedModel } from '@/lib/server/resolve-model';
@@ -34,8 +34,20 @@ const layer = (source: ModelConfigLayer['source'], config: ModelConfigLayer['con
 const legacyModel = { modelString: 'openai:from-header' } as ResolvedModel;
 
 describe('resolveStageModel', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.stubEnv('ALLOW_LOCAL_NETWORKS', '');
+    // ★ requestMayChoose 读的是**进程级** deploymentConfig().legacy，而这里的
+    //   用例用 lookupFromLayers 直接喂一个假 layer。只要仓库根上存在一个
+    //   本地遗留的 server-providers.yml（.gitignore 忽略、不进仓），
+    //   hasLegacyConfiguration() 就是真、legacy 变成 true，于是「关掉的槽
+    //   不该让请求说话」这类断言会静默失效（实测：移走那个文件就绿）。
+    //   判据不该由开发机上的残留文件决定 —— 把它钉成「没有部署层」。
+    const { setDeploymentConfigForTests } = await import('@/lib/server/model-config/runtime');
+    setDeploymentConfigForTests({ layer: null, legacy: false, notices: [] });
+  });
+  afterEach(async () => {
+    const { setDeploymentConfigForTests } = await import('@/lib/server/model-config/runtime');
+    setDeploymentConfigForTests();
   });
 
   it('builds the configured model with its options', async () => {

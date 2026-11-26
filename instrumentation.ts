@@ -230,28 +230,6 @@ export async function register(): Promise<void> {
     console.error('[instrumentation] Material extractor startup failed', error);
   }
   try {
-    // Owner-level extraction of library sources (RFC #1716): what a
-    // conversation links is extracted once per owner, beside the session
-    // chain, which keeps serving copies made before links.
-    //
-    // Library uploads are a persistence capability, not an agent-runtime one:
-    // a deployment that configures only persistence still accepts uploads into
-    // the library. Starting this runner from the agent-runtime branch alone
-    // therefore left such deployments with rows stuck in `pending` forever --
-    // accepted, with no worker to claim them. Hence the disjunction below.
-    // It does not double-start where both hold: the agent runtime already
-    // requires persistence (lib/config/feature-flags.ts), and this is the
-    // only place that starts the runner.
-    const { isAgentRuntimeConfigured, isServerPersistenceConfigured } =
-      await import('@/lib/config/feature-flags');
-    if (isServerPersistenceConfigured() || isAgentRuntimeConfigured()) {
-      const ownerExtraction = await import('@/lib/server/material-extraction/owner-extraction');
-      ownerExtractionRunner = ownerExtraction.startOwnerExtractionRunner();
-    }
-  } catch (error) {
-    console.error('[instrumentation] Owner extraction runner startup failed', error);
-  }
-  try {
     const { isAgentRuntimeConfigured } = await import('@/lib/config/feature-flags');
     if (isAgentRuntimeConfigured()) {
       // One dedicated LISTEN connection per application instance. The HTTP
@@ -268,11 +246,10 @@ export async function register(): Promise<void> {
         onSchemaRefusal: retireOnSchemaRefusal,
       });
       const extraction = await import('@/lib/server/material-extraction/runner');
-      // ★ 二开：owner 级抽取 runner 已在上面的独立 try 块里启动过（那边按
-      //   「持久化或 agent 任一开启」判，覆盖只配持久化的部署）。上游在这里
-      //   又启一遍是为了修同样的 bug，但两边同时成立时会**双启**，所以这段
-      //   只保留上游新增的 `!shutdownPromise` 守卫与两次 material pass，
-      //   owner extraction 的启动留给上面那一处（唯一启动点）。
+      // ★ 二开：owner 级抽取 runner **不在这里启**。上游把它写在下面
+      //   `if (!shutdownPromise)` 块里；我们把它挪到 agent 分支**之外、
+      //   之后**（见下方独立 try 块）—— 因为只配持久化的部署也要有它。
+      //   两边同时成立时仍然只启一次：那一处是唯一启动点。
       if (!shutdownPromise) extractionRunner = extraction.startMaterialExtractionRunner();
       if (!shutdownPromise) {
         // Two bounded passes over old material objects, one per start each;
@@ -298,6 +275,34 @@ export async function register(): Promise<void> {
     }
   } catch (error) {
     console.error('[instrumentation] Agent runtime startup failed', error);
+  }
+
+  try {
+    // Owner-level extraction of library sources (RFC #1716): what a
+    // conversation links is extracted once per owner, beside the session
+    // chain, which keeps serving copies made before links.
+    //
+    // ★ 二开：这一段**有意**放在 agent-runtime 分支外面，并且放在它**后面**。
+    //
+    //   放在外面：库上传是持久化能力，不是 agent-runtime 能力。只配持久化的
+    //   部署照样接收上传，少了这个 worker，那些行会永远停在 `pending`。
+    //
+    //   放在后面：上面那次 schema 首扫可能在 `register()` 还没跑完时就拒绝
+    //   版本（`SchemaVersionAheadError`），拒绝会把 `shutdownPromise` 置起来。
+    //   schema 都拒了还去启一个要读库的 worker，等于拿关掉的池子查询 ——
+    //   报出来是一串 `queryable.query is not a function`，把真正的原因（schema
+    //   版本超前）淹掉。上游把它的 owner extraction 写在 agent 分支里、并且
+    //   带 `!shutdownPromise` 守卫，正是同一个理由；这里两个都照做。
+    if (!shutdownPromise) {
+      const { isAgentRuntimeConfigured, isServerPersistenceConfigured } =
+        await import('@/lib/config/feature-flags');
+      if (isServerPersistenceConfigured() || isAgentRuntimeConfigured()) {
+        const ownerExtraction = await import('@/lib/server/material-extraction/owner-extraction');
+        ownerExtractionRunner = ownerExtraction.startOwnerExtractionRunner();
+      }
+    }
+  } catch (error) {
+    console.error('[instrumentation] Owner extraction runner startup failed', error);
   }
 
   process.once('SIGTERM', () => void shutdown());

@@ -212,7 +212,11 @@ it('seeds the DeepSeek plan models with the registry metadata', () => {
   const models = presetModels(getProviderPreset('deepseek-token-plan')!, 'chat');
   expect(models.map((model) => model.id)).toEqual(['deepseek-flash', 'deepseek-v4-pro']);
   const flash = models[0];
-  expect(flash.name).toBe('DeepSeek Flash');
+  // 本 fork 把显示名改成官方写法（官方模型列表里它叫 DeepSeek-V4.1-Flash），
+  // 理由写在 lib/ai/providers.ts 的同一处注释里：原来写 "DeepSeek Flash"
+  // 会让人以为这个 plan 里没有 V4.1 可选。id 仍是 `deepseek-flash`，所以
+  // 凡是按 id 查的地方都不受影响 —— 这条断言量的是显示名。
+  expect(flash.name).toBe('DeepSeek V4.1 Flash');
   expect(flash.contextWindow).toBe(1048576);
   expect(flash.capabilities).toMatchObject({ tools: true, vision: true });
   expect(flash.capabilities?.thinking?.toggleable).toBe(true);
