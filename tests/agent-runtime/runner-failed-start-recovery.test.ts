@@ -11,7 +11,7 @@
 import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core';
 import { InMemorySessionRepo, type Session } from '@earendil-works/pi-agent-core';
 import type { ClaimedAgentSession, PersistedAgentSessionEvent } from '@openmaic/storage';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getAgentSessionStore: vi.fn(),
@@ -236,6 +236,16 @@ beforeEach(() => {
   mocks.getServerPersistenceProvider.mockResolvedValue({
     documentStore: { forOwner: () => ({}) },
   });
+  // ★ 纯单测：这组用例背后没有数据库。`DATABASE_URL` 非空时 runner 会走
+  // `backgroundWorkspaceId()` → `canonicalizeStoredOwner()` → `pool.query`，
+  // 而这里的 provider mock 只给 `documentStore`，于是 setup 抛
+  // `Cannot read properties of undefined (reading 'query')`，再叠 5 秒超时，
+  // 整文件读成「全红」。钉掉变量，测的才是这个文件本来说的那条路径。
+  vi.stubEnv('DATABASE_URL', '');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('a session whose first run failed before completing anything', () => {

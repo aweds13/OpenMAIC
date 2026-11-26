@@ -16,7 +16,7 @@ import type {
 import { InMemorySessionRepo, Session } from '@earendil-works/pi-agent-core';
 import { createAssistantMessageEventStream, type AssistantMessage } from '@earendil-works/pi-ai';
 import type { ClaimedAgentSession } from '@openmaic/storage';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ★ 本 fork 的压缩默认是 **off**（opt-in，见 lib/server/agent-runtime/config.ts
 //   里那段注释：压缩会改模型能看见什么、还要花一次摘要调用，所以由运维决定）。
@@ -300,6 +300,16 @@ beforeEach(() => {
   mocks.getServerPersistenceProvider.mockResolvedValue({
     documentStore: { forOwner: () => ({}) },
   });
+  // ★ 纯单测：这组用例背后没有数据库。`DATABASE_URL` 非空时 runner 会走
+  // `backgroundWorkspaceId()` → `canonicalizeStoredOwner()` → `pool.query`，
+  // 而这里的 provider mock 只给 `documentStore`，于是 setup 抛
+  // `Cannot read properties of undefined (reading 'query')`，再叠 5 秒超时，
+  // 整文件读成「全红」。钉掉变量，测的才是这个文件本来说的那条路径。
+  vi.stubEnv('DATABASE_URL', '');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('runner conversation compaction', () => {

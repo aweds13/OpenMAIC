@@ -273,9 +273,18 @@ beforeEach(() => {
   mocks.getServerPersistenceProvider.mockResolvedValue({
     documentStore: { forOwner: () => ({}) },
   });
+  // ★ 纯单测：这组用例背后没有数据库。`DATABASE_URL` 非空时 runner 会走
+  // `backgroundWorkspaceId()` → `canonicalizeStoredOwner()` → `pool.query`，
+  // 而这里的 provider mock 只给 `documentStore`，于是 setup 抛
+  // `Cannot read properties of undefined (reading 'query')`，再叠 5 秒超时，
+  // 整文件读成「全红」。钉掉变量，测的才是这个文件本来说的那条路径。
+  vi.stubEnv('DATABASE_URL', '');
 });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 describe('runner claim drain', () => {
   it('still executes and settles a normal claim before shutdown', async () => {
