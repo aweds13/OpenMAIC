@@ -53,24 +53,20 @@ import {
   withOwnerStageAuthorization,
   type CourseStore,
 } from './course-tools';
-import {
-  buildCurriculumTools,
-  CURRICULUM_TOOLS_PROMPT,
-  probeStageAccess,
-} from './curriculum-tools';
+import { buildCurriculumTools, probeStageAccess } from './curriculum-tools';
 import { buildFetchUrlTool } from './fetch-url';
 import { assembleCapabilityRuntime, resolveRunnerCapabilities } from './capability-tools';
 import { assembleRunnerTools, buildRunnerCoursePrompt } from './runner-contract';
+import { buildForkCandidateTools, buildForkPromptBlocks } from './fork-surface';
 import type { CoursePromptBlocks } from './course-tools';
 import { buildMaterialTools, type MaterialLibraryChange } from './material-tools';
 import { expandMaterialQuery } from './material-query-expansion';
 import { defaultLocale, supportedLocaleOf, type Locale } from '@/lib/i18n/types';
 import { startExtractionWatcher, type ExtractionWatcher } from './extraction-watcher';
-import { buildRosterTools, ROSTER_TOOLS_PROMPT } from './roster-tools';
+import { buildRosterTools } from './roster-tools';
 import {
   buildVoiceCloneTools,
   hasConfiguredVoiceRegistrationCapability,
-  voiceCloneToolsPrompt,
 } from './voice-clone-tools';
 import type { RegisteredVoiceInfo } from '@/lib/audio/voice-catalog';
 import { buildSkillEditTools } from './skill-edit-tools';
@@ -78,37 +74,21 @@ import { buildWebSearchTool } from './web-search';
 import {
   buildAgentCourseSearchTool,
   buildAgentReadDocumentTool,
-  courseLibraryPromptBlock,
   resolveCourseSearchCapability,
 } from './course-search';
-import { browsePromptBlock, buildAgentBrowseUrlTool, resolveBrowseCapability } from './browse-url';
-import { learnerProfilePromptBlock, resolveLearnerProfile } from './learner-profile';
-import {
-  learnerStatePromptBlock,
-  refreshLearnerStateBestEffort,
-  resolveLearnerState,
-} from './learner-state';
-import { buildMcpTools, mcpPromptBlock } from './mcp-tools';
-import { buildPlanFreezeTool, planFreezePromptBlock } from './plan-freeze-tools';
+import { buildAgentBrowseUrlTool, resolveBrowseCapability } from './browse-url';
+import { resolveLearnerProfile } from './learner-profile';
+import { refreshLearnerStateBestEffort, resolveLearnerState } from './learner-state';
+import { buildMcpTools } from './mcp-tools';
+import { buildPlanFreezeTool } from './plan-freeze-tools';
 import { planGateEnabled } from './plan-freeze';
-import { buildCourseAuditTool, courseAuditPromptBlock } from './audit-tools';
-import { buildCourseReviewTool, courseReviewPromptBlock } from './review-tools';
+import { buildCourseAuditTool } from './audit-tools';
+import { buildCourseReviewTool } from './review-tools';
 import { reviewPageWithContext } from './page-review';
 import { createGenerationAiCallFactory } from './generation-ai-call';
-import { buildScratchTool, scratchPromptBlock } from './scratch-tools';
-import {
-  buildPracticeScaffoldTool,
-  buildPracticeResultTool,
-  practicePromptBlock,
-} from './practice-tools';
-import { studyModePromptBlock } from './study-mode';
-import { assessmentModePromptBlock } from './assessment-mode';
-import { courseDesignPromptBlock } from './course-design';
-import {
-  materialsIndexPromptBlock,
-  listMaterialTopics,
-  resolveMaterialsIndex,
-} from './materials-library';
+import { buildScratchTool } from './scratch-tools';
+import { buildPracticeScaffoldTool, buildPracticeResultTool } from './practice-tools';
+import { listMaterialTopics, resolveMaterialsIndex } from './materials-library';
 import {
   buildSkillPreload,
   preloadConstraintTarget,
@@ -116,10 +96,7 @@ import {
   type SkillPreload,
 } from './skill-preload';
 import { listSessionScopeMaterials } from './material-resolver';
-import { materialsPromptBlock } from './material-prompt';
 import {
-  availableSkillsPromptBlock,
-  skillChoicePromptBlock,
   createNativeSkillReadTool,
   findSkill,
   listSkills,
@@ -2107,11 +2084,13 @@ async function executeSession(
 
           const candidateTools = assembleRunnerTools(
             [askUserTool],
-            auditTools,
-            reviewTools,
-            scratchTools,
-            practiceTools,
-            planFreezeTools,
+            buildForkCandidateTools({
+              audit: auditTools,
+              review: reviewTools,
+              scratch: scratchTools,
+              practice: practiceTools,
+              planFreeze: planFreezeTools,
+            }),
             webSearchTools,
             courseSearchTools,
             browseTools,
@@ -2153,55 +2132,21 @@ async function executeSession(
             //   （search / fetch / image / video / tts / voiceRegistration）与
             //   unavailableCapabilities 由 assembler 按槽位自动填，这里给的是
             //   与能力无关的恒定块。
-            basePromptBlocks: (): CoursePromptBlocks => ({
-              availableSkills: availableSkillsPromptBlock(currentSkills()),
-              // 技能清单是"有哪些"，这一段是"怎么用它们做选择" —— 让 agent 主动
-              // 推荐几个 + 把其余方法类列全，而不是等学习者点名（他不知道有这些）。
-              skillChoice: installedSkills.length
-                ? skillChoicePromptBlock(installedSkills)
-                : undefined,
-              // 「听课还是自学」—— 工作台这条路没有那个开关，所以让 agent 问。
-              studyMode: studyModePromptBlock(),
-              // 与 studyMode 是**正交的两条轴**（输入方式 vs 评估方式）。
-              assessmentMode: assessmentModePromptBlock(),
-              // 审计那几条 SDK 层建议的应用层版本：拆解、贯通、密度、术语、去水话。
-              courseDesign: courseDesignPromptBlock({
-                hasMaterials: Boolean(materialsIndex),
+            basePromptBlocks: (): CoursePromptBlocks =>
+              buildForkPromptBlocks({
+                materials,
+                materialsIndex,
                 hasCourseLibrary: Boolean(courseLibrary),
+                hasBrowse: Boolean(browse),
+                hasWebSearch: capabilities.isAvailable('web_search'),
+                mcpNames: mcp.names,
+                learnerProfile,
+                learnerState,
+                installedSkills,
+                currentSkills,
+                planGateEnabled: planGateEnabled(),
+                voiceRegistrationEnabled,
               }),
-              // ★ 门槛开着才提它（§1.1：不许提一个不存在的能力）。块本身无参、
-              //   恒定，状态走工具结果与拒绝消息，不进系统提示词（§1.2）。
-              planFreeze: planGateEnabled() ? planFreezePromptBlock() : undefined,
-              // 无参、恒定；读数走工具结果。
-              courseAudit: courseAuditPromptBlock(),
-              review: courseReviewPromptBlock(),
-              scratch: scratchPromptBlock(Boolean(materialsIndex)),
-              practice: practicePromptBlock(),
-              curriculum: CURRICULUM_TOOLS_PROMPT,
-              // ★ 我们自己的三条本地通道：块与注册面同源（没解出来就没有块）。
-              courseLibrary: courseLibrary
-                ? courseLibraryPromptBlock({ hasWebSearch: capabilities.isAvailable('web_search') })
-                : undefined,
-              browse: browse
-                ? browsePromptBlock({ hasWebSearch: capabilities.isAvailable('web_search') })
-                : undefined,
-              mcp: mcp.names.length ? mcpPromptBlock(mcp.names) : undefined,
-              materialsLibrary: materialsIndex ? materialsIndexPromptBlock() : undefined,
-              learnerProfile: learnerProfile
-                ? learnerProfilePromptBlock(learnerProfile)
-                : undefined,
-              // Always: a conversation with nothing attached can still use the
-              // knowledge base.
-              materials: materialsPromptBlock(materials),
-              roster: ROSTER_TOOLS_PROMPT,
-              // ★ 注册可用时**不传 true**：voice registration 那一段由 assembler
-              //   按槽位自动填（voiceRegistration 块）。传 true 会把同一段话说两遍。
-              voice: voiceCloneToolsPrompt(voiceRegistrationEnabled ? undefined : false),
-              // ★ 放在**最后**是刻意的：全提示词里唯一一块「学习者答一次题就变」的
-              //   内容。前缀缓存按前缀算，它后面没有别的块 ⇒ 变一次只让这一小段
-              //   重读（PROMPT_BLOCK_ORDER 把顺序钉死）。
-              learnerState: learnerState ? learnerStatePromptBlock(learnerState) : undefined,
-            }),
             wrapTools: (rawTools) => withCourseGenerationNotice(rawTools, courseGenerations),
           });
 
